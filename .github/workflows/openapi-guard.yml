@@ -1,0 +1,84 @@
+name: openapi-guard
+
+on:
+  # Sin filtro de `paths`, por el mismo motivo que en ci-backend.yml.
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  openapi-guard:
+    name: openapi-guard
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: dolynglish_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      PORT: 3333
+      HOST: 0.0.0.0
+      API_PREFIX: api/v1
+      APP_NAME: dolynglish-backend-test
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USER: test
+      DB_PASSWORD: test
+      DB_DATABASE: dolynglish_test
+      JWT_SECRET: test-secret-test-secret-test-secret-test-secret-test-secret
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 30d
+      JWT_ISSUER: dolynglish-test
+      AI_DEFAULT_PROVIDER: minimax
+      MINIMAX_API_KEY: test-key
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v4
+
+      # El schema vive en el repo de infraestructura (ver ci-backend.yml).
+      - name: Checkout del schema (dolynation-tlalli-infra)
+        uses: actions/checkout@v4
+        with:
+          repository: DolyLanguagesORG/dolynation-tlalli-infra
+          path: .infra
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U test && exit 0
+            echo "Waiting for postgres... $i"
+            sleep 2
+          done
+          exit 1
+
+      - name: Apply schema
+        run: |
+          PGPASSWORD='test' psql -h localhost -U test -d dolynglish_test -v ON_ERROR_STOP=1 -f .infra/database/postgres/01-init.sql
+
+      - name: Run OpenAPI envelope + coverage guards
+        run: npx jest --config ./test/jest-e2e.json openapi-envelope openapi-response-coverage bootstrap-ordering

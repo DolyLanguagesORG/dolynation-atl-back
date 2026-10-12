@@ -1,0 +1,135 @@
+name: release
+
+# Se dispara cuando algo llega a `main`. Como `main` solo recibe merges de
+# `develop` (y hotfixes), cada run corresponde a una release.
+# Ver docs/conventions/versioning.md
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Forzar el bump: major | minor | patch (vacío = automático)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Calcular y aplicar el bump de versión
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FORCED_BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          # El runner no trae identidad de git configurada, y `git tag -a`
+          # la exige para crear un tag anotado.
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # --- Versión actual: último tag vX.Y.Z, o base v0.1.0 ---
+          current="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)"
+          if [ -z "$current" ]; then
+            # Primer release del repo: publicamos v0.1.0 tal cual.
+            MAJOR=0; MINOR=1; PATCH=0
+            first_release=true
+          else
+            MAJOR="$(echo "$current" | cut -d. -f1 | tr -d v)"
+            MINOR="$(echo "$current" | cut -d. -f2)"
+            PATCH="$(echo "$current" | cut -d. -f3)"
+            first_release=false
+          fi
+
+          # --- Determinar el bump a partir del mensaje del commit ---
+          # Por squash-merge, el subject del commit es el título del PR.
+          subject="$(git log -1 --pretty=%s)"
+          body="$(git log -1 --pretty=%b)"
+
+          if [ -n "$FORCED_BUMP" ]; then
+            bump="$FORCED_BUMP"
+            echo "Bump forzado manualmente: $bump"
+          else
+            # Breaking change: '!' en el tipo, o la línea BREAKING CHANGE.
+            if echo "$subject" | grep -qE '^[a-z]+(\([a-z0-9._/-]+\))?!:'; then
+              bump=major
+            elif echo "$subject $body" | grep -q 'BREAKING CHANGE'; then
+              bump=major
+            elif echo "$subject" | grep -qE '^feat(\([a-z0-9._/-]+\))?:'; then
+              bump=minor
+            else
+              bump=patch
+            fi
+          fi
+
+          case "$bump" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+            *) echo "::error::Bump inválido: $bump"; exit 1 ;;
+          esac
+
+          # Primer release: no bumpeamos, publicamos la base directamente.
+          if [ "$first_release" = "true" ]; then
+            MAJOR=0; MINOR=1; PATCH=0
+          fi
+
+          version="v${MAJOR}.${MINOR}.${PATCH}"
+
+          echo "Commit:  $subject"
+          echo "Base:    ${current:-(ninguna)}"
+          echo "Bump:    $bump"
+          echo "Release: $version"
+
+          if [ -n "$current" ] && [ "$version" = "$current" ]; then
+            echo "::error::La versión no cambió ($version). Abortando para no crear un tag duplicado."
+            exit 1
+          fi
+
+          git tag -a "$version" -m "Release $version
+
+          $subject
+
+          Bump: $bump"
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "subject=$subject" >> "$GITHUB_OUTPUT"
+
+      - name: Publicar el tag
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: git push origin "refs/tags/$VERSION"
+
+      - name: Crear GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "La release $VERSION ya existía; no se hace nada."
+            exit 0
+          fi
+
+          # --generate-notes construye las notas a partir de los commits
+          # entre el tag anterior y HEAD. En el primer release no hay tag
+          # anterior y GitHub usa todos los commits del repo.
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes

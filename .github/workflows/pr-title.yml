@@ -1,0 +1,89 @@
+name: pr-title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [develop, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: pr-title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Conventional Commits title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          # Este repo no tiene un paquete de Conventional Commits instalado
+          # en el workflow, así que validamos con una regex equivalente a
+          # @commitlint/config-conventional sobre el tipo y el scope.
+          # Ver docs/conventions/commits.md
+
+          types='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
+
+          regex="^(${types})(\([a-z0-9._/-]+\))?(!)?: .+"
+
+          if [[ ! "$PR_TITLE" =~ $regex ]]; then
+            echo "::error::Título de PR inválido: '$PR_TITLE'"
+            echo ""
+            echo "::error::Debe seguir Conventional Commits, por ejemplo:"
+            echo "::error::  feat(auth): agregar registro de usuarios"
+            echo "::error::  fix(readings): corregir prompt de dificultad alta"
+            echo "::error::  chore(deps): actualizar nestjs a 11.1"
+            echo ""
+            echo "::error::Formato: <tipo>(<scope>): <descripción>"
+            echo "::error::Tipos permitidos: $types"
+            echo "::error::Un breaking change lleva '!' antes de los dos puntos."
+            exit 1
+          fi
+
+          echo "Título válido: '$PR_TITLE'"
+
+  pr-target:
+    name: pr-target
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validar rama base y rama origen
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          # Hace cumplir lo que describe docs/conventions/git-workflow.md.
+          # La protección de GitHub no puede restringir la rama origen de un
+          # PR, así que se valida aquí.
+          # Ver docs/conventions/git-workflow.md
+
+          case "$BASE" in
+            develop)
+              # Se aceptan dos formatos de rama hacia develop:
+              #   1. Con prefijo, que es la forma recomendada porque dice el tipo
+              #      de cambio de un vistazo: feat/issue-<n>-<kebab>, fix/..., etc.
+              #   2. El que genera el boton "Create a branch" del issue, que es
+              #      <n>-<kebab>. Se acepta para no bloquear a quien usa el boton.
+              # Ver docs/conventions/git-workflow.md
+              if [[ ! "$HEAD" =~ ^(feat|fix|chore|docs)/ ]] && [[ ! "$HEAD" =~ ^[0-9]+- ]]; then
+                echo "::error::Un PR hacia 'develop' debe venir de feat/*, fix/*, chore/*, docs/* o del formato <n>-<kebab>."
+                echo "::error::Rama origen actual: '$HEAD'"
+                exit 1
+              fi
+              ;;
+            main)
+              # A produccion solo entra develop (releases) y hotfix/*.
+              if [[ "$HEAD" != "develop" && ! "$HEAD" =~ ^hotfix/ ]]; then
+                echo "::error::Un PR hacia 'main' solo puede venir de 'develop' o de 'hotfix/*'."
+                echo "::error::Rama origen actual: '$HEAD'"
+                echo "::error::'main' es la rama de produccion; ver docs/conventions/git-workflow.md"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Base '$BASE' no permitida. Solo 'develop' y 'main' aceptan PRs."
+              exit 1
+              ;;
+          esac
+
+          echo "Rama origen '$HEAD' → base '$BASE': permitido."

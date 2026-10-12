@@ -1,0 +1,3 @@
+{
+  "{src,test}/**/*.{ts,tsx}": ["bash -c 'ESLINT_USE_FLAT_CONFIG=false eslint --fix \"$@\"' --", "prettier --write"]
+}

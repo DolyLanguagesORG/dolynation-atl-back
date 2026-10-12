@@ -1,0 +1,99 @@
+name: pr-labels
+
+# Copia al pull request las etiquetas de contexto del issue que cierra:
+# sprint-<n> y area:<algo>. Un PR se lee mucho mejor con la misma etiqueta
+# que la tarea que resuelve, y asi nadie tiene que acordarse de ponersela.
+#
+# No propaga el resto de etiquetas (area:infra, sprint-1, etc. se filtran
+# aqui) porque las de tipo y prioridad las maneja quien abre el PR.
+# Ver docs/COMO-HACER-UN-PR.md
+
+on:
+  pull_request:
+    # 'edited' importa: es cuando alguien anade el 'Closes #N' despues de
+    # abrir el PR, y sin ese evento las etiquetas nunca se copiarian.
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-labels:
+    name: pr-labels
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copiar etiquetas de contexto del issue al PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const PREFIXES = ['sprint-', 'area:'];
+
+            // El issue es el primero que cerraria este PR. Para eso se leen
+            // las palabras clave de cierre del cuerpo.
+            const body = context.payload.pull_request.body || '';
+
+            // La palabra clave tiene que estar al INICIO de una linea (como
+            // exige GitHub), no mencionada dentro de una frase. Sin el ancla
+            // '^' con 'm', un PR que escribe "el PR anterior uso `Closes #6`"
+            // para explicar algo se llevaba las etiquetas del #6 sin que
+            // GitHub fuera a cerrarlo nunca. Se permiten delante los marcadores
+            // de lista, cita y enfasis, que GitHub tambien acepta.
+            const CLOSE_RE = new RegExp(
+              '^[ \\t]*' +
+              '(?:[-*>+][ \\t]*|[0-9]+[.)][ \\t]*|' +
+              '(?:[*_]\\s*){1,2}' +
+              ')*' +
+              '(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\b[ \\t]+:?[ \\t]*' +
+              '(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#([0-9]+)',
+              'gim'
+            );
+            const issueNumbers = [...new Set(
+              [...body.matchAll(CLOSE_RE)].map((m) => Number(m[1]))
+            )];
+
+            if (issueNumbers.length === 0) {
+              core.info('El cuerpo no cierra ningun issue: no hay nada que propagar.');
+              return;
+            }
+            if (issueNumbers.length > 1) {
+              core.warning(
+                'El PR cierra ' + issueNumbers.length + ' issues (' +
+                issueNumbers.join(', ') + '). Se usan las etiquetas del primero.'
+              );
+            }
+
+            const [issueNumber] = issueNumbers;
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+            });
+
+            const wanted = issue.labels
+              .map((l) => (typeof l === 'string' ? l : l.name))
+              .filter((name) => PREFIXES.some((p) => name.startsWith(p)));
+            const current = context.payload.pull_request.labels.map((l) => l.name);
+            const missing = wanted.filter((n) => !current.includes(n));
+
+            core.info(
+              'Issue #' + issueNumber + ': [' + wanted.join(', ') + ']  ' +
+              'faltan en el PR: [' + missing.join(', ') + ']'
+            );
+
+            if (missing.length === 0) {
+              core.info('El PR ya tiene todas las etiquetas de contexto.');
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: missing,
+            });
+            core.info('Etiquetas agregadas al PR: ' + missing.join(', '));

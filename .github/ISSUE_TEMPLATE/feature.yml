@@ -1,0 +1,68 @@
+name: Feature request
+description: Proponer una nueva funcionalidad o cambio de comportamiento.
+title: "[feature] "
+labels: ["enhancement"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Plantilla para proponer cambios. Cuanta más concreción, más fácil
+        es priorizar y estimar.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: Qué problema del usuario o del equipo resuelve esto.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solución propuesta
+      description: Cómo lo resolverías. Incluir contrato API, modelo de datos, etc.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativas consideradas
+      description: Otros enfoques que pensaste y por qué los descartaste.
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Alcance
+      description: Dónde tocaría esto.
+      multiple: true
+      options:
+        - Backend (NestJS)
+        - Mobile (Expo, pausado)
+        - Infrastructure (Docker)
+        - Docs / convenciones
+        - CI / workflows
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impacto
+      options:
+        - Bajo — feature opcional, no rompe nada
+        - Medio — cambia comportamiento existente pero compatible
+        - Alto — breaking change (requiere nuevo ErrorCode / versionado)
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Fuera de alcance
+      description: Qué NO hace esta feature.
+    validations:
+      required: false

@@ -1,0 +1,173 @@
+name: backend
+
+on:
+  # Sin filtro de `paths`: la protección de ramas exige estos checks en
+  # todos los PRs, y si un workflow no se dispara su check nunca reporta
+  # y el PR queda bloqueado indefinidamente. El repo es público, así que
+  # los minutos de Actions son gratuitos.
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# Cancel any in-progress runs for the same PR/branch when a new commit
+# is pushed. Saves CI minutes on stacked commits.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────
+  # Static analysis + unit tests. Fast, no external services.
+  # ─────────────────────────────────────────────────────────────
+  unit-and-static:
+    name: unit-and-static
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck, lint, format, unit tests
+        # Skip e2e specs here — they need a real Postgres and run in a
+        # separate job (the 'e2e' step below) with the service container.
+        run: |
+          npm run typecheck
+          npm run lint:check
+          npm run format:check
+          npm run test -- --testPathIgnorePatterns='/test/'
+
+      - name: Test del regex de pr-labels
+        # El regex de palabras clave de cierre de pr-labels.yml copio una vez
+        # las etiquetas de un issue que GitHub no iba a cerrar (por mencionar
+        # 'Closes #6' dentro de una frase). Va aqui y no en un workflow
+        # aparte para no anadir un check nuevo que haya que registrar en la
+        # proteccion de ramas: solo necesitan node, que ya esta instalado.
+        run: node .github/workflows/pr-labels.regex.test.cjs
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────
+  # End-to-end tests with a real Postgres service container.
+  # The schema is applied from the SQL init script before tests run.
+  # ─────────────────────────────────────────────────────────────
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: dolynglish_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      PORT: 3333
+      HOST: 0.0.0.0
+      API_PREFIX: api/v1
+      APP_NAME: dolynglish-backend-test
+      DB_HOST: localhost
+      DB_PORT: '5432'
+      DB_USER: test
+      DB_PASSWORD: test
+      DB_DATABASE: dolynglish_test
+      JWT_SECRET: test-secret-test-secret-test-secret-test-secret-test-secret
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 30d
+      JWT_ISSUER: dolynglish-test
+      AI_DEFAULT_PROVIDER: minimax
+      MINIMAX_API_KEY: test-key
+      LOG_LEVEL: warn
+    steps:
+      - uses: actions/checkout@v4
+
+      # El schema SQL es propiedad del repo de infraestructura
+      # (dolynation-tlalli-infra). Se hace un checkout adicional para
+      # aplicarlo. El repo es publico, asi que no necesita token.
+      - name: Checkout del schema (dolynation-tlalli-infra)
+        uses: actions/checkout@v4
+        with:
+          repository: DolyLanguagesORG/dolynation-tlalli-infra
+          path: .infra
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for Postgres
+        run: |
+          for i in {1..30}; do
+            pg_isready -h localhost -p 5432 -U test && exit 0
+            echo "Waiting for postgres... $i"
+            sleep 2
+          done
+          exit 1
+
+      - name: Apply schema
+        # Apply the SQL schema explicitly instead of via the docker
+        # entrypoint's /docker-entrypoint-initdb.d/ volume mount, which
+        # has inconsistent behaviour across GitHub Actions runners
+        # (the entrypoint sometimes ignores the directory after restart).
+        run: |
+          PGPASSWORD='test' psql -h localhost -U test -d dolynglish_test -v ON_ERROR_STOP=1 -f .infra/database/postgres/01-init.sql
+
+      - name: Run e2e tests
+        run: npm run test:e2e
+
+  # ─────────────────────────────────────────────────────────────
+  # Build production bundle. Confirms the Dockerfile target path
+  # produces a working artifact.
+  # ─────────────────────────────────────────────────────────────
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: dist
+          retention-days: 3
