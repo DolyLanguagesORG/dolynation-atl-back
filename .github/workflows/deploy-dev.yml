@@ -1,0 +1,89 @@
+name: deploy-dev
+
+# Despliega el backend al entorno de desarrollo al mergear a `develop`.
+# Regenera el `.env` del servidor desde los secretos del environment
+# `desarrollo` y luego ejecuta el script de deploy (script versionado en el
+# repo `infra`). Para agregar una variable nueva: crea el secret y añade una
+# línea en el bloque de abajo.
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-dev-backend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Desplegar backend en desarrollo
+    runs-on: ubuntu-latest
+    environment: desarrollo
+    # Un push hecho por el propio bot no debe re-disparar el deploy.
+    if: github.event_name == 'workflow_dispatch' || github.event.pusher.name != 'github-actions[bot]'
+    steps:
+      - name: Instalar llave SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Regenerar .env del backend en el servidor
+        env:
+          NODE_ENV: development
+          PORT: "3333"
+          HOST: "0.0.0.0"
+          API_PREFIX: api/v1
+          APP_NAME: dolynglish-backend
+          LOG_LEVEL: debug
+          DB_HOST: doly-dev-db
+          DB_PORT: "5432"
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_DATABASE: ${{ secrets.DB_DATABASE }}
+          DB_LOGGING: "false"
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          JWT_ACCESS_TTL: 15m
+          JWT_REFRESH_TTL: 30d
+          AI_DEFAULT_PROVIDER: minimax
+          MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
+          MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          set -euo pipefail
+          {
+            printf 'NODE_ENV=%s\n'        "$NODE_ENV"
+            printf 'PORT=%s\n'            "$PORT"
+            printf 'HOST=%s\n'            "$HOST"
+            printf 'API_PREFIX=%s\n'      "$API_PREFIX"
+            printf 'APP_NAME=%s\n'        "$APP_NAME"
+            printf 'LOG_LEVEL=%s\n'       "$LOG_LEVEL"
+            printf 'DB_HOST=%s\n'         "$DB_HOST"
+            printf 'DB_PORT=%s\n'         "$DB_PORT"
+            printf 'DB_USER=%s\n'         "$DB_USER"
+            printf 'DB_PASSWORD=%s\n'     "$DB_PASSWORD"
+            printf 'DB_DATABASE=%s\n'     "$DB_DATABASE"
+            printf 'DB_LOGGING=%s\n'      "$DB_LOGGING"
+            printf 'JWT_SECRET=%s\n'      "$JWT_SECRET"
+            printf 'JWT_ACCESS_TTL=%s\n'  "$JWT_ACCESS_TTL"
+            printf 'JWT_REFRESH_TTL=%s\n' "$JWT_REFRESH_TTL"
+            printf 'AI_DEFAULT_PROVIDER=%s\n' "$AI_DEFAULT_PROVIDER"
+            printf 'MINIMAX_API_KEY=%s\n' "$MINIMAX_API_KEY"
+            printf 'MINIMAX_MODEL=%s\n'   "$MINIMAX_MODEL"
+            printf 'GROQ_API_KEY=%s\n'    "$GROQ_API_KEY"
+          } > /tmp/backend.env
+          base64 -w0 /tmp/backend.env | ssh -i ~/.ssh/deploy_key \
+            -p "${{ secrets.DEPLOY_PORT }}" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "base64 -d > '${{ secrets.ORG_PATH }}/dolynation-atl-back/.env'"
+
+      - name: Desplegar (pull + restart + healthcheck)
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -p "${{ secrets.DEPLOY_PORT }}" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "bash '${{ secrets.ORG_PATH }}/dolynation-tlalli-infra/scripts/deploy-dev-back.sh'"
