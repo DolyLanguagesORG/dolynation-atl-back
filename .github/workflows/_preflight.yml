@@ -1,0 +1,45 @@
+name: _preflight
+
+# WORKFLOW DESECHABLE de verificación pre-merge.
+# NO debe llegar a `develop`: se borra antes de mergear.
+# Solo comprueba que un runner de GitHub alcanza el servidor por SSH con la
+# deploy key y los secretos del environment `desarrollo`. No despliega nada.
+
+on:
+  pull_request:
+    branches: [develop]
+
+jobs:
+  connectivity:
+    name: connectivity
+    runs-on: ubuntu-latest
+    environment: desarrollo
+    steps:
+      - name: Instalar llave SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.DEPLOY_PORT }}" "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Verificar secretos compartidos
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          ORG_PATH: ${{ secrets.ORG_PATH }}
+        run: |
+          rc=0
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_SSH_KEY ORG_PATH; do
+            if [ -z "${!v}" ]; then echo "::error::$v está vacío"; rc=1; else echo "$v presente"; fi
+          done
+          exit $rc
+
+      - name: Probar conexión SSH al servidor
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -p "${{ secrets.DEPLOY_PORT }}" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "echo REACHABLE=\$(hostname); docker --version; echo '--- org path ---'; ls -1 '${{ secrets.ORG_PATH }}'; echo '--- contenedores dev ---'; docker ps --filter name=doly-dev --format '{{.Names}} {{.Status}}'"
