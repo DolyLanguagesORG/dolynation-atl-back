@@ -41,6 +41,23 @@ export const users = pgTable(
   }),
 );
 
+/**
+ * Per-user study preferences (selected categories and surface language).
+ *
+ * NOTE: this table requires a matching CREATE TABLE in
+ * `dolynation-tlalli-infra/postgres/01-init.sql` before the backend can
+ * read/write it. See the PR body of #8 for the SQL draft.
+ */
+export const userSettings = pgTable('user_settings', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  preferredLanguage: varchar('preferred_language', { length: 10 }).notNull().default('en'),
+  preferredCategories: jsonb('preferred_categories').$type<string[]>().notNull().default([]),
+  createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: false }),
+});
+
 export const authAccessTokens = pgTable('auth_access_tokens', {
   id: serial('id').primaryKey(),
   tokenableId: integer('tokenable_id')
@@ -112,4 +129,4 @@ export const promptLogs = pgTable(
   }),
 );
 
-export const schema = { users, authAccessTokens, readings, promptLogs };
+export const schema = { users, userSettings, authAccessTokens, readings, promptLogs };
