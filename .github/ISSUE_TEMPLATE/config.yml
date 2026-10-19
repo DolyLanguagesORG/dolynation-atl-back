@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reportar una vulnerabilidad de seguridad
+    url: https://github.com/DolyLanguagesORG/dolynation-atl-back/security/advisories/new
+    about: Reporta un fallo de seguridad de forma privada. No abras un issue publico.
+  - name: Dudas y decisiones pendientes
+    url: https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/decisions/PENDIENTES.md
+    about: Preguntas abiertas del proyecto con sus opciones y su criterio de decision.

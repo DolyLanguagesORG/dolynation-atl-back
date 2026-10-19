@@ -3,12 +3,14 @@
 # Each line is a file pattern followed by one or more owners.
 # Order matters: later patterns override earlier ones.
 #
-# La protección de ramas exige 1 aprobación (2 en `main`) de cualquier persona
-# con acceso, NO de un CODEOWNER en particular: `require_code_owner_reviews`
-# está en `false`. Estos owner sirven para saber a quién pedir revisión.
+# La protección de ramas exige 1 aprobación (2 en `main`) y la revisión de al
+# menos un CODEOWNER (`require_code_owner_reviews` en `true`).
 #
-# Integrantes (ver docs/cronograma.md):
-#   - Jesús Alberto Villarrea Pérez  → @XxjesusalbertoxX  (SM / Lead Dev)
+# Cada ruta tiene DOS owners como mínimo: así ninguna PR puede quedarse sin
+# approving owner cuando quien la hace es el único responsable de esa ruta.
+#
+# Integrantes (ver plan/cronograma.md):
+#   - Jesús Alberto Villarreal Pérez → @XxjesusalbertoxX  (SM / Lead Dev)
 #   - Aozmar Azael García Candela    → @AzaelG26          (Backend principal)
 #   - José Elías Galarza Pedroza     → @EliasGalarza333   (Backend soporte)
 # ─────────────────────────────────────────────────────────────────────────
@@ -17,15 +19,15 @@
 * @XxjesusalbertoxX @AzaelG26 @EliasGalarza333
 
 # Backend core code: tighter review for shared concerns and feature modules.
-/src/common/ @AzaelG26
+/src/common/ @AzaelG26 @EliasGalarza333
 /src/modules/auth/ @AzaelG26 @EliasGalarza333
 /src/modules/readings/ @AzaelG26 @EliasGalarza333
-/src/modules/ia/ @AzaelG26
+/src/modules/ia/ @AzaelG26 @EliasGalarza333
 /src/modules/users/ @AzaelG26 @EliasGalarza333
-/src/app.module.ts @AzaelG26
-/src/main.ts @AzaelG26
-/src/database/ @AzaelG26
-/src/config/ @AzaelG26
+/src/app.module.ts @AzaelG26 @XxjesusalbertoxX
+/src/main.ts @AzaelG26 @XxjesusalbertoxX
+/src/database/ @AzaelG26 @XxjesusalbertoxX
+/src/config/ @AzaelG26 @XxjesusalbertoxX
 
 # CI
-/.github/ @XxjesusalbertoxX
+/.github/ @XxjesusalbertoxX @EliasGalarza333
