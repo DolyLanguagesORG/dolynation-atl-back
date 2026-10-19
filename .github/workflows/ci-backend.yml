@@ -12,6 +12,9 @@ on:
 
 # Cancel any in-progress runs for the same PR/branch when a new commit
 # is pushed. Saves CI minutes on stacked commits.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
