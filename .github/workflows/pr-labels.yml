@@ -6,7 +6,7 @@ name: pr-labels
 #
 # No propaga el resto de etiquetas (area:infra, sprint-1, etc. se filtran
 # aqui) porque las de tipo y prioridad las maneja quien abre el PR.
-# Ver docs/COMO-HACER-UN-PR.md
+# Ver operations/COMO-HACER-UN-PR.md
 
 on:
   pull_request:

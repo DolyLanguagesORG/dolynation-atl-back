@@ -2,7 +2,7 @@ name: release
 
 # Se dispara cuando algo llega a `main`. Como `main` solo recibe merges de
 # `develop` (y hotfixes), cada run corresponde a una release.
-# Ver docs/conventions/versioning.md
+# Ver conventions/versioning.md
 on:
   push:
     branches: [main]
