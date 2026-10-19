@@ -4,149 +4,106 @@ El backend usa **PostgreSQL 15** vía **Drizzle ORM** sobre el driver `pg`.
 
 ## Stack
 
-- **PostgreSQL 15** (en dev, prod vía Docker).
+- **PostgreSQL 15** (dev, test y prod vía Docker).
 - **node-postgres** (`pg` ^8.13) como driver.
-- **Drizzle ORM** (`drizzle-orm` ^0.36) como query builder y type-safety
-  en el código backend.
-- **Sin migraciones desde el backend**: el schema vive como SQL escrito
-  a mano (ver siguiente sección).
+- **Drizzle ORM** (`drizzle-orm` ^0.36) como query builder y type-safety.
+- **Sin migraciones desde el backend**: el schema vive como SQL escrito a mano
+  en `dolynation-tlalli-infra`.
 
-## Nota sobre Drizzle
+Drizzle se usa **solo** para tipos TypeScript y para construir queries. No
+genera SQL ni corre migraciones. El SQL es la fuente de verdad.
 
-Drizzle se usa **solo** para tipos TypeScript y validación en el código
-backend (`src/database/drizzle/schema.ts` da las formas de las
-filas a `select()`/`insert()`).
+## Fuente de verdad
 
-Drizzle **no genera SQL** en este proyecto. Los archivos SQL en
-`infrastructure/database/` se escriben y mantienen a mano. Drizzle no
-corre migraciones contra la BD.
-
-Si vienes de un proyecto Prisma/Drizzle-con-migrations: aquí el SQL es
-manual y vive en `infrastructure/database/`. Drizzle es únicamente para
-que el código del backend no se rompa cuando cambia el schema.
-
-## Schema: dos archivos, dos fases
+El schema pertenece a [`dolynation-tlalli-infra`](https://github.com/DolyLanguagesORG/dolynation-tlalli-infra):
 
 ```
-infrastructure/database/postgres/
-├── 01-init.sql               # SIEMPRE el estado final deseado
-└── updates/                  # vacío hasta el primer deploy a prod
-    ├── README.md             # convención de updates
-    └── YYYY-MM-DD_*.sql      # ALTERs idempotentes, orden alfabético
+database/postgres/
+├── 01-init.sql                         # estado final para instalaciones nuevas
+└── updates/
+    ├── README.md
+    ├── 02-sprint2-study-config.sql
+    ├── 03-sprint3-evaluations-vocabulary.sql
+    └── 04-sprint4-admin-role.sql
 ```
 
-## Cambios al schema: regla de dos fases
+El modelo de datos documentado está en
+[`architecture/data-model.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/architecture/data-model.md).
 
-La regla para tocar el schema depende de si `prod` ya fue desplegado
-alguna vez o no.
+## Regla de dos fases
 
-### Fase 1 — Mientras `prod` NUNCA se ha desplegado (estamos en dev puro)
+### Antes del primer deploy real a producción
 
-- Edita directamente `infrastructure/database/postgres/01-init.sql`
-- NO crear archivos en `updates/` todavía — el contenedor de Postgres
-  corre solo el init al arrancar
-- El `01-init.sql` debe representar el **estado final deseado** del
-  schema en producción (no el estado actual con parches intermedios
-  comentados)
+- `01-init.sql` es el **estado final deseado** y se usa para bases nuevas
+  (dev, test y CI).
+- Los scripts de `updates/` se mantienen **también** desde S2 para probar la
+  ruta de migración y preparar producción.
+- Cada cambio debe existir en **ambos**: el `CREATE TABLE`/columnas de
+  `01-init.sql` y el script idempotente de `updates/`.
+- Los scripts se prueban contra una base existente y contra una limpia.
 
-### Fase 2 — Una vez `prod` se desplegó al menos una vez
+### Después del primer deploy real a producción
 
-- **`01-init.sql` se congela** en el estado que tenía al momento del
-  primer deploy. NO se edita más.
-- Cada cambio va en
-  `infrastructure/database/postgres/updates/YYYY-MM-DD_<nombre>.sql`
-- Se aplican en orden alfabético (= orden cronológico de nombre)
-- En prod, el init NO se vuelve a correr (el volumen de Postgres
-  persiste, el entrypoint del contenedor ignora `initdb.d/` en
-  arranques posteriores)
+- `01-init.sql` **se congela** en el estado del primer deploy.
+- Todo cambio va **solo** en un nuevo script de `updates/`.
+- Los scripts se aplican en orden numérico.
 
-### En cualquier fase: usar statements idempotentes
+### Idempotencia obligatoria
 
-Para que `01-init.sql` y todos los `updates/*.sql` puedan ejecutarse
-juntos sin conflicto (caso típico: re-arrancar el contenedor de dev
-después de un cambio, o resetear el schema en CI), todos los
-statements deben ser **idempotentes**:
+Todos los statements deben poder ejecutarse más de una vez sin romper la BD:
 
 ```sql
--- ✅ siempre idempotente
-CREATE TABLE IF NOT EXISTS users (...);
-CREATE INDEX IF NOT EXISTS idx_X ON ...(...);
-CREATE UNIQUE INDEX IF NOT EXISTS ...;
-ALTER TABLE readings ADD COLUMN IF NOT EXISTS user_response TEXT;
-ALTER TABLE readings ALTER COLUMN user_response SET NOT NULL;
+CREATE TABLE IF NOT EXISTS categories (...);
+CREATE INDEX IF NOT EXISTS idx_readings_prompt_hash ON readings(user_id, prompt_hash);
+ALTER TABLE readings ADD COLUMN IF NOT EXISTS language VARCHAR(10) NOT NULL DEFAULT 'en';
 ALTER TABLE readings ADD CONSTRAINT ... CHECK (...);
-
--- ❌ no idempotente — no usar
-CREATE TABLE users (...);
-ALTER TABLE readings ADD COLUMN user_response TEXT;
-DROP INDEX idx_X;
 ```
 
-Idempotencia es lo que permite que el dev local pueda
-re-ejecutar todo el set sin miedo a romper, y que CI pueda resetear
-el schema de tests con `docker compose -f docker-compose.test.yml down -v`
-sin distinguir "primer arranque" de "siguiente arranque".
+Evita `DROP COLUMN IF EXISTS` en PostgreSQL 15: no está soportado. Si hace
+falta eliminar una columna, usa un script explícito y documenta que se aplica
+una sola vez.
 
-> **Nota sobre `DROP COLUMN IF EXISTS`**: solo disponible en Postgres
-> 16+. Este proyecto usa Postgres 15 así que esa sintaxis no
-> funciona — para dropear una columna en un update usar un script
-> nuevo en `updates/` con la versión sin `IF EXISTS` y aplicar solo
-> una vez manualmente, o mover la columna a una convención de soft
-> delete antes del primer deploy.
+## Tablas
 
-### Workflow concreto cuando agregas una columna
+### Actuales
 
-1. **Crear el archivo de update** —
-   `infrastructure/database/postgres/updates/YYYY-MM-DD_<nombre>.sql`:
-   ```sql
-   -- YYYY-MM-DD: <descripción corta>
-   ALTER TABLE readings ADD COLUMN IF NOT EXISTS user_response TEXT;
-   ```
-2. **Actualizar `01-init.sql`** para que el `CREATE TABLE readings`
-   ya incluya la columna desde el inicio (mismo estado final):
-   ```sql
-   CREATE TABLE readings (
-     ...
-     user_response TEXT,
-     ...
-   );
-   ```
-3. **Commit ambos en el mismo PR** con mensaje
-   `feat(db): add user_response column to readings`
-4. Si hay código backend que referencia la columna, los cambios de
-   código van en commits separados (respetando la regla de
-   "commits pequeños" del [commits.md](./commits.md))
+| Tabla | Propósito |
+| --- | --- |
+| `users` | Cuentas, hash Argon2id (`password`), racha y soft delete |
+| `auth_access_tokens` | Refresh tokens persistidos con hash |
+| `readings` | Lecturas generadas, estado y columnas legacy de evaluación |
+| `prompt_logs` | Auditoría de prompts y errores del proveedor |
 
-Ver el ejemplo canónico en
-[`updates/README.md`](https://github.com/DolyLanguagesORG/dolynation-tlalli-infra/database/postgres/updates/README.md)
-para el detalle de la convención.
+### Planificadas
 
-## Tablas actuales
+| Tabla / cambio | Sprint | Issue |
+| --- | --- | --- |
+| `categories`, `user_preferences`, `user_selected_categories` | S2 | `infra#20` |
+| `readings.category_id`, `language`, `length_type`, `prompt_hash` | S2 | `infra#20` |
+| `evaluations` | S3 | `infra#21` |
+| `vocabulary_logs` | S3 | `infra#21` |
+| `users.role` (`STUDENT`/`ADMIN`) | S4 | `infra#22` |
 
-| Tabla                 | Propósito                                                  |
-| --------------------- | ---------------------------------------------------------- |
-| `users`               | Cuentas de usuario (email, password_hash, streak, etc.)    |
-| `auth_access_tokens`  | Refresh tokens persistidos con hash                        |
-| `readings`            | Lecturas generadas + respuestas del usuario + feedback IA  |
-| `prompt_logs`         | Auditoría de prompts enviados al LLM                       |
+Detalle de columnas, tipos y relaciones en
+[`architecture/data-model.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/architecture/data-model.md).
 
 ## Convenciones de nombres
 
-| Capa                  | Convención        | Ejemplo                         |
-| --------------------- | ----------------- | ------------------------------- |
-| Tablas SQL            | `snake_case`      | `auth_access_tokens`            |
-| Columnas SQL          | `snake_case`      | `password_hash`, `created_at`   |
-| Variables TS          | `camelCase`       | `passwordHash`, `createdAt`     |
-| Archivos TS           | `kebab-case`      | `auth-access.tokens.ts`         |
+| Capa | Convención | Ejemplo |
+| --- | --- | --- |
+| Tablas SQL | `snake_case` | `auth_access_tokens` |
+| Columnas SQL | `snake_case` | `created_at` |
+| Variables TS | `camelCase` | `createdAt` |
+| Archivos TS | `kebab-case` | `auth-access.tokens.ts` |
+| Updates SQL | `NN-<kebab>` | `02-sprint2-study-config.sql` |
 
-El mapping snake_case ↔ camelCase se declara explícitamente en
-[`src/database/drizzle/schema.ts`](../../src/database/drizzle/schema.ts).
+## Workflow al cambiar el schema
 
-## Conexión
-
-- Provider global vía
-  [`src/database/database.module.ts`](../../src/database/database.module.ts).
-- Token `DRIZZLE` exportado en
-  [`src/database/database.tokens.ts`](../../src/database/database.tokens.ts).
-- En tests, mockear el provider con un objeto que expone `.select()`,
-  `.insert()`, etc.
+1. Crear el script `NN-<nombre>.sql` en `database/postgres/updates/`.
+2. Actualizar `01-init.sql` para que una base nueva tenga el mismo estado final.
+3. Probar el script en una base existente y en una limpia; debe ser idempotente.
+4. Commit de ambos archivos en el mismo PR de infra.
+5. Los cambios de código backend que usan la nueva estructura van en su repo y
+   en commits/PRs separados.
+6. Si el cambio desbloquea un issue de backend, cierra el issue de migración
+   con evidencia de la verificación.

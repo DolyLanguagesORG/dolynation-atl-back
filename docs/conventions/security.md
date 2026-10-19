@@ -17,27 +17,27 @@ de la librería es suficiente para nuestro nivel de tráfico.
 - **Algoritmo**: HS256 con `JWT_SECRET` (≥48 caracteres random).
 - **Access token TTL**: `15m` (default, configurable vía `JWT_ACCESS_TTL`).
 - **Refresh token TTL**: `30d` (configurable vía `JWT_REFRESH_TTL`).
-- **Storage en cliente**: SecureStore (mobile) / httpOnly cookie (web).
+- **Storage en cliente**: access token en memoria/contexto; refresh en almacenamiento seguro del cliente. No usar `localStorage` para tokens.
 - **Refresh tokens persistidos** en `auth_access_tokens` con hash, **nunca
   en claro**.
 
 ### Decoradores
 
 - `@Public()` — marca una ruta como pública, saltando el `JwtAuthGuard`.
-  En [`src/common/decorators/public.decorator.ts`](../../src/common/decorators/public.decorator.ts).
+  En [`src/common/decorators/public.decorator.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/decorators/public.decorator.ts).
 - `@CurrentUser()` — inyecta el `User` autenticado en el controller. En
-  [`src/common/decorators/current-user.decorator.ts`](../../src/common/decorators/current-user.decorator.ts).
+  [`src/common/decorators/current-user.decorator.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/decorators/current-user.decorator.ts).
 
 ### Guards
 
-- `JwtAuthGuard` global en [`src/common/guards/jwt-auth.guard.ts`](../../src/common/guards/jwt-auth.guard.ts).
+- `JwtAuthGuard` global en [`src/common/guards/jwt-auth.guard.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/guards/jwt-auth.guard.ts).
 - El guard es **opt-out** (todas las rutas requieren auth salvo las que
   tengan `@Public()`).
 
 ## Validación de input
 
 `ValidationPipe` global en
-[`src/main.ts`](../../src/main.ts) con:
+[`src/main.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/main.ts) con:
 
 - `whitelist: true` — strip propiedades no declaradas en DTOs.
 - `forbidNonWhitelisted: true` — rechaza requests con props extra.
@@ -50,7 +50,7 @@ Cada DTO usa `class-validator` (`@IsString()`, `@IsEmail()`, etc.).
 
 ### Helmet
 
-Configurado en [`src/main.ts`](../../src/main.ts) con
+Configurado en [`src/main.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/main.ts) con
 Content Security Policy estricto. **Excepción importante**: `script-src`
 permite `https://cdn.jsdelivr.net` porque Scalar API Reference carga su
 JS bundle desde ahí.
@@ -75,13 +75,13 @@ En producción, restringir a orígenes específicos vía variable de entorno
 - `nestjs-pino` para logs estructurados JSON.
 - En dev: `pino-pretty` para human-readable.
 - Cada request pasa por `LoggingInterceptor` en
-  [`src/common/interceptors/logging.interceptor.ts`](../../src/common/interceptors/logging.interceptor.ts).
+  [`src/common/interceptors/logging.interceptor.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/interceptors/logging.interceptor.ts).
 
 **No loggear** passwords, tokens, o datos personales (PII) en claro.
 
 ## Manejo de errores
 
-El [`AllExceptionsFilter`](../../src/common/errors/all-exceptions.filter.ts)
+El [`AllExceptionsFilter`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/errors/all-exceptions.filter.ts)
 garantiza:
 
 1. `INTERNAL_ERROR` (500) **nunca** expone el mensaje original al cliente.
