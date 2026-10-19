@@ -25,7 +25,7 @@ calidad de los schemas.
   públicos) y `@ApiOperation({ summary })`.
 - Toda respuesta 2xx usa un helper de envelope:
   `@ApiOkResponseOf(Dto)`, `@ApiCreatedResponseOf(Dto)` o
-  `@ApiOkResponseArrayOf(Dto)`.
+  `@ApiOkResponseOfArray(Dto)`.
 - Toda respuesta de error documentada con `type: ApiErrorDto`:
   `@ApiBadRequestResponse`, `@ApiUnauthorizedResponse`,
   `@ApiNotFoundResponse`, `@ApiConflictResponse`, etc.
