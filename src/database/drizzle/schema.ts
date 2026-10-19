@@ -58,6 +58,21 @@ export const userSettings = pgTable('user_settings', {
   updatedAt: timestamp('updated_at', { withTimezone: false }),
 });
 
+/**
+ * Admin membership — one row per user with administrator privileges.
+ * Kept as a separate table (not a column on `users`) so existing SELECTs on
+ * users are unaffected until the infra migration lands.
+ *
+ * Requires a matching CREATE TABLE in
+ * `dolynation-tlalli-infra/postgres/01-init.sql`.
+ */
+export const admins = pgTable('admins', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  grantedAt: timestamp('granted_at', { withTimezone: false }).notNull().defaultNow(),
+});
+
 export const authAccessTokens = pgTable('auth_access_tokens', {
   id: serial('id').primaryKey(),
   tokenableId: integer('tokenable_id')
@@ -129,4 +144,8 @@ export const promptLogs = pgTable(
   }),
 );
 
+<<<<<<< HEAD
 export const schema = { users, userSettings, authAccessTokens, readings, promptLogs };
+=======
+export const schema = { users, admins, authAccessTokens, readings, promptLogs };
+>>>>>>> 4b8d040 (feat(admin): add /admin/categories and /admin/users with admin guard)
