@@ -51,11 +51,11 @@ jobs:
       MINIMAX_API_KEY: test-key
       LOG_LEVEL: warn
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # El schema vive en el repo de infraestructura (ver ci-backend.yml).
       - name: Checkout del schema (dolynation-tlalli-infra)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: DolyLanguagesORG/dolynation-tlalli-infra
           path: .infra
