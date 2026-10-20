@@ -1,34 +1,16 @@
-# AGENTS.md — `dolynation-atl-back`
+# Agent Instructions & Skills Index — Dolynglish Backend
 
-Instrucciones para agentes de código (Claude Code, Codex, OpenCode, Cursor, etc.)
-que trabajen en este repositorio.
+Este archivo indexa las skills y convenciones para agentes de IA y desarrolladores que colaboran en `dolynation-atl-back`.
 
-## Skills de este repo
+## Skills Disponibles
 
-Están en `.agents/skills/` y se cargan bajo demanda:
+- [`openapi-scalar`](./.agents/skills/openapi-scalar/SKILL.md): Guía y patrones para documentar endpoints de NestJS con OpenAPI, Scalar, decoradores de envelope y tests de cobertura.
+- [`api-design-principles`](./.agents/skills/api-design-principles/SKILL.md): Principios de diseño para APIs RESTful.
+- [`architecture-patterns`](./.agents/skills/architecture-patterns/SKILL.md): Patrones de arquitectura con NestJS y Drizzle ORM.
 
-- **`nestjs-backend`** — cómo trabajar aquí: arquitectura, comandos, envelope,
-  códigos de error, Drizzle, tests y flujo de PR. **Léela antes de tocar código.**
-- **`openapi-scalar`** — cómo documentar endpoints con OpenAPI/Scalar, los tests
-  `openapi-*` y `/docs`. Úsala al crear o modificar endpoints.
-- `api-design-principles` y `architecture-patterns` — **genéricas** (buenas
-  prácticas generales, no nuestras convenciones). Si entran en conflicto con
-  `nestjs-backend`, manda `nestjs-backend`.
+## Convenciones del Proyecto
 
-## Reglas rápidas
-
-- Toda respuesta usa el **envelope** (`apiOk`/`apiCreated`) y todo error pasa por
-  `AppHttpException(ErrorCode.X, ...)`. No devuelvas objetos crudos ni lances
-  excepciones de Nest directas.
-- Rama nueva desde `develop` (default). **Nunca** push directo a `develop`/`main`.
-- Antes de commitear: `npm run verify` (typecheck + lint + format + tests).
-- Commits Conventional, subject en **español**, un concern por commit.
-- PR hacia `develop`, título conventional, **squash**, 1 aprobación.
-- `Closes #N` en el cuerpo del PR (en su propia línea).
-- Si cambias el schema, edítalo primero en `dolynation-tlalli-infra`.
-
-## Skills generales de la organización
-
-El flujo global, el anteproyecto y la documentación oficial viven en:
-
-- https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs
+- [Flujo de Git](./docs/conventions/git-workflow.md)
+- [Conventional Commits](./docs/conventions/commits.md)
+- [Contratos de API y Envelope](./docs/conventions/api-contracts.md)
+- [Estándares de Testing](./docs/conventions/testing.md)

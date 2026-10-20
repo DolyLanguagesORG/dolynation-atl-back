@@ -1,106 +1,94 @@
 ---
 name: openapi-scalar
-description: Cómo documentar y verificar la API de DolyNation (repo dolynation-atl-back) con OpenAPI, Swagger y Scalar. Cubre decoradores, envelope, DTOs, errores, /docs, /api/v1/openapi.json y los tests openapi-*. Úsala al crear/modificar endpoints o cuando la documentación de la API falle en CI.
+description: Guidelines and conventions for documenting NestJS endpoints with OpenAPI and Scalar in Dolynglish backend. Explains @ApiTags, @ApiOperation, @ApiBearerAuth, envelope response decorators (ApiOkResponseOf, ApiCreatedResponseOf, ApiOkResponseEmpty), error documentation with ApiErrorDto, and how to verify with openapi-* tests.
 ---
 
-# OpenAPI + Scalar — `dolynation-atl-back`
+# OpenAPI & Scalar Documentation Skill
 
-## Qué ya está instalado
+Guía de referencia para documentar endpoints de NestJS con OpenAPI y Scalar en el repositorio `dolynation-atl-back`. Aplica para los endpoints del Sprint 1 y todos los siguientes sprints (S2-S5).
 
-- `@nestjs/swagger` + `@scalar/nestjs-api-reference`.
-- Scalar UI en `/docs`.
-- JSON OpenAPI en `/api/v1/openapi.json`.
-- Tests: `test/openapi-envelope.e2e-spec.ts`,
-  `test/openapi-response-coverage.e2e-spec.ts`,
-  `test/openapi-schema.e2e-spec.ts`.
-- CI: `.github/workflows/openapi-guard.yml`.
+## Ubicación de la Documentación en Vivo
 
-No hace falta “instalar OpenAPI”; el trabajo es mantener la cobertura y la
-calidad de los schemas.
+- **Scalar UI**: `http://localhost:3333/docs`
+- **OpenAPI JSON**: `http://localhost:3333/api/v1/openapi.json`
 
-## Reglas de documentación
+---
 
-- Descripciones de DTOs, parámetros y operaciones **en inglés**.
-- Todo endpoint lleva `@ApiTags`, `@ApiBearerAuth('access-token')` (salvo
-  públicos) y `@ApiOperation({ summary })`.
-- Toda respuesta 2xx usa un helper de envelope:
-  `@ApiOkResponseOf(Dto)`, `@ApiCreatedResponseOf(Dto)` o
-  `@ApiOkResponseOfArray(Dto)`.
-- Toda respuesta de error documentada con `type: ApiErrorDto`:
-  `@ApiBadRequestResponse`, `@ApiUnauthorizedResponse`,
-  `@ApiNotFoundResponse`, `@ApiConflictResponse`, etc.
-- El schema de respuesta debe tener campos reales; si Scalar muestra
-  “Nobody”, falta el DTO o el decorador.
-- No agregues `servers` con `/api/v1` en Scalar: los paths ya llevan el prefijo
-  y se duplicaría.
+## 1. Reglas Fundamentales
 
-## Ejemplo
+1. **Idioma**: Todas las descripciones (`@ApiOperation`, `@ApiProperty`, mensajes de error) van en **inglés**.
+2. **El Envelope de Respuesta Obligatorio**: Ningún endpoint devuelve objetos sueltos. Todas las respuestas de éxito y error están envueltas en:
+   ```ts
+   interface ApiResponse<T> {
+     message: string;
+     data: T;
+     error?: ApiError;
+   }
+   ```
+3. **Cero "Nobody" en Scalar**: Toda respuesta exitosa (200 o 201) debe referenciar un DTO con esquema real utilizando los decoradores de envelope.
 
-```ts
-@ApiTags('readings')
+---
+
+## 2. Decoradores de Respuesta (Envelope)
+
+Importados desde `src/common/types/api-envelope.decorators`:
+
+| Caso de Uso | Decorador a Usar | Código HTTP |
+| :--- | :--- | :--- |
+| Devolver un objeto | `@ApiOkResponseOf(MiRespuestaDto)` | 200 OK |
+| Crear un recurso | `@ApiCreatedResponseOf(MiRespuestaDto)` | 201 Created |
+| Devolver un arreglo / lista | `@ApiOkResponseOfArray(ItemDto)` | 200 OK |
+| Sin contenido o datos nulos (ej. logout, delete) | `@ApiOkResponseEmpty()` | 204 No Content / 200 |
+
+---
+
+## 3. Documentación de Errores
+
+Todos los errores documentados deben usar el DTO estándar `ApiErrorDto`:
+
+```typescript
+@ApiBadRequestResponse({ description: 'Validation failed', type: ApiErrorDto })
+@ApiUnauthorizedResponse({ description: 'Missing or invalid token', type: ApiErrorDto })
+@ApiNotFoundResponse({ description: 'Resource not found', type: ApiErrorDto })
+@ApiConflictResponse({ description: 'Resource already exists', type: ApiErrorDto })
+```
+
+---
+
+## 4. Ejemplo Completo de un Endpoint Nuevo
+
+```typescript
+import { Body, Controller, Post, HttpCode, HttpStatus } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiBadRequestResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import { ApiCreatedResponseOf } from '@/common/types/api-envelope.decorators';
+import { ApiErrorDto } from '@/common/errors/api-error.dto';
+import { apiOk, type ApiResponse } from '@/common/types/api-response.type';
+
+@ApiTags('example')
 @ApiBearerAuth('access-token')
-@Controller('readings')
-export class ReadingsController {
+@Controller('example')
+export class ExampleController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Generate a reading from study parameters' })
-  @ApiCreatedResponseOf(ReadingDto)
-  @ApiBadRequestResponse({ type: ApiErrorDto })
-  @ApiUnauthorizedResponse({ type: ApiErrorDto })
-  @ApiServiceUnavailableResponse({ type: ApiErrorDto })
-  async generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateReadingDto) {
-    // ...
+  @ApiOperation({ summary: 'Create a new resource' })
+  @ApiCreatedResponseOf(ExampleResponseDto)
+  @ApiBadRequestResponse({ description: 'Validation failed', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized', type: ApiErrorDto })
+  async create(@Body() dto: CreateExampleDto): Promise<ApiResponse<ExampleResponseDto>> {
+    const created = await this.service.create(dto);
+    return apiOk('Resource created successfully', created);
   }
 }
 ```
 
-DTO:
+---
 
-```ts
-export class GenerateReadingDto {
-  @ApiProperty({ enum: ['en', 'fr', 'es', 'it'], example: 'en' })
-  @IsIn(['en', 'fr', 'es', 'it'])
-  language!: string;
-}
-```
+## 5. Verificación y Tests
 
-## Verificación
+Antes de subir cualquier endpoint a GitHub, verificar que los tests pasen:
 
 ```bash
-npx jest --config ./test/jest-e2e.json openapi-envelope openapi-response-coverage openapi-schema
-npm run verify
+npx jest test/openapi-schema.e2e-spec.ts
+npx jest test/openapi-envelope.e2e-spec.ts
+npx jest test/openapi-response-coverage.e2e-spec.ts
 ```
-
-Manual:
-
-```bash
-npm run start:dev
-# Abrir http://localhost:3333/docs
-curl -s http://localhost:3333/api/v1/openapi.json | head
-```
-
-Revisa que:
-
-- Todos los endpoints del sprint aparezcan en `/docs`.
-- Cada 2xx tenga schema (no “Nobody”).
-- Los errores documentados coincidan con `ErrorCode`.
-- El prefijo `/api/v1` aparezca una sola vez.
-
-## Errores comunes
-
-- **Ruta duplicada `/api/v1/api/v1`:** agregaste `servers` con el prefijo.
-- **“Nobody” en Scalar:** falta `@ApiOkResponseOf` o el DTO no tiene
-  `@ApiProperty`.
-- **El test de cobertura falla:** hay un endpoint 2xx sin decorador de
-  respuesta.
-- **El test de envelope falla:** el controller devuelve un objeto crudo en vez
-  de `apiOk`/`apiCreated`.
-- **El endpoint no aparece con el prefijo:** `setGlobalPrefix` debe ejecutarse
-  antes de `SwaggerModule.createDocument` (ver `src/main.ts`).
-
-## Referencias
-
-- [conventions/api-contracts.md](../../../docs/conventions/api-contracts.md)
-- [onboarding/adding-endpoint.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/onboarding/adding-endpoint.md)
-- [main.ts](../../../src/main.ts)
-- [openapi-guard.yml](../../../.github/workflows/openapi-guard.yml)
