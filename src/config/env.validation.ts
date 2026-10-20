@@ -12,6 +12,11 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   API_PREFIX: z.string().default('api/v1'),
   APP_NAME: z.string().default('dolynglish-backend'),
+  // La versión se lee del package.json en runtime; APP_VERSION solo sirve para
+  // sobrescribirla (por ejemplo, en una imagen con otra etiqueta).
+  APP_VERSION: z.string().optional(),
+  // El commit lo inyecta el Dockerfile en el build (ARG -> ENV).
+  GIT_COMMIT: z.string().default('unknown'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
   // ===== Database =====

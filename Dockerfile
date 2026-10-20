@@ -29,7 +29,11 @@ COPY --chown=node:node --from=builder /app/package.json /app/package-lock.json .
 COPY --chown=node:node --from=builder /app/node_modules ./node_modules
 COPY --chown=node:node --from=builder /app/dist ./dist
 
-ENV NODE_ENV=production
+# El commit entra en la imagen para que /health pueda decir exactamente
+# qué build está corriendo.
+ARG GIT_COMMIT=unknown
+ENV NODE_ENV=production \
+    GIT_COMMIT=$GIT_COMMIT
 EXPOSE 3333
 
 CMD ["node", "dist/main.js"]
