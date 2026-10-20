@@ -51,15 +51,15 @@ bump: major | minor | patch
 
 ```bash
 # 1. Trabajo normal en una rama
-git checkout -b feat/issue-12-study-config
+git checkout -b feat/issue-8-settings
  npm run verify
-git commit -m "feat(users): persist study preferences in user_settings"
-git push -u origin feat/issue-12-study-config
+git commit -m "feat(users): persist study preferences in user_preferences"
+git push -u origin feat/issue-8-settings
 
 # 2. PR con título Conventional Commits hacia develop
 gh pr create --base develop \
-  --title "feat(users): persist study preferences in user_settings" \
-  --body "Closes #12"
+  --title "feat(users): persist study preferences in user_preferences" \
+  --body "Closes #8"
 
     # 3. Cuando toca release: PR de develop hacia main.
     #    Ojo: `main` no es la rama por defecto, asi que `Closes` se ignoraria

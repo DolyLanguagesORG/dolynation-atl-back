@@ -17,14 +17,14 @@ interface ApiResponse<T = unknown> {
 
 Es **no negociable**. Ningún endpoint devuelve un objeto crudo; siempre
 va envuelto con `apiOk()` o `apiFail()`. Esta regla está enforced por
-[openapi-envelope.e2e-spec.ts](../../test/openapi-envelope.e2e-spec.ts)
+[openapi-envelope.e2e-spec.ts](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/test/openapi-envelope.e2e-spec.ts)
 en CI.
 
 → Detalles: [Siguiente sección](#envelope-de-respuesta)
 → Helpers:
-[`apiOk`/`apiFail`](../../src/common/types/api-response.type.ts)
+[`apiOk`/`apiFail`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/types/api-response.type.ts)
 → Test que la enforce:
-[openapi-envelope](../../test/openapi-envelope.e2e-spec.ts)
+[openapi-envelope](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/test/openapi-envelope.e2e-spec.ts)
 
 ## Envelope de respuesta
 
@@ -43,7 +43,7 @@ interface ApiError {
 ```
 
 **Source of truth:**
-[`src/common/types/api-response.type.ts`](../../src/common/types/api-response.type.ts)
+[`src/common/types/api-response.type.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/types/api-response.type.ts)
 (exporta los helpers `apiOk` y `apiFail`).
 
 ### Reglas
@@ -68,8 +68,8 @@ Stable strings, no enum numbers. Cliente nunca debe parsear el `message`
 — debe branchear sobre `code`.
 
 **Source of truth:**
-[`src/common/errors/error-codes.ts`](../../src/common/errors/error-codes.ts).
-El test [`error-codes.spec.ts`](../../src/common/errors/error-codes.spec.ts)
+[`src/common/errors/error-codes.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/errors/error-codes.ts).
+El test [`error-codes.spec.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/errors/error-codes.spec.ts)
 verifica exhaustividad.
 
 | Código                              | HTTP | Significado                                                  |
@@ -104,7 +104,7 @@ throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, 'Reading not found');
 ```
 
 **Source of truth:**
-[`src/common/errors/app-http.exception.ts`](../../src/common/errors/app-http.exception.ts).
+[`src/common/errors/app-http.exception.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/errors/app-http.exception.ts).
 
 El helper `httpError(code, details?)` acorta aún más:
 
@@ -115,7 +115,7 @@ throw httpError(ErrorCode.VALIDATION_ERROR, { fields: [...] });
 ## Regla de seguridad: nunca leakear detalles internos
 
 El filtro
-[`src/common/errors/all-exceptions.filter.ts`](../../src/common/errors/all-exceptions.filter.ts)
+[`src/common/errors/all-exceptions.filter.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/errors/all-exceptions.filter.ts)
 garantiza que cualquier `Error` genérico se mapea a `INTERNAL_ERROR` con
 mensaje genérico. **Nunca** incluir en el `message`:
 
@@ -128,12 +128,37 @@ mensaje genérico. **Nunca** incluir en el `message`:
 El log server-side tiene el contexto completo (vía `nestjs-pino`); el
 cliente solo recibe un código estable + mensaje seguro.
 
+## Endpoints canónicos
+
+| Método y ruta | Estado | Issue |
+| --- | --- | --- |
+| `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`; `GET /auth/me` | Implementado | `back#4` |
+| `GET/PATCH /api/v1/user/profile` | En PR S1 | `back#5` |
+| `GET /api/v1/user/streak` | Implementado (stub inicial) | `back#15` |
+| `GET /api/v1/user/points` | Planificado S4 | `back#15` |
+| `GET /api/v1/readings/options` | Implementado | `back#8` |
+| `POST /api/v1/readings` | Implementado; se amplía en S2 | `back#10` |
+| `GET /api/v1/readings/pending`, `/completed`, `/{id}`; `DELETE /{id}` | Implementado | `back#10` |
+| `POST /api/v1/readings/{id}/evaluate` | Implementado | `back#13` |
+| `POST /api/v1/readings/{id}/explanations` | Implementado | `back#11` |
+| `GET /api/v1/readings/{id}/tts` | Planificado S3 | `back#11` |
+| `GET/PUT /api/v1/settings/language`; `GET/PUT/POST /settings/categories` | Planificado S2 | `back#8` |
+| `GET /api/v1/history`, `/history/scores` | Planificado S4 | `back#16` |
+| `GET/POST/PATCH/DELETE /api/v1/admin/categories`; `GET /admin/users`; `PATCH /admin/users/{id}/role` | Planificado S4 | `back#17` |
+| `GET /api/v1/health/live`, `/health/ready` | Implementado | — |
+| `POST /api/v1/ia/chat` | Implementado (interno) | `back#7` |
+
+No se crean módulos paralelos `/content`, `/evaluation` ni `/vocabulary`: esos
+contratos se absorbieron en `readings`, `evaluation` dentro de `readings` y
+`explanations`/TTS.
+
 ## Documentación OpenAPI
+
 
 - **Scalar UI**: `http://localhost:3333/docs`
 - **OpenAPI JSON**: `http://localhost:3333/api/v1/openapi.json`
 
-Config en [`src/main.ts`](../../src/main.ts):
+Config en [`src/main.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/main.ts):
 
 - Title: `Dolynglish API`
 - Auth: Bearer JWT (scheme `http`, format `JWT`)
@@ -164,7 +189,7 @@ async register(@Body() dto: RegisterDto): Promise<ApiResponse<AuthResponseDto>> 
 ```
 
 Los helpers envelope están en
-[`src/common/types/api-envelope.decorators.ts`](../../src/common/types/api-envelope.decorators.ts):
+[`src/common/types/api-envelope.decorators.ts`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/common/types/api-envelope.decorators.ts):
 
 - `ApiOkResponseOf(ModelDto)`
 - `ApiCreatedResponseOf(ModelDto)`

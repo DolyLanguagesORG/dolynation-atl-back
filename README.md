@@ -164,7 +164,7 @@ Las críticas:
 ## Contributing
 
 Lee la
-[guía para hacer un PR](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/COMO-HACER-UN-PR.md)
+[guía para hacer un PR](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/operations/COMO-HACER-UN-PR.md)
 y las [convenciones](./docs/conventions/README.md).
 
 ## License

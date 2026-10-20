@@ -5,6 +5,10 @@ on:
     types: [opened, edited, reopened, synchronize]
     branches: [develop, main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -21,7 +25,7 @@ jobs:
           # Este repo no tiene un paquete de Conventional Commits instalado
           # en el workflow, así que validamos con una regex equivalente a
           # @commitlint/config-conventional sobre el tipo y el scope.
-          # Ver docs/conventions/commits.md
+          # Ver conventions/commits.md
 
           types='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
 
@@ -52,22 +56,31 @@ jobs:
           BASE: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.ref }}
         run: |
-          # Hace cumplir lo que describe docs/conventions/git-workflow.md.
+          # Hace cumplir lo que describe conventions/git-workflow.md.
           # La protección de GitHub no puede restringir la rama origen de un
           # PR, así que se valida aquí.
-          # Ver docs/conventions/git-workflow.md
+          # Ver conventions/git-workflow.md
 
           case "$BASE" in
             develop)
-              # Se aceptan dos formatos de rama hacia develop:
-              #   1. Con prefijo, que es la forma recomendada porque dice el tipo
-              #      de cambio de un vistazo: feat/issue-<n>-<kebab>, fix/..., etc.
-              #   2. El que genera el boton "Create a branch" del issue, que es
-              #      <n>-<kebab>. Se acepta para no bloquear a quien usa el boton.
-              # Ver docs/conventions/git-workflow.md
-              if [[ ! "$HEAD" =~ ^(feat|fix|chore|docs)/ ]] && [[ ! "$HEAD" =~ ^[0-9]+- ]]; then
-                echo "::error::Un PR hacia 'develop' debe venir de feat/*, fix/*, chore/*, docs/* o del formato <n>-<kebab>."
-                echo "::error::Rama origen actual: '$HEAD'"
+              # Convención de ramas: <tipo>/issue-<n>-<módulo>-<detalle>
+              #   p. ej. feat/issue-12-users-profile
+              #   (el prefijo 'issue-' es opcional: feat/12-users-profile también vale)
+              # También se acepta el formato que genera el botón "Create a branch"
+              # del issue (<n>-<slug>), para no bloquear su uso.
+              # Ver conventions/git-workflow.md
+              types='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
+              if [[ "$HEAD" =~ ^(${types})/(issue-)?[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+                :
+              elif [[ "$HEAD" =~ ^[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+                :
+              else
+                echo "::error::Rama origen inválida para 'develop': '$HEAD'"
+                echo "::error::Usa <tipo>/issue-<n>-<módulo>-<detalle>, por ejemplo:"
+                echo "::error::  feat/issue-12-users-profile"
+                echo "::error::  fix/issue-30-history-pagination"
+                echo "::error::Tipos permitidos: $types"
+                echo "::error::También se acepta el formato del botón del issue: <n>-<slug>."
                 exit 1
               fi
               ;;
@@ -76,7 +89,7 @@ jobs:
               if [[ "$HEAD" != "develop" && ! "$HEAD" =~ ^hotfix/ ]]; then
                 echo "::error::Un PR hacia 'main' solo puede venir de 'develop' o de 'hotfix/*'."
                 echo "::error::Rama origen actual: '$HEAD'"
-                echo "::error::'main' es la rama de produccion; ver docs/conventions/git-workflow.md"
+                echo "::error::'main' es la rama de produccion; ver conventions/git-workflow.md"
                 exit 1
               fi
               ;;

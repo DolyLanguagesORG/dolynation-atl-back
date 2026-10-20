@@ -2,7 +2,7 @@ name: release
 
 # Se dispara cuando algo llega a `main`. Como `main` solo recibe merges de
 # `develop` (y hotfixes), cada run corresponde a una release.
-# Ver docs/conventions/versioning.md
+# Ver conventions/versioning.md
 on:
   push:
     branches: [main]
@@ -99,6 +99,31 @@ jobs:
           if [ -n "$current" ] && [ "$version" = "$current" ]; then
             echo "::error::La versión no cambió ($version). Abortando para no crear un tag duplicado."
             exit 1
+          fi
+
+          # --- La versión vive en el código, no solo en el tag ---
+          # El tag no se puede crear si la versión declarada en el repositorio no
+          # coincide con la que se va a publicar: así el número que se ve en el
+          # código, en el CHANGELOG y en el tag es siempre el mismo.
+          bare="${version#v}"
+
+          if [ -f package.json ]; then
+            declared="$(node -p "require('./package.json').version")"
+            if [ "$declared" != "$bare" ]; then
+              echo "::error::La versión de package.json ($declared) no coincide con la release ($bare)."
+              echo "::error::Actualiza 'version' en package.json y la sección '## [$bare]' del CHANGELOG.md en el PR que va a main."
+              exit 1
+            fi
+            echo "package.json: $declared (coincide)"
+          fi
+
+          if [ -f CHANGELOG.md ]; then
+            if ! grep -qE "^## \[$bare\]" CHANGELOG.md; then
+              echo "::error::El CHANGELOG.md no tiene la sección '## [$bare]'."
+              echo "::error::Añádela en el PR que va a main: el changelog se escribe antes de publicar."
+              exit 1
+            fi
+            echo "CHANGELOG.md: sección [$bare] presente"
           fi
 
           git tag -a "$version" -m "Release $version

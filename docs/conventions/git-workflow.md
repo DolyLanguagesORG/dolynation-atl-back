@@ -82,7 +82,7 @@ Máximo 50 caracteres en total.
 - Requiere **1 aprobación** de cualquier persona con acceso al repositorio.
   Los `CODEOWNERS` se solicitan automáticamente pero **no son obligatorios**
   (`require_code_owner_reviews: false`), ver
-  [FLUJO-DE-TRABAJO.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/FLUJO-DE-TRABAJO.md#codeowners).
+  [FLUJO-DE-TRABAJO.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/operations/FLUJO-DE-TRABAJO.md#codeowners).
 - **Prohibido el push directo**: siempre por PR.
 - Solo **squash-merge**, para mantener historia lineal.
 - No se permiten force-pushes ni deleciones.
@@ -164,7 +164,7 @@ El título del commit de squash determina el bump automático de versión
 ## Pull requests
 
 Usa la plantilla en [`.github/PULL_REQUEST_TEMPLATE.md`](../../.github/PULL_REQUEST_TEMPLATE.md)
-y el paso a paso de [COMO-HACER-UN-PR.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/COMO-HACER-UN-PR.md). Cada PR
+y el paso a paso de [COMO-HACER-UN-PR.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/operations/COMO-HACER-UN-PR.md). Cada PR
 debe tener su checklist marcado antes de pedir review: `npm run verify` pasa,
 tests añadidos, envelope respetado, etc.
 
