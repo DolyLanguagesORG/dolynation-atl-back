@@ -6,6 +6,12 @@ import { users } from '../../database/drizzle/schema';
 import { eq } from 'drizzle-orm';
 import { type NewUser, type User } from '../../database/drizzle/types';
 import * as argon2 from 'argon2';
+import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
+
+export interface UpdateProfileInput {
+  fullName?: string;
+}
 
 export interface PublicUser {
   id: number;
@@ -81,6 +87,43 @@ export class UsersService {
     if (diffDays === 0) return currentStreak;
     if (diffDays === 1) return currentStreak + 1;
     return 0;
+  }
+
+  /**
+   * Return the authenticated user's profile. Throws RESOURCE_NOT_FOUND if the
+   * row was deleted between token issue and the request.
+   */
+  async getProfile(userId: number): Promise<PublicUser> {
+    const user = await this.findById(userId);
+    if (!user) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
+    return this.toPublic(user);
+  }
+
+  /**
+   * Update mutable profile fields. Only `fullName` is accepted; email and
+   * password are mutated through dedicated flows (not implemented here).
+   * No-op PATCHes are allowed and just return the current row.
+   */
+  async updateProfile(userId: number, input: UpdateProfileInput): Promise<PublicUser> {
+    const user = await this.findById(userId);
+    if (!user) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
+
+    const patch: { fullName?: string; updatedAt: Date } = { updatedAt: new Date() };
+    if (input.fullName !== undefined) {
+      patch.fullName = input.fullName.trim();
+    }
+
+    if (patch.fullName === undefined) {
+      return this.toPublic(user);
+    }
+
+    const [updated] = await this.db
+      .update(users)
+      .set(patch)
+      .where(eq(users.id, userId))
+      .returning();
+    if (!updated) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
+    return this.toPublic(updated);
   }
 
   async activeStreakFor(_userId: number, days = 7): Promise<number[]> {
