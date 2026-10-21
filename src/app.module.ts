@@ -7,6 +7,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ReadingsModule } from './modules/readings/readings.module';
+import { HistoryModule } from './modules/history/history.module';
 import { IaModule } from './modules/ia/ia.module';
 import { HealthModule } from './modules/health/health.module';
 
@@ -39,6 +40,7 @@ import { HealthModule } from './modules/health/health.module';
     AuthModule,
     UsersModule,
     ReadingsModule,
+    HistoryModule,
     IaModule,
     HealthModule,
   ],
