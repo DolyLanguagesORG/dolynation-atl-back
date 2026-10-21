@@ -56,25 +56,35 @@ jobs:
             first_release=false
           fi
 
-          # --- Determinar el bump a partir del mensaje del commit ---
-          # Por squash-merge, el subject del commit es el título del PR.
+          # --- Determinar el bump a partir de TODOS los commits del ciclo ---
+          # Por squash-merge, el subject de cada commit es el titulo de su PR.
+          # Se miran todos los commits publicados desde la ultima release y no
+          # solo el ultimo: si en el ciclo hubo un feat, la release es minor
+          # aunque el ultimo commit sea un chore.
           subject="$(git log -1 --pretty=%s)"
-          body="$(git log -1 --pretty=%b)"
+          if [ -n "$current" ]; then
+            range="$current..HEAD"
+          else
+            range="HEAD"
+          fi
+          subjects="$(git log --no-merges --pretty=%s "$range")"
+          bodies="$(git log --no-merges --pretty=%b "$range")"
 
           if [ -n "$FORCED_BUMP" ]; then
             bump="$FORCED_BUMP"
             echo "Bump forzado manualmente: $bump"
           else
-            # Breaking change: '!' en el tipo, o la línea BREAKING CHANGE.
-            if echo "$subject" | grep -qE '^[a-z]+(\([a-z0-9._/-]+\))?!:'; then
+            # Breaking change: '!' en el tipo, o la linea BREAKING CHANGE.
+            if echo "$subjects" | grep -qE '^[a-z]+(\([a-z0-9._/-]+\))?!:'; then
               bump=major
-            elif echo "$subject $body" | grep -q 'BREAKING CHANGE'; then
+            elif echo "$bodies" | grep -q 'BREAKING CHANGE'; then
               bump=major
-            elif echo "$subject" | grep -qE '^feat(\([a-z0-9._/-]+\))?:'; then
+            elif echo "$subjects" | grep -qE '^feat(\([a-z0-9._/-]+\))?:'; then
               bump=minor
             else
               bump=patch
             fi
+            echo "Commits del ciclo: $(echo "$subjects" | grep -c . || true)"
           fi
 
           case "$bump" in
