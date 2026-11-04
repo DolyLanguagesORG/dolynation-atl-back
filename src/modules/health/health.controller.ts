@@ -1,16 +1,28 @@
-import { Controller, Get } from '@nestjs/common';
-import { HealthCheck, HealthCheckService, type HealthCheckResult } from '@nestjs/terminus';
+import { Controller, Get, Inject } from '@nestjs/common';
+import {
+  HealthCheck,
+  HealthCheckService,
+  HealthIndicatorService,
+  type HealthCheckResult,
+} from '@nestjs/terminus';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
+import { sql } from 'drizzle-orm';
 import { HealthCheckResultDto } from '../../common/types/api-response.dto';
 import { ApiOkResponseOf } from '../../common/types/api-envelope.decorators';
 import { Public } from '../../common/decorators/public.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import { appVersion } from '../../common/version';
+import { DRIZZLE } from '../../database/database.tokens';
+import type { DrizzleDb } from '../../database/database.module';
 
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
-  constructor(private readonly health: HealthCheckService) {}
+  constructor(
+    private readonly health: HealthCheckService,
+    private readonly healthIndicator: HealthIndicatorService,
+    @Inject(DRIZZLE) private readonly db: DrizzleDb,
+  ) {}
 
   @Public()
   @Get('live')
@@ -32,12 +44,14 @@ export class HealthController {
     return this.health
       .check([
         async () => {
-          await Promise.resolve();
-          return {
-            db: { status: 'up' as const },
-            app: { status: 'up' as const, ...appVersion() },
-          };
+          try {
+            await this.db.execute(sql`SELECT 1`);
+          } catch {
+            return this.healthIndicator.check('db').down('Database is unreachable');
+          }
+          return this.healthIndicator.check('db').up();
         },
+        () => ({ app: { status: 'up' as const, ...appVersion() } }),
       ])
       .then((result) => apiOk('Readiness', result));
   }
