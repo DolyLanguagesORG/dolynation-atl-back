@@ -12,6 +12,10 @@ on:
         description: 'Forzar el bump: major | minor | patch (vacío = automático)'
         required: false
         type: string
+      version:
+        description: 'Versión exacta a publicar, p. ej. 1.0.0 (vacío = calcular el bump)'
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -35,6 +39,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FORCED_BUMP: ${{ inputs.bump }}
+          FORCED_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
@@ -70,32 +75,47 @@ jobs:
           subjects="$(git log --no-merges --pretty=%s "$range")"
           bodies="$(git log --no-merges --pretty=%b "$range")"
 
-          if [ -n "$FORCED_BUMP" ]; then
-            bump="$FORCED_BUMP"
-            echo "Bump forzado manualmente: $bump"
-          else
-            # Breaking change: '!' en el tipo, o la linea BREAKING CHANGE.
-            if echo "$subjects" | grep -qE '^[a-z]+(\([a-z0-9._/-]+\))?!:'; then
-              bump=major
-            elif echo "$bodies" | grep -q 'BREAKING CHANGE'; then
-              bump=major
-            elif echo "$subjects" | grep -qE '^feat(\([a-z0-9._/-]+\))?:'; then
-              bump=minor
-            else
-              bump=patch
+          if [ -n "$FORCED_VERSION" ]; then
+            # Version exacta indicada a mano (p. ej. 1.0.0 para la entrega de
+            # diciembre). Tiene prioridad sobre el calculo del bump.
+            bare_forced="$(echo "$FORCED_VERSION" | sed 's/^v//')"
+            if ! echo "$bare_forced" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::La version indicada no es valida: '$FORCED_VERSION'. Usa el formato X.Y.Z."
+              exit 1
             fi
-            echo "Commits del ciclo: $(echo "$subjects" | grep -c . || true)"
+            MAJOR="$(echo "$bare_forced" | cut -d. -f1)"
+            MINOR="$(echo "$bare_forced" | cut -d. -f2)"
+            PATCH="$(echo "$bare_forced" | cut -d. -f3)"
+            echo "Version exacta indicada a mano: $bare_forced"
+          else
+            if [ -n "$FORCED_BUMP" ]; then
+              bump="$FORCED_BUMP"
+              echo "Bump forzado manualmente: $bump"
+            else
+              # Breaking change: '!' en el tipo, o la linea BREAKING CHANGE.
+              if echo "$subjects" | grep -qE '^[a-z]+(\([a-z0-9._/-]+\))?!:'; then
+                bump=major
+              elif echo "$bodies" | grep -q 'BREAKING CHANGE'; then
+                bump=major
+              elif echo "$subjects" | grep -qE '^feat(\([a-z0-9._/-]+\))?:'; then
+                bump=minor
+              else
+                bump=patch
+              fi
+              echo "Commits del ciclo: $(echo "$subjects" | grep -c . || true)"
+            fi
+
+            case "$bump" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+              *) echo "::error::Bump inválido: $bump"; exit 1 ;;
+            esac
           fi
 
-          case "$bump" in
-            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH + 1)) ;;
-            *) echo "::error::Bump inválido: $bump"; exit 1 ;;
-          esac
-
           # Primer release: no bumpeamos, publicamos la base directamente.
-          if [ "$first_release" = "true" ]; then
+          # No aplica si la version se indico a mano.
+          if [ "$first_release" = "true" ] && [ -z "$FORCED_VERSION" ]; then
             MAJOR=0; MINOR=1; PATCH=0
           fi
 
@@ -103,12 +123,21 @@ jobs:
 
           echo "Commit:  $subject"
           echo "Base:    ${current:-(ninguna)}"
-          echo "Bump:    $bump"
+          echo "Bump:    ${bump:-(version exacta)}"
           echo "Release: $version"
 
           if [ -n "$current" ] && [ "$version" = "$current" ]; then
             echo "::error::La versión no cambió ($version). Abortando para no crear un tag duplicado."
             exit 1
+          fi
+
+          # La version no puede ser anterior a la actual: un tag v1.0.0 con un
+          # v0.3.0 ya publicado rompe el orden de las releases.
+          if [ -n "$current" ]; then
+            if [ "$(printf '%s\n%s\n' "$current" "$version" | sort -V | head -n1)" != "$current" ]; then
+              echo "::error::La versión $version es anterior a la actual $current. Abortando."
+              exit 1
+            fi
           fi
 
           # --- La versión vive en el código, no solo en el tag ---
