@@ -17,6 +17,20 @@ updates:
         dependency-type: production
       development-dependencies:
         dependency-type: development
+    # Una major de NestJS o ESLint no es una actualizacion automatica: rompe
+    # el build y necesita revisar el codigo (guards, interceptores, el
+    # comportamiento de ValidationPipe). Se deja la migracion al equipo.
+    ignore:
+      - dependency-name: "@nestjs/*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript-eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@typescript-eslint/*"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
