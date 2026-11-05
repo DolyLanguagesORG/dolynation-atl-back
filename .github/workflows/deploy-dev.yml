@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: read
+  # El workflow reporta el estado del deployment por la API; sin este permiso
+  # el GITHUB_TOKEN es de solo lectura y el POST devuelve 403.
+  deployments: write
 
 concurrency:
   group: deploy-dev-backend
