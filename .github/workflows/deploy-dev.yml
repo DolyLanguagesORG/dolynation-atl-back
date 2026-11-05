@@ -99,6 +99,14 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           set -euo pipefail
+          # El agente SSH se creo en el paso anterior, en otro shell: hay que
+          # volver a cargarlo aqui para que `ssh` pueda usar la llave cifrada.
+          if [ -f ~/.ssh/agent_env ]; then
+            . ~/.ssh/agent_env
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+          fi
           {
             printf 'NODE_ENV=%s\n'        "$NODE_ENV"
             printf 'PORT=%s\n'            "$PORT"
@@ -128,6 +136,14 @@ jobs:
 
       - name: Desplegar (pull + restart + healthcheck)
         run: |
+          set -euo pipefail
+          # El agente SSH se creo en un paso anterior, en otro shell.
+          if [ -f ~/.ssh/agent_env ]; then
+            . ~/.ssh/agent_env
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+          fi
           ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \
             -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
