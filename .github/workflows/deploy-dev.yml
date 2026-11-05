@@ -13,6 +13,9 @@ on:
 
 permissions:
   contents: read
+  # GitHub actualiza el estado del deployment automaticamente; sin este
+  # permiso el GITHUB_TOKEN es de solo lectura y no puede reportarlo.
+  deployments: write
 
 concurrency:
   group: deploy-dev-backend
@@ -165,3 +168,4 @@ jobs:
             -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
             "bash '${{ secrets.ORG_PATH }}/dolynation-tlalli-infra/scripts/deploy-dev-back.sh'"
+
