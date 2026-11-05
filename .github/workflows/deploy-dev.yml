@@ -35,6 +35,14 @@ jobs:
           DEPLOY_SSH_KEY_PASSPHRASE: ${{ secrets.DEPLOY_SSH_KEY_PASSPHRASE }}
         run: |
           set -euo pipefail
+          # El agente SSH se creo en el paso anterior, en otro shell: hay que
+          # volver a cargarlo aqui para que `ssh` pueda usar la llave cifrada.
+          if [ -f ~/.ssh/agent_env ]; then
+            . ~/.ssh/agent_env
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+          fi
 
           if [ -z "${DEPLOY_SSH_KEY:-}" ] || [ -z "${DEPLOY_HOST:-}" ] || [ -z "${DEPLOY_PORT:-}" ]; then
             echo "::error::Faltan secrets de despliegue (DEPLOY_SSH_KEY, DEPLOY_HOST, DEPLOY_PORT) en el environment 'desarrollo'."
@@ -47,17 +55,24 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
 
           # La llave tiene passphrase y el runner no es interactivo, asi que
-          # ssh-add necesita un askpass que se la entregue. El agente SSH y el
-          # archivo con la passphrase viven solo durante este job.
+          # ssh-add necesita un askpass que se la entregue.
+          #
+          # El agente y el askpass se dejan en ~/.ssh porque **cada paso del
+          # workflow corre en un shell nuevo**: lo que se exporta aqui no llega
+          # al paso siguiente. Los pasos que usan `ssh` vuelven a cargarlos con
+          # `. ~/.ssh/agent_env`.
           if [ -n "${DEPLOY_SSH_KEY_PASSPHRASE:-}" ]; then
-            eval "$(ssh-agent -s)"
-            printf '%s\n' "$DEPLOY_SSH_KEY_PASSPHRASE" > /tmp/deploy_passphrase
-            chmod 600 /tmp/deploy_passphrase
-            printf '%s\n' '#!/usr/bin/env bash' 'cat /tmp/deploy_passphrase' > /tmp/askpass.sh
-            chmod 700 /tmp/askpass.sh
-            export SSH_ASKPASS=/tmp/askpass.sh
+            printf '%s\n' "$DEPLOY_SSH_KEY_PASSPHRASE" > ~/.ssh/deploy_passphrase
+            chmod 600 ~/.ssh/deploy_passphrase
+            printf '%s\n' '#!/usr/bin/env bash' 'cat ~/.ssh/deploy_passphrase' > ~/.ssh/askpass.sh
+            chmod 700 ~/.ssh/askpass.sh
+            export SSH_ASKPASS=~/.ssh/askpass.sh
             export SSH_ASKPASS_REQUIRE=force
             export DISPLAY=:0
+            # ssh-agent -s imprime tambien un "echo Agent pid ..." que no es
+            # un comando valido como script: se filtran solo los export.
+            ssh-agent -s | grep '^SSH_AUTH_SOCK\|^SSH_AGENT_PID' > ~/.ssh/agent_env
+            . ~/.ssh/agent_env
             if ! ssh-add ~/.ssh/deploy_key; then
               echo "::error::No se pudo cargar la llave en el agente SSH. Revisa DEPLOY_SSH_KEY_PASSPHRASE."
               exit 1
@@ -99,6 +114,14 @@ jobs:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           set -euo pipefail
+          # El agente SSH se creo en el paso anterior, en otro shell: hay que
+          # volver a cargarlo aqui para que `ssh` pueda usar la llave cifrada.
+          if [ -f ~/.ssh/agent_env ]; then
+            . ~/.ssh/agent_env
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+          fi
           {
             printf 'NODE_ENV=%s\n'        "$NODE_ENV"
             printf 'PORT=%s\n'            "$PORT"
@@ -128,6 +151,15 @@ jobs:
 
       - name: Desplegar (pull + restart + healthcheck)
         run: |
+          set -euo pipefail
+          # El agente SSH se creo en el paso anterior, en otro shell: hay que
+          # volver a cargarlo aqui para que `ssh` pueda usar la llave cifrada.
+          if [ -f ~/.ssh/agent_env ]; then
+            . ~/.ssh/agent_env
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+          fi
           ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \
             -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
