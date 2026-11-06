@@ -8,6 +8,7 @@ import compression from 'compression';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/env.config';
+import { appVersion } from './common/version';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -81,7 +82,10 @@ async function bootstrap(): Promise<void> {
     .setDescription(
       'Backend for the Dolynglish mobile app — language learning with AI-generated reading exercises',
     )
-    .setVersion('1.0.0')
+    // La version del documento es la del build en ejecucion, no un numero
+    // fijo: asi el OpenAPI dice la misma version que reportan /health/live y
+    // /health/ready.
+    .setVersion(appVersion().version)
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
     .addTag('auth', 'User registration, login, logout, refresh')
     .addTag('user', 'User profile and streak')
@@ -114,7 +118,10 @@ async function bootstrap(): Promise<void> {
   app.getHttpAdapter().get('/', (_req, res) => {
     res.json({
       message: 'Dolynglish API is running',
-      data: { version: '1.0.0', status: 'healthy' },
+      // La version y el commit son los del build en ejecucion: los mismos
+      // que devuelve /health/live y /health/ready. Antes iban hardcodeados
+      // ('1.0.0'), asi que la raiz mentia sobre la version que corria.
+      data: { ...appVersion(), status: 'healthy' },
     });
   });
 

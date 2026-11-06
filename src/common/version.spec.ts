@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { appVersion } from './version';
 
 describe('appVersion', () => {
@@ -28,5 +30,18 @@ describe('appVersion', () => {
     delete process.env.GIT_COMMIT;
 
     expect(appVersion().commit).toBe('unknown');
+  });
+
+  it('la versión que reporta es la misma que la del package.json', () => {
+    // La raíz de la API y el documento OpenAPI usan appVersion(): si este
+    // test falla, la raíz estaría mintiendo sobre la versión que corre.
+    delete process.env.APP_VERSION;
+    delete process.env.GIT_COMMIT;
+
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as {
+      version: string;
+    };
+
+    expect(appVersion().version).toBe(pkg.version);
   });
 });

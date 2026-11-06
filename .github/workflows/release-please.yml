@@ -1,0 +1,78 @@
+name: release-please
+
+# Versionado automático en `develop`.
+#
+# release-please mantiene UN pull request de release acumulativo contra
+# `develop`: lo actualiza con cada merge y, al mergearlo, publica el tag
+# `vX.Y.Z` y la GitHub Release.
+#
+# Por qué en `develop` y no en `main`: el versionado tiene que *verse* subir
+# mientras se trabaja. Si el tag solo naciera al llegar a `main`, en
+# desarrollo el número del `package.json` se quedaría congelado durante
+# semanas y no se podría saber qué versión está corriendo el servidor.
+#
+# El token es un PAT (`RELEASE_PLEASE_TOKEN`) y no el `GITHUB_TOKEN` del
+# workflow: el `GITHUB_TOKEN` no dispara otros workflows, así que los checks
+# requeridos (`unit-and-static`, `e2e`, `build`, `openapi-guard`, `pr-title`,
+# `pr-target`) nunca correrían en el PR del bot y el merge se quedaría
+# bloqueado.
+#
+# Ver conventions/versioning.md en el repo de documentación.
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  # El bot abre y actualiza el PR de release, y etiqueta el tag al mergear.
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: release-please-${{ github.repository }}
+  # No se cancela: si el bot ya está creando el release, dejarlo terminar
+  # evita dos tags con la misma versión.
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: release-please
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ejecutar release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          target-branch: develop
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # release-please no tiene auto-merge propio: se activa aquí sobre el PR
+      # que acaba de crear o actualizar. El PR queda en cola y se mergea solo
+      # cuando los checks en verde.
+      #
+      # Si el auto-merge falla (por ejemplo porque el repositorio no lo tiene
+      # habilitado) el paso no rompe el workflow: el PR sigue abierto y una
+      # persona puede mergearlo a mano.
+      - name: Activar auto-merge en el PR de release
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_URL: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+
+          number="$(printf '%s' "$PR_URL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"
+          if [ -z "$number" ]; then
+            echo "::warning::No se pudo deducir el número del PR desde '$PR_URL'."
+            exit 0
+          fi
+
+          echo "Activando auto-merge en el PR #$number"
+          if ! gh pr merge "$number" --repo "${{ github.repository }}" --squash --auto; then
+            echo "::warning::No se pudo activar el auto-merge en el PR #$number."
+            echo "::warning::El PR sigue abierto: se puede mergear a mano."
+          fi
