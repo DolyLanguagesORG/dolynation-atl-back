@@ -91,7 +91,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           VERSION: ${{ steps.release.outputs.tag_name }}
-          REPO: ${{ github.repository }}
+          # Solo el nombre del repositorio: es la clave que usa `versions.yml`.
+          REPO: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
           sha="$(git rev-parse "$VERSION^{commit}")"
