@@ -9,6 +9,23 @@ La **versión vive en `package.json`**: el tag de la release y el `CHANGELOG.md`
 deben coincidir con ella, y el workflow `release.yml` lo verifica antes de
 publicar. Ver [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.2.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.1.0...v0.2.0) (2026-11-06)
+
+
+### Features
+
+* **auth:** dtos de validación y endpoints de autenticación ([#33](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/33)) ([c96e279](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/c96e2796cbcf164ed679307032f356ed51c7bbc6)), closes [#4](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/4)
+* **settings:** add /settings/categories and /settings/languages endpoints ([#35](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/35)) ([e77cfa2](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/e77cfa2b28331a408cd859cc7a3ff457f8cd0a43)), closes [#8](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/8)
+* **user:** add GET and PATCH /user/profile endpoints ([#34](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/34)) ([5f9da88](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/5f9da88d34301a46bc58c960cb30122229744b4c)), closes [#5](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/5)
+
+
+### Bug Fixes
+
+* **ci:** compartir el agente SSH entre los pasos del workflow ([#64](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/64)) ([972fa6c](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/972fa6cd8ab774a8342de92766bea68985521375))
+* **ci:** desplegar con la llave SSH cifrada mediante agente ([#63](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/63)) ([9e1a6d7](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/9e1a6d71360a82836d8e93096966483c4bfa39b2))
+* **ci:** eximir a Dependabot de la validacion y evitar majors incompatibles ([#62](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/62)) ([a708304](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/a7083047045c732b12ed9995cea2363b016c6f3d))
+* **ci:** reportar el estado del deployment a GitHub ([#67](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/67)) ([68f3ac5](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/68f3ac5b0386f89fe2e07cd2bab21e74981e14d8))
+
 ## [No publicado]
 
 ### Añadido
