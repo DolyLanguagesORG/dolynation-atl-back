@@ -82,10 +82,15 @@ jobs:
           # maquinaria de versionado, no una persona, asi que la validacion de
           # la rama origen no aplica. La base y los demas checks siguen
           # aplicandose.
-          if [ "$PR_AUTHOR" = "release-please[bot]" ]; then
-            echo "PR de release-please: se omite la validacion de la rama origen."
-            exit 0
-          fi
+          #
+          # Se exime por el NOMBRE de la rama, no por el autor: el PR lo abre
+          # la cuenta que tiene el PAT del bot, no la cuenta `release-please`.
+          case "$HEAD" in
+            release-please--*)
+              echo "PR de release-please: se omite la validacion de la rama origen."
+              exit 0
+              ;;
+          esac
 
           # Hace cumplir lo que describe conventions/git-workflow.md.
           # La protección de GitHub no puede restringir la rama origen de un
