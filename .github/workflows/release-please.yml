@@ -50,6 +50,54 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+
+      # release-please crea el tag *lightweight*: apunta al commit, pero sin
+      # objeto de tag, así que no conserva la fecha ni el mensaje. La
+      # convención del equipo es que los tags sean anotados. Este paso lo
+      # convierte sin cambiar a qué commit apunta.
+      - name: Convertir el tag en anotado
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+        env:
+          VERSION: ${{ steps.release.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --tags --force
+
+          if [ "$(git cat-file -t "$VERSION")" = "commit" ]; then
+            sha="$(git rev-parse "$VERSION^{commit}")"
+            git tag -d "$VERSION"
+            git tag -a "$VERSION" -m "Release $VERSION" "$sha"
+            git push --force origin "refs/tags/$VERSION"
+            echo "El tag $VERSION ahora es anotado."
+          else
+            echo "El tag $VERSION ya era anotado: no se toca."
+          fi
+
+      # Avisa al manifiesto del proyecto (`dolynation-tlalli-infra`) de que este
+      # repositorio publicó una versión, para que actualice su fila en
+      # `versions.yml` y abra el PR correspondiente. Es lo que mantiene el
+      # manifiesto al día sin que nadie lo edite a mano.
+      - name: Notificar el manifiesto de versiones
+        if: steps.release.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          VERSION: ${{ steps.release.outputs.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse "$VERSION^{commit}")"
+          gh api "repos/DolyLanguagesORG/dolynation-tlalli-infra/dispatches" \
+            -f event_type=release-published \
+            -f "client_payload[repository]=$REPO" \
+            -f "client_payload[version]=$VERSION" \
+            -f "client_payload[sha]=$sha"
+
       # release-please no tiene auto-merge propio: se activa aquí sobre el PR
       # que acaba de crear o actualizar. El PR queda en cola y se mergea solo
       # cuando los checks en verde.
