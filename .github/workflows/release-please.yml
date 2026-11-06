@@ -55,12 +55,15 @@ jobs:
       # objeto de tag, así que no conserva la fecha ni el mensaje. La
       # convención del equipo es que los tags sean anotados. Este paso lo
       # convierte sin cambiar a qué commit apunta.
-      - name: Convertir el tag en anotado
+      - name: Preparar el repositorio
         if: steps.release.outputs.release_created == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      - name: Convertir el tag en anotado
+        if: steps.release.outputs.release_created == 'true'
         env:
           VERSION: ${{ steps.release.outputs.tag_name }}
         run: |
