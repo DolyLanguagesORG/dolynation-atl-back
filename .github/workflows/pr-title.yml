@@ -76,6 +76,17 @@ jobs:
             exit 0
           fi
 
+          # release-please crea la rama del PR de release con su propio
+          # nombre (`release-please--branches--develop--components--<pkg>`),
+          # que no sigue la convencion del equipo. Ese PR lo genera la
+          # maquinaria de versionado, no una persona, asi que la validacion de
+          # la rama origen no aplica. La base y los demas checks siguen
+          # aplicandose.
+          if [ "$PR_AUTHOR" = "release-please[bot]" ]; then
+            echo "PR de release-please: se omite la validacion de la rama origen."
+            exit 0
+          fi
+
           # Hace cumplir lo que describe conventions/git-workflow.md.
           # La protección de GitHub no puede restringir la rama origen de un
           # PR, así que se valida aquí.
