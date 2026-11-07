@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { ReadingsModule } from './modules/readings/readings.module';
+import { ContentModule } from './modules/content/content.module';
 import { IaModule } from './modules/ia/ia.module';
 import { HealthModule } from './modules/health/health.module';
 
@@ -41,6 +42,7 @@ import { HealthModule } from './modules/health/health.module';
     UsersModule,
     SettingsModule,
     ReadingsModule,
+    ContentModule,
     IaModule,
     HealthModule,
   ],
