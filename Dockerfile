@@ -31,9 +31,21 @@ COPY --chown=node:node --from=builder /app/dist ./dist
 
 # El commit entra en la imagen para que /health pueda decir exactamente
 # qué build está corriendo.
+#
+# - GIT_COMMIT: el SHA exacto del código desplegado.
+# - APP_VERSION: la versión ÚNICA de la aplicación (la que compone
+#   versions.yml), no la de este repositorio.
+# - COMPONENT: qué pieza de la aplicación es este proceso.
+# - BUILT_AT: cuándo se construyó el artefacto.
 ARG GIT_COMMIT=unknown
+ARG APP_VERSION=
+ARG COMPONENT=dolynation-atl-back
+ARG BUILT_AT=
 ENV NODE_ENV=production \
-    GIT_COMMIT=$GIT_COMMIT
+    GIT_COMMIT=$GIT_COMMIT \
+    APP_VERSION=$APP_VERSION \
+    COMPONENT=$COMPONENT \
+    BUILT_AT=$BUILT_AT
 EXPOSE 3333
 
 CMD ["node", "dist/main.js"]

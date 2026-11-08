@@ -9,6 +9,7 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { AppConfigService } from './config/env.config';
 import { appVersion } from './common/version';
+import { versionHeaderMiddleware } from './common/middleware/version-header.middleware';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -39,6 +40,11 @@ async function bootstrap(): Promise<void> {
     }),
   );
   app.use(compression());
+
+  // Cabecera X-App-Version en toda respuesta (incluidos 404 y 401).
+  // Va antes del enrutado para que cubra tambien las peticiones que nunca
+  // llegan a un controlador. Ver common/middleware/version-header.middleware.ts
+  app.use(versionHeaderMiddleware);
 
   // Global validation pipe — class-validator + class-transformer
   app.useGlobalPipes(

@@ -1,0 +1,37 @@
+# Contexto de build del backend.
+#
+# Sin esto, `COPY . .` se lleva el node_modules del host (grande y con
+# binarios de otra plataforma), el .git, y cualquier .env que haya quedado
+# en el arbol: las imagenes salen gordas y pueden filtrar secretos.
+
+# Dependencias: se instalan dentro de la imagen con `npm ci`.
+node_modules
+npm-debug.log*
+yarn-error.log*
+
+# Artefactos de build: los genera el builder dentro de la imagen.
+dist
+build
+coverage
+*.tsbuildinfo
+
+# Secretos: nunca deben entrar en la imagen. Los valores llegan por
+# variables de entorno en tiempo de ejecucion.
+.env
+.env.*
+!.env.example
+
+# Git y GitHub
+.git
+.gitignore
+.github
+
+# Documentacion y archivos que no hacen falta en runtime
+*.md
+!README.md
+docs/
+
+# Editor y sistema
+.vscode
+.idea
+.DS_Store

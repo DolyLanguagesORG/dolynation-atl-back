@@ -10,6 +10,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { ReadingsModule } from './modules/readings/readings.module';
 import { IaModule } from './modules/ia/ia.module';
 import { HealthModule } from './modules/health/health.module';
+import { VersionModule } from './modules/version/version.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { HealthModule } from './modules/health/health.module';
     ReadingsModule,
     IaModule,
     HealthModule,
+    VersionModule,
   ],
 })
 export class AppModule {}
