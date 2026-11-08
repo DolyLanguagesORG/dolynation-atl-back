@@ -9,6 +9,10 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
  *  - AllExceptionsFilter: uniform error envelope
  *  - LoggingInterceptor: log every successful request
  *  - JwtAuthGuard: opt-in auth via @Public() decorator
+ *
+ * The `X-App-Version` header is not here: it is a middleware registered in
+ * `main.ts`, because it must also reach the responses that never reach a
+ * controller (404, 401).
  */
 @Global()
 @Module({

@@ -12,9 +12,15 @@ const envSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   API_PREFIX: z.string().default('api/v1'),
   APP_NAME: z.string().default('dolynglish-backend'),
-  // La versión se lee del package.json en runtime; APP_VERSION solo sirve para
-  // sobrescribirla (por ejemplo, en una imagen con otra etiqueta).
+  // La versión ÚNICA de la aplicación: la que compone versions.yml (el
+  // manifiesto de qué versión de cada repositorio forma la app publicada).
+  // La inyecta el despliegue; sin ella se usa la de este repositorio.
   APP_VERSION: z.string().optional(),
+  // Qué pieza de la aplicación es este proceso.
+  COMPONENT: z.string().default('dolynation-atl-back'),
+  // El momento de la construcción del artefacto. Lo inyecta el build de la
+  // imagen; sin ella se usa la hora de arranque del proceso.
+  BUILT_AT: z.string().optional(),
   // El commit lo inyecta el Dockerfile en el build (ARG -> ENV).
   GIT_COMMIT: z.string().default('unknown'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
