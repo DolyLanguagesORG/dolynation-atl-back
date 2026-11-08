@@ -30,6 +30,9 @@ on:
 
 permissions:
   contents: read
+  # `packages: write` es lo que permite publicar la imagen en GHCR. Sin este
+  # permiso el push falla con "denied".
+  packages: write
 
 concurrency:
   group: build-images-${{ github.repository }}
