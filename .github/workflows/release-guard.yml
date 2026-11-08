@@ -1,0 +1,84 @@
+name: release-guard
+
+# Guard single-flight de las ramas `rc-*`.
+#
+# Solo puede existir UNA rc a la vez. Si ya hay otra, este workflow falla con
+# un mensaje claro y la rc nueva no se despliega.
+#
+# Por que importa: la rc es la combinacion de versiones que se va a
+# promover. Si hubiera dos a la vez, dos combinaciones distintas podrian
+# llegar a produccion sin que nadie lo notara.
+#
+# Ver operations/PLAN-DE-DESPLIEGUE.md.
+
+on:
+  push:
+    branches: ['rc-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-guard-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Verificar que no hay otra rc
+    runs-on: ubuntu-latest
+    environment: rehearsal
+    steps:
+      - name: Instalar llave SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_SSH_KEY_PASSPHRASE: ${{ secrets.DEPLOY_SSH_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+
+          if [ -n "${DEPLOY_SSH_KEY_PASSPHRASE:-}" ]; then
+            printf '%s\n' "$DEPLOY_SSH_KEY_PASSPHRASE" > ~/.ssh/deploy_passphrase
+            chmod 600 ~/.ssh/deploy_passphrase
+            printf '%s\n' '#!/usr/bin/env bash' 'cat ~/.ssh/deploy_passphrase' > ~/.ssh/askpass.sh
+            chmod 700 ~/.ssh/askpass.sh
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+            ssh-agent -s | grep '^SSH_AUTH_SOCK\|^SSH_AGENT_PID' > ~/.ssh/agent_env
+            . ~/.ssh/agent_env
+            ssh-add ~/.ssh/deploy_key
+          fi
+
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" > /tmp/host_keys 2>&1 || true
+          if [ ! -s /tmp/host_keys ]; then
+            echo "::error::No se pudo obtener la clave del host."
+            exit 1
+          fi
+          cat /tmp/host_keys >> ~/.ssh/known_hosts
+
+      - name: Verificar que no hay otra rc
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ -f ~/.ssh/agent_env ]; then
+            . ~/.ssh/agent_env
+            export SSH_ASKPASS=~/.ssh/askpass.sh
+            export SSH_ASKPASS_REQUIRE=force
+            export DISPLAY=:0
+          fi
+
+          ssh -i ~/.ssh/deploy_key \
+            -p "${{ secrets.DEPLOY_PORT }}" \
+            -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+            "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
+            "ORG_DIR='${{ secrets.ORG_PATH }}' \
+             bash '${{ secrets.ORG_PATH }}/dolynation-tlalli-infra/scripts/release-guard.sh' '$BRANCH'"
