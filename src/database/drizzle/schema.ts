@@ -144,8 +144,11 @@ export const promptLogs = pgTable(
   }),
 );
 
-<<<<<<< HEAD
-export const schema = { users, userSettings, authAccessTokens, readings, promptLogs };
-=======
-export const schema = { users, admins, authAccessTokens, readings, promptLogs };
->>>>>>> 4b8d040 (feat(admin): add /admin/categories and /admin/users with admin guard)
+export const schema = {
+  users,
+  userSettings,
+  admins,
+  authAccessTokens,
+  readings,
+  promptLogs,
+};
