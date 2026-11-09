@@ -11,6 +11,14 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.3.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.3.0...v0.3.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **ci:** construir la imagen con expresiones validas y etiquetas inmutables ([#86](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/86)) ([8b1ba4e](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/8b1ba4e5e674de3444e934bd5b16110e0e691caa)), closes [#43](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/43)
+* **release:** activar el auto-merge aunque el PR de release ya exista ([#80](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/80)) ([a0da34f](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/a0da34f96ae2a24fe688ccf193d7e6efa13253eb)), closes [#4](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/4)
+
 ## [0.3.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.2.2...v0.3.0) (2026-11-08)
 
 

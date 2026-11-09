@@ -1,6 +1,6 @@
 {
   "name": "dolynglish-backend",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Dolynglish backend API — NestJS 11 + Drizzle ORM + PostgreSQL",
   "license": "UNLICENSED",
   "private": true,
