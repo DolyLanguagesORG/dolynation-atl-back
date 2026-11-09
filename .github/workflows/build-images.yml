@@ -152,7 +152,7 @@ jobs:
         # El servidor de despliegue es arm64 (aarch64). Una imagen construida
         # solo para amd64 falla al arrancar con "exec format error", asi que
         # se construye multi-arquitectura: la imagen vale en los dos.
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
         with:
           platforms: arm64
 
