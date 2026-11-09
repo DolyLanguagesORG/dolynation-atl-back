@@ -17,6 +17,12 @@ import { IaModule } from '../ia/ia.module';
     PromptLogService,
     AuthEventLogService,
   ],
-  exports: [PromptLogService, AuthEventLogService, PromptBuilderService, AiResponseParserService],
+  exports: [
+    ReadingsService,
+    PromptLogService,
+    AuthEventLogService,
+    PromptBuilderService,
+    AiResponseParserService,
+  ],
 })
 export class ReadingsModule {}
