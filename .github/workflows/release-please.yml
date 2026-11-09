@@ -103,23 +103,30 @@ jobs:
             -f "client_payload[sha]=$sha"
 
       # release-please no tiene auto-merge propio: se activa aquí sobre el PR
-      # que acaba de crear o actualizar. El PR queda en cola y se mergea solo
-      # cuando los checks en verde.
+      # de release. El PR queda en cola y se mergea solo cuando los checks
+      # están en verde.
+      #
+      # El PR se localiza por su etiqueta `autorelease: pending`, no por los
+      # outputs de la action: `pr` solo viene informado cuando el PR se crea
+      # de cero, y en las corridas siguientes el bot solo lo actualiza.
       #
       # Si el auto-merge falla (por ejemplo porque el repositorio no lo tiene
       # habilitado) el paso no rompe el workflow: el PR sigue abierto y una
       # persona puede mergearlo a mano.
       - name: Activar auto-merge en el PR de release
-        if: steps.release.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          PR_URL: ${{ steps.release.outputs.pr }}
         run: |
           set -euo pipefail
 
-          number="$(printf '%s' "$PR_URL" | sed -n 's#.*/pull/\([0-9]*\).*#\1#p')"
+          number="$(gh pr list --repo "${{ github.repository }}" \
+            --label 'autorelease: pending' \
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
           if [ -z "$number" ]; then
-            echo "::warning::No se pudo deducir el número del PR desde '$PR_URL'."
+            echo "No hay PR de release abierto: nada que hacer."
             exit 0
           fi
 
