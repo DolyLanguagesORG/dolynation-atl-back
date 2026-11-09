@@ -11,6 +11,15 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.3.2](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.3.1...v0.3.2) (2026-11-09)
+
+
+### Bug Fixes
+
+* **ci:** autenticar en GHCR con el PAT ([#89](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/89)) ([f2d5cb5](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/f2d5cb53f58c976ee54381e47022f7ee1290d35b)), closes [#43](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/43)
+* **ci:** construir la imagen multi-arquitectura (amd64 y arm64) ([#90](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/90)) ([5557713](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/5557713aac6195359e23db3cacd33e885fb12f76)), closes [#43](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/43)
+* **ci:** escribir las etiquetas multi-linea con el delimitador de GITHUB_OUTPUT ([#87](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/87)) ([4947b28](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/4947b28427b3578cdcf1dcce8230e3bb9ddb6478)), closes [#43](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/43)
+
 ## [0.3.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.3.0...v0.3.1) (2026-11-09)
 
 
