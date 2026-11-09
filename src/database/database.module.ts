@@ -27,7 +27,7 @@ export type DrizzleDb = ReturnType<typeof drizzleType>;
     },
     {
       provide: DRIZZLE,
-      useFactory: async (config: AppConfigService): Promise<ReturnType<typeof drizzle>> => {
+      useFactory: (config: AppConfigService): ReturnType<typeof drizzle> => {
         const dbCfg = config.db;
         const pool = new Pool({
           host: dbCfg.host,
@@ -37,16 +37,7 @@ export type DrizzleDb = ReturnType<typeof drizzleType>;
           database: dbCfg.database,
           max: 10,
         });
-        const orm = drizzle(pool);
-        const logger = new Logger('DatabaseModule');
-        try {
-          await pool.query('SELECT 1');
-          logger.log(`Connected to PostgreSQL at ${dbCfg.host}:${dbCfg.port}/${dbCfg.database}`);
-        } catch (err) {
-          logger.error(`Database smoke test FAILED: ${(err as Error).message}`);
-          throw err;
-        }
-        return orm;
+        return drizzle(pool);
       },
       inject: [AppConfigService],
     },
@@ -58,9 +49,8 @@ export class DatabaseModule implements OnModuleInit, OnApplicationShutdown {
 
   constructor(@Inject(DRIZZLE) private readonly db: ReturnType<typeof drizzle>) {}
 
-  async onModuleInit(): Promise<void> {
-    this.logger.log('Database module ready');
-    await Promise.resolve();
+  onModuleInit(): void {
+    this.logger.log('Database pool configured');
   }
 
   async onApplicationShutdown(): Promise<void> {
