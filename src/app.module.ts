@@ -9,6 +9,7 @@ import { UsersModule } from './modules/users/users.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { ReadingsModule } from './modules/readings/readings.module';
 import { ContentModule } from './modules/content/content.module';
+import { EvaluationModule } from './modules/evaluation/evaluation.module';
 import { IaModule } from './modules/ia/ia.module';
 import { HealthModule } from './modules/health/health.module';
 import { VersionModule } from './modules/version/version.module';
@@ -44,6 +45,7 @@ import { VersionModule } from './modules/version/version.module';
     SettingsModule,
     ReadingsModule,
     ContentModule,
+    EvaluationModule,
     IaModule,
     HealthModule,
     VersionModule,
