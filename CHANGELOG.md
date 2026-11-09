@@ -11,6 +11,23 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.4.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.3.2...v0.4.0) (2026-11-09)
+
+
+### Features
+
+* **admin:** add /admin/categories and /admin/users with admin guard ([#39](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/39)) ([e664f49](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/e664f497c0d4dae49cddb73e89f19409ee2c9967))
+* **content:** add /content/generate endpoint ([#36](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/36)) ([364cfa4](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/364cfa40ae2c0969064740d4d3666a295a17b1b6)), closes [#10](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/10)
+* **evaluation:** add /evaluation/submit endpoint ([#37](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/37)) ([a611653](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/a61165314a712d70d1b151672acbf5b29550b0a1)), closes [#13](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/13)
+* **history:** add /history and /history/scores endpoints ([#38](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/38)) ([e588281](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/e58828122966f93198215e24da44f1de9c8c6d57)), closes [#16](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/16)
+* **ia:** add AiDegradedService for retry + circuit breaker on provider calls ([#40](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/40)) ([da1e79c](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/da1e79ca687a18177e718d33f6b96fcb762eaca3)), closes [#18](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/18)
+
+
+### Bug Fixes
+
+* **ci:** la APP_VERSION de la imagen sale del manifiesto cuando no hay tag ([#91](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/91)) ([724dd0f](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/724dd0f288fc66aa0a6bcc03a63fdf9dfcbfa1f1)), closes [#43](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/43)
+* **health:** validar disponibilidad de PostgreSQL ([#60](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/60)) ([99db216](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/99db2167e326836807f5ab7f82e7f0e8c86c62c7))
+
 ## [0.3.2](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.3.1...v0.3.2) (2026-11-09)
 
 
