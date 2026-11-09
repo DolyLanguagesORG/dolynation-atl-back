@@ -130,6 +130,14 @@ jobs:
           echo "tags:"
           echo "$tags"
 
+      - name: Configurar QEMU (para construir tambien para arm64)
+        # El servidor de despliegue es arm64 (aarch64). Una imagen construida
+        # solo para amd64 falla al arrancar con "exec format error", asi que
+        # se construye multi-arquitectura: la imagen vale en los dos.
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
       - name: Configurar Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -150,6 +158,9 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          # Multi-arquitectura: el servidor es arm64 y las maquinas de
+          # desarrollo suelen ser amd64.
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             GIT_COMMIT=${{ steps.meta.outputs.sha }}
