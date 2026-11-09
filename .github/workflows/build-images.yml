@@ -66,6 +66,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           REF: ${{ github.ref }}
           INPUT_TAG: ${{ inputs.tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -81,6 +82,23 @@ jobs:
           if [ -n "$INPUT_TAG" ]; then
             VERSION="${INPUT_TAG#v}"
             CHECKOUT_REF="v${VERSION}"
+          fi
+
+          # Sin tag (push a develop o a una rc) la version sale del manifiesto
+          # del proyecto, en la fila de ESTE repositorio. Sin esto, la
+          # APP_VERSION de la imagen quedaba vacia: el build de la rama
+          # sobrescribia la imagen del tag (mismo SHA) sin la version, y el
+          # endpoint /version reportaba appVersion "".
+          if [ -z "$VERSION" ]; then
+            MANIFEST="https://raw.githubusercontent.com/DolyLanguagesORG/dolynation-tlalli-infra/develop/versions.yml"
+            REPO_NAME="${REPOSITORY##*/}"
+            VERSION="$(curl -fsSL "$MANIFEST" 2>/dev/null | awk -v repo="$REPO_NAME" '
+              $1 == repo ":" { in_repo = 1; next }
+              in_repo && /^[a-z]/ { in_repo = 0 }
+              in_repo && $1 == "version:" { gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit }
+            ' || true)"
+            VERSION="${VERSION:-0.0.0-dev}"
+            echo "Sin tag: la version sale del manifiesto ($VERSION)."
           fi
 
           echo "ref=$CHECKOUT_REF" >> "$GITHUB_OUTPUT"
