@@ -113,7 +113,15 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "built_at=$BUILT_AT" >> "$GITHUB_OUTPUT"
-          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+
+          # Un valor con varias lineas en GITHUB_OUTPUT necesita el formato
+          # con delimitador: `echo "clave=valor"` solo admite una linea y
+          # falla con "Invalid format".
+          {
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           echo "sha=$SHA"
           echo "version=$VERSION"
