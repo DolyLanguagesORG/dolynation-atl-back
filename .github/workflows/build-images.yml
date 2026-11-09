@@ -137,8 +137,12 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Se autentica con el PAT, no con el GITHUB_TOKEN: los paquetes de
+          # GHCR de la organizacion no estan vinculados a los repos, y el
+          # GITHUB_TOKEN de un repo no puede empujar a un paquete sin vinculo
+          # (falla con "denied: read_package").
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
       - name: Construir y publicar la imagen
         uses: docker/build-push-action@v6
