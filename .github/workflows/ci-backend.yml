@@ -46,7 +46,9 @@ jobs:
           npm run typecheck
           npm run lint:check
           npm run format:check
-          npm run test -- --testPathIgnorePatterns='/test/'
+          # `npm run test` ya corre SOLO las unitarias (ver `jest.config.ts`).
+          # Antes hacia falta el flag para que los e2e no se ejecutaran aqui.
+          npm run test
 
       - name: Test del regex de pr-labels
         # El regex de palabras clave de cierre de pr-labels.yml copio una vez

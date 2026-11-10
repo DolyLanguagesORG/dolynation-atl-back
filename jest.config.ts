@@ -1,12 +1,21 @@
 /**
  * Test runner config (Jest) for the NestJS backend.
- * Test files match: *.spec.ts (unit, co-located) and *.e2e-spec.ts (e2e, in /test).
+ *
+ * Aqui corren SOLO las unitarias: `*.spec.ts` (colocadas junto al codigo).
+ * Las end-to-end viven en `test/*.e2e-spec.ts` y tienen su propia config
+ * (`test/jest-e2e.json`), que es la que levanta PostgreSQL.
+ *
+ * Antes este archivo tambien recogia los `*.e2e-spec.ts`, asi que
+ * `npm run verify` exigia una base de datos local (y el CI tenia que
+ * esquivarlo con `--testPathIgnorePatterns`).
  */
 import type { Config } from 'jest';
 
 const config: Config = {
   rootDir: '.',
-  testRegex: '.*\\.(spec|e2e-spec)\\.ts$',
+  // Solo unitarias: los `.e2e-spec.ts` se ejecutan con `npm run test:e2e`
+  // (config propia en `test/jest-e2e.json`).
+  testRegex: '.*\\.spec\\.ts$',
   transform: { '^.+\\.(t|j)s$': 'ts-jest' },
   testEnvironment: 'node',
   moduleFileExtensions: ['ts', 'js', 'json'],
