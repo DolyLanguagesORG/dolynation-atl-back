@@ -42,7 +42,10 @@ const envSchema = z.object({
   JWT_REFRESH_TTL: z.string().default('30d'),
 
   // ===== AI providers =====
-  AI_DEFAULT_PROVIDER: z.enum(['minimax', 'groq']).default('minimax'),
+  // Solo `minimax` esta registrado en la factoria de proveedores
+  // (`AIProviderFactory`). Aceptar `groq` aqui pero no ahi hacia que la app
+  // arrancara y reventara en runtime al pedir una lectura.
+  AI_DEFAULT_PROVIDER: z.enum(['minimax']).default('minimax'),
 
   // MiniMax M3
   MINIMAX_API_KEY: z.string().optional(),
