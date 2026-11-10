@@ -106,9 +106,22 @@ jobs:
               # del issue (<n>-<slug>), para no bloquear su uso.
               # Ver conventions/git-workflow.md
               types='feat|fix|refactor|docs|test|chore|build|ci|perf|style'
-              if [[ "$HEAD" =~ ^(${types})/(issue-)?[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+
+              # La rama se normaliza antes de validar (sin acentos y en
+              # minusculas). El boton "Create a branch" de GitHub arma el
+              # nombre a partir del titulo del issue y puede dejar acentos
+              # ("3-maquetado-e-integracion-..."): con la validacion tal cual
+              # ese PR no se podia mergear nunca.
+              HEAD_NORM="$(printf '%s' "$HEAD" | iconv -f UTF-8 -t ASCII//TRANSLIT 2>/dev/null | tr '[:upper:]' '[:lower:]' || printf '%s' "$HEAD")"
+
+              if [ "$HEAD" != "$HEAD_NORM" ]; then
+                echo "::warning::La rama '$HEAD' tiene acentos o mayusculas. Se valida como '$HEAD_NORM'."
+                echo "::warning::La forma canonica es sin acentos (p. ej. 'integracion'), pero no bloquea el PR."
+              fi
+
+              if [[ "$HEAD_NORM" =~ ^(${types})/(issue-)?[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
                 :
-              elif [[ "$HEAD" =~ ^[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+              elif [[ "$HEAD_NORM" =~ ^[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
                 :
               else
                 echo "::error::Rama origen inválida para 'develop': '$HEAD'"
