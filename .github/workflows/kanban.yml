@@ -43,6 +43,13 @@ concurrency:
   group: kanban-${{ github.repository }}
   cancel-in-progress: true
 
+env:
+  PROJECT_ID: PVT_kwDOE-Gmfs4BlBqa
+  FIELD_ID: PVTSSF_lADOE-Gmfs4BlBqazhjwD-0
+  OPT_DONE: 98236657
+  OPT_TODO: f75ad846
+  OPT_IN_REVIEW: 35fd4ec4
+
 jobs:
   sync:
     name: Sincronizar el tablero
@@ -79,19 +86,71 @@ jobs:
           # --- El estado destino ---
           case "$EVENT" in
             issues)
-              if [ "$ACTION" = "closed" ]; then DESTINO="98236657"; else DESTINO="f75ad846"; fi
+              if [ "$ACTION" = "closed" ]; then DESTINO="$OPT_DONE"; else DESTINO="$OPT_TODO"; fi
               ;;
             pull_request)
               if [ "$ACTION" = "closed" ]; then
-                if [ "$PR_MERGED" = "true" ]; then DESTINO="98236657"; else DESTINO="f75ad846"; fi
+                if [ "$PR_MERGED" = "true" ]; then DESTINO="$OPT_DONE"; else DESTINO="$OPT_TODO"; fi
               else
-                DESTINO="35fd4ec4"
+                DESTINO="$OPT_IN_REVIEW"
               fi
               ;;
             *) DESTINO="" ;;
           esac
 
           echo "destino=$DESTINO" >> "$GITHUB_OUTPUT"
+
+      - name: Listar los items del tablero
+        id: items
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Se usa la API GraphQL con el ID del project: la CLI `gh project`
+          # necesita resolver si el owner es usuario u organizacion, y con un
+          # token que no tiene `read:org` falla con "unknown owner type".
+          gh api graphql -f query='
+            query($id: ID!) {
+              node(id: $id) {
+                ... on ProjectV2 {
+                  items(first: 100) {
+                    nodes {
+                      id
+                      content {
+                        ... on Issue {
+                          number
+                          repository { name }
+                          state
+                        }
+                      }
+                      fieldValues(first: 20) {
+                        nodes {
+                          ... on ProjectV2ItemFieldSingleSelectValue { optionId name }
+                          ... on ProjectV2ItemFieldPullRequestValue {
+                            pullRequests(first: 10) { nodes { number state } }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }' -f id="$PROJECT_ID" > /tmp/items.json
+
+          # Una linea por item: repo<TAB>numero<TAB>item_id<TAB>status<TAB>prs_abiertos<TAB>prs_mergeados
+          jq -r '
+            .data.node.items.nodes[]
+            | select(.content.repository.name == env.REPO)
+            | (.fieldValues.nodes
+               | map(select(.optionId != null) | .optionId) | first // "") as $status
+              | ([.fieldValues.nodes[] | select(.pullRequests != null) | .pullRequests.nodes[] | select(.state == "OPEN") ] | length) as $abiertos
+              | ([.fieldValues.nodes[] | select(.pullRequests != null) | .pullRequests.nodes[] | select(.state == "MERGED") ] | length) as $mergeados
+            | [.content.repository.name, (.content.number|tostring), .id, $status, ($abiertos|tostring), ($mergeados|tostring)]
+            | @tsv' /tmp/items.json > /tmp/items.tsv
+
+          wc -l < /tmp/items.tsv | xargs echo "items de este repo en el tablero:"
 
       - name: Mover las issues en el tablero
         env:
@@ -103,45 +162,32 @@ jobs:
         run: |
           set -euo pipefail
 
-          FIELD="PVTSSF_lADOE-Gmfs4BlBqazhjwD-0"    # campo Status
-          PROJECT_ID="PVT_kwDOE-Gmfs4BlBqa"
-          DONE="98236657"
-          TODO="f75ad846"
-          IN_REVIEW="35fd4ec4"
-
-          listar() {
-            gh project item-list 1 --owner DolyLanguagesORG --limit 200 --format json \
-              | jq -r --arg repo "$REPO" \
-                '.items[] | select(.repository | endswith($repo)) | "\(.content.number)\t\(.id)\t\(.status // "")"'
+          mover() {
+            local item_id="$1" destino="$2" num="$3" actual="$4"
+            if [ "$actual" = "$destino" ]; then return 0; fi
+            gh api graphql -f query='
+              mutation($project: ID!, $item: ID!, $field: ID!, $option: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $project, itemId: $item, fieldId: $field, value: {singleSelectOptionId: $option}
+                }) { projectV2Item { id } }
+              }' \
+              -f project="$PROJECT_ID" -f item="$item_id" -f field="$FIELD_ID" -f option="$destino" >/dev/null
+            echo "  #$num: ${actual:-vacio} -> $destino"
           }
 
           # --- Modo manual: sincronizar todas las issues de este repo ---
           if [ "$EVENT" = "workflow_dispatch" ] && [ -z "$NUMEROS" ]; then
             echo "Sincronizando todas las issues de $REPO..."
-            while IFS=$'\t' read -r num item_id actual; do
+            while IFS=$'\t' read -r repo num item_id status abiertos mergeados; do
               [ -z "$num" ] && continue
-
               estado="$(gh api "repos/$REPO/issues/$num" --jq '.state' 2>/dev/null || echo "")"
               [ -z "$estado" ] && continue
-
-              # PRs vinculados (GitHub los mantiene al dia en el tablero)
-              prs="$(gh project item-list 1 --owner DolyLanguagesORG --limit 200 --format json \
-                | jq -r --arg repo "$REPO" --argjson num "$num" \
-                  '.items[] | select(.content.number == $num and (.repository | endswith($repo))) | ."linked pull requests" // [] | .[]? | "\(.number):\(.state)"' \
-                | tr '\\n' ' ')"
-              abierto="$(printf '%s' "$prs" | tr ' ' '\\n' | grep -c ':open' || true)"
-              mergeado="$(printf '%s' "$prs" | tr ' ' '\\n' | grep -c ':merged' || true)"
-
-              if [ "$estado" = "closed" ] || [ "$mergeado" -gt 0 ]; then destino="$DONE"
-              elif [ "$abierto" -gt 0 ]; then destino="$IN_REVIEW"
+              if [ "$estado" = "closed" ] || [ "$mergeados" -gt 0 ]; then destino="$OPT_DONE"
+              elif [ "$abiertos" -gt 0 ]; then destino="$OPT_IN_REVIEW"
               else continue
               fi
-
-              if [ "$actual" = "$destino" ]; then continue; fi
-              gh project item-edit --id "$item_id" --field-id "$FIELD" \
-                --project-id "$PROJECT_ID" --single-select-option-id "$destino" >/dev/null
-              echo "  #$num: $actual -> $destino"
-            done < <(listar)
+              mover "$item_id" "$destino" "$num" "$status"
+            done < /tmp/items.tsv
             exit 0
           fi
 
@@ -161,25 +207,22 @@ jobs:
               continue
             fi
 
-            item_id="$(listar | awk -F'\t' -v n="$num" '$1==n {print $2; exit}')"
+            fila="$(awk -F'\t' -v n="$num" '$2==n {print; exit}' /tmp/items.tsv)"
 
-            if [ -z "$item_id" ]; then
+            if [ -z "$fila" ]; then
               echo "  #$num no esta en el tablero: se agrega."
-              gh project item-add 1 --owner DolyLanguagesORG \
-                --url "https://github.com/$REPO/issues/$num" >/dev/null 2>&1 || true
+              gh api graphql -f query='
+                mutation($project: ID!, $content: ID!) {
+                  addProjectV2ItemById(input: {projectId: $project, contentId: $content}) { item { id } }
+                }' \
+                -f project="$PROJECT_ID" \
+                -f content="$(gh api "repos/$REPO/issues/$num" --jq .node_id)" >/dev/null 2>&1 || true
               sleep 3
-              item_id="$(listar | awk -F'\t' -v n="$num" '$1==n {print $2; exit}')"
-              [ -z "$item_id" ] && { echo "  #$num: no se pudo agregar."; continue; }
+              fila="$(awk -F'\t' -v n="$num" '$2==n {print; exit}' /tmp/items.tsv)"
+              if [ -z "$fila" ]; then echo "  #$num: no se pudo agregar."; continue; fi
             fi
 
-            actual="$(listar | awk -F'\t' -v n="$num" '$1==n {print $3; exit}')"
-
-            if [ "$actual" = "$DESTINO" ]; then
-              echo "  #$num ya estaba en el estado destino."
-              continue
-            fi
-
-            gh project item-edit --id "$item_id" --field-id "$FIELD" \
-              --project-id "$PROJECT_ID" --single-select-option-id "$DESTINO" >/dev/null
-            echo "  #$num: $actual -> $DESTINO"
+            item_id="$(printf '%s' "$fila" | cut -f3)"
+            actual="$(printf '%s' "$fila" | cut -f4)"
+            mover "$item_id" "$DESTINO" "$num" "$actual"
           done
