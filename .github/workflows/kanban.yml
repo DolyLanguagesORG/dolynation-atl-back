@@ -1,0 +1,147 @@
+name: kanban
+
+# Sincroniza el tablero Kanban de la organizacion.
+#
+# El tablero (https://github.com/orgs/DolyLanguagesORG/projects/1) tiene un
+# campo `Status` con cuatro valores: Todo, In Progress, In Review y Done.
+# GitHub solo actualiza solo los campos que el mismo gestiona ("Linked pull
+# requests", "Sub-issues progress"); el `Status` hay que moverlo a mano, y
+# por eso se quedaba en "Todo" con el PR ya abierto.
+#
+# Este workflow lo mueve solo, en este repo:
+#
+#   PR abierto que referencia la issue   ->  In Review
+#   PR mergeado que cierra la issue      ->  Done
+#   PR cerrado sin mergear               ->  Todo (vuelve a la cola)
+#   Issue cerrada                        ->  Done
+#   Issue reabierta                      ->  Todo
+#
+# Los cuatro repos tienen este mismo workflow (es el patron de CI del
+# proyecto: cada repo es autonomo).
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed, synchronize]
+  issues:
+    types: [closed, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: kanban-${{ github.repository }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Sincronizar el tablero
+    runs-on: ubuntu-latest
+    steps:
+      - name: Calcular el estado destino
+        id: calc
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.action }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+
+          PROJECT="DolyLanguagesORG"
+          FIELD="PVTSSF_lADOE-Gmfs4BlBqazhjwD-0"   # campo Status
+          DONE="98236657"
+          TODO="f75ad846"
+
+          # --- Que issues menciona este PR? ---
+          if [ "$EVENT" = "issues" ]; then
+            NUMEROS="$ISSUE_NUMBER"
+          else
+            NUMEROS="$(printf '%s\n' "$PR_BODY" | grep -oE '(^|[^A-Za-z0-9-])#[0-9]+' | grep -oE '[0-9]+' | sort -u | tr '\n' ' ' || true)"
+            # El nombre de la rama suele traer el numero: feat/issue-13-...
+            RAMA_NUM="$(printf '%s' "$HEAD_REF" | grep -oE 'issue-[0-9]+' | grep -oE '[0-9]+' || true)"
+            if [ -n "$RAMA_NUM" ]; then NUMEROS="$NUMEROS $RAMA_NUM"; fi
+          fi
+
+          echo "numeros=$NUMEROS" >> "$GITHUB_OUTPUT"
+
+          # --- El estado destino ---
+          case "$EVENT" in
+            issues)
+              if [ "$ACTION" = "closed" ]; then DESTINO="$DONE"; else DESTINO="$TODO"; fi
+              ;;
+            pull_request)
+              if [ "$ACTION" = "closed" ]; then
+                if [ "$PR_MERGED" = "true" ]; then DESTINO="$DONE"; else DESTINO="$TODO"; fi
+              else
+                DESTINO="35fd4ec4"   # In Review
+              fi
+              ;;
+            *) DESTINO="" ;;
+          esac
+
+          echo "destino=$DESTINO" >> "$GITHUB_OUTPUT"
+          echo "destino_nombre: $DESTINO" >> "$GITHUB_OUTPUT"
+
+      - name: Mover las issues en el tablero
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUMEROS: ${{ steps.calc.outputs.numeros }}
+          DESTINO: ${{ steps.calc.outputs.destino }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$DESTINO" ] || [ -z "$NUMEROS" ]; then
+            echo "Nada que sincronizar."
+            exit 0
+          fi
+
+          for num in $NUMEROS; do
+            [ -z "$num" ] && continue
+
+            # En estos repos los PRs y las issues comparten numeracion: hay que
+            # confirmar que el numero es de una ISSUE y no de un PR.
+            if ! gh api "repos/$REPO/issues/$num" --jq '.pull_request' 2>/dev/null | grep -q null; then
+              echo "  #$num no es una issue: se omite."
+              continue
+            fi
+
+            item_id="$(gh project item-list 1 --owner DolyLanguagesORG --limit 200 --format json \
+              | jq -r --arg repo "$REPO" --argjson num "$num" \
+                '.items[] | select(.content.number == $num and (.repository | endswith($repo))) | .id' \
+              | head -1)"
+
+            if [ -z "$item_id" ]; then
+              echo "  #$num no esta en el tablero: se agrega."
+              gh project item-add 1 --owner DolyLanguagesORG \
+                --url "https://github.com/$REPO/issues/$num" >/dev/null 2>&1 || true
+              sleep 2
+              item_id="$(gh project item-list 1 --owner DolyLanguagesORG --limit 200 --format json \
+                | jq -r --arg repo "$REPO" --argjson num "$num" \
+                  '.items[] | select(.content.number == $num and (.repository | endswith($repo))) | .id' \
+                | head -1)"
+              [ -z "$item_id" ] && { echo "  #$num: no se pudo agregar."; continue; }
+            fi
+
+            actual="$(gh project item-list 1 --owner DolyLanguagesORG --limit 200 --format json \
+              | jq -r --arg repo "$REPO" --argjson num "$num" \
+                '.items[] | select(.content.number == $num and (.repository | endswith($repo))) | .status' \
+              | head -1)"
+
+            if [ "$actual" = "$DESTINO" ]; then
+              echo "  #$num ya estaba en el estado destino."
+              continue
+            fi
+
+            gh project item-edit --id "$item_id" \
+              --field-id "PVTSSF_lADOE-Gmfs4BlBqazhjwD-0" \
+              --project-id "PVT_kwDOE-Gmfs4BlBqa" \
+              --single-select-option-id "$DESTINO" >/dev/null
+            echo "  #$num: $actual -> $DESTINO"
+          done
