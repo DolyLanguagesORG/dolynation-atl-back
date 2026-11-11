@@ -195,6 +195,7 @@ jobs:
 
               if [ "$estado" = "closed" ] || [ "$mergeados" -gt 0 ]; then destino="$OPT_DONE"
               elif [ "$abiertos" -gt 0 ]; then destino="$OPT_IN_REVIEW"
+              elif [ "$status" = "$OPT_IN_REVIEW" ]; then destino="$OPT_TODO"
               else continue
               fi
               mover "$item_id" "$destino" "$num" "$status"
