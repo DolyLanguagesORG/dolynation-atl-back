@@ -178,6 +178,9 @@ jobs:
           # --- Modo manual: sincronizar todas las issues de este repo ---
           if [ "$EVENT" = "workflow_dispatch" ] && [ -z "$NUMEROS" ]; then
             echo "Sincronizando todas las issues de $REPO..."
+            # Los PRs abiertos se traen UNA vez (no por issue): el bucle hacia
+            # una llamada a la API por cada issue.
+            PRS="$(gh api "repos/$REPO/pulls?state=open&per_page=100" | jq -r '.[] | "###" + (.number|tostring) + "\n" + (.body // "") + "\n" + (.head.ref // "")')"
             while IFS=$'\t' read -r repo num item_id status abiertos mergeados; do
               [ -z "$num" ] && continue
               estado="$(gh api "repos/$REPO/issues/$num" --jq '.state' 2>/dev/null || echo "")"
@@ -185,7 +188,7 @@ jobs:
               # PRs MERGED: los tiene el tablero (GitHub los mantiene al dia).
               # PRs ABIERTOS: se buscan por API, porque el campo del tablero
               # "linked pull requests" no siempre esta al dia.
-              abiertos="$(gh api "repos/$REPO/pulls?state=open&per_page=100" | jq -r '.[].body // ""' | grep -cE "(^|[^0-9])#$num([^0-9]|$)" || true)"
+              abiertos="$(printf '%s' "$PRS" | grep -cE "(^|[^0-9])#$num([^0-9]|$)|issue-$num([^0-9]|$)" || true)"
 
               if [ "$estado" = "closed" ] || [ "$mergeados" -gt 0 ]; then destino="$OPT_DONE"
               elif [ "$abiertos" -gt 0 ]; then destino="$OPT_IN_REVIEW"
