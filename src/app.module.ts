@@ -6,6 +6,7 @@ import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { ReadingsModule } from './modules/readings/readings.module';
 import { ContentModule } from './modules/content/content.module';
@@ -44,6 +45,7 @@ import { VersionModule } from './modules/version/version.module';
     DatabaseModule,
     AuthModule,
     UsersModule,
+    SubscriptionsModule,
     SettingsModule,
     ReadingsModule,
     ContentModule,

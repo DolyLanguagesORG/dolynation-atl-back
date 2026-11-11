@@ -17,6 +17,7 @@ export interface PublicUser {
   id: number;
   email: string;
   fullName: string | null;
+  subscriptionTier: string | null;
   currentStreak: number;
   lastStreakDate: string | null;
   createdAt: Date;
@@ -70,6 +71,7 @@ export class UsersService {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      subscriptionTier: user.subscriptionTier ?? null,
       currentStreak: user.currentStreak,
       lastStreakDate: user.lastStreakDate,
       createdAt: user.createdAt,

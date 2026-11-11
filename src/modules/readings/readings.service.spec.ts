@@ -7,15 +7,34 @@ import type { RandomPromptParams } from './prompt-generation/catalog.types';
 import { AiResponseParserService } from './ai-response-parser.service';
 import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
+import { SettingsService } from '../settings/settings.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { DRIZZLE } from '../../database/database.tokens';
 
 describe('ReadingsService', () => {
   let service: ReadingsService;
   let factory: jest.Mocked<Pick<AIProviderFactory, 'getFullResponse'>>;
-  let promptGen: jest.Mocked<Pick<PromptBuilderService, 'buildPrompt' | 'generateRandomParams'>>;
+  let promptGen: jest.Mocked<
+    Pick<
+      PromptBuilderService,
+      | 'buildPrompt'
+      | 'generateRandomParams'
+      | 'buildEnrichmentPrompt'
+      | 'parseEnrichmentResponse'
+      | 'buildFallbackEnrichedTopic'
+    >
+  >;
   let parser: jest.Mocked<Pick<AiResponseParserService, 'parseGeneratedText' | 'parseEvaluation'>>;
   let logs: jest.Mocked<Pick<PromptLogService, 'logPromptSuccess' | 'logPromptError'>>;
   let users: jest.Mocked<Pick<UsersService, 'findById'>>;
+  let settings: jest.Mocked<Pick<SettingsService, 'getCategories' | 'getLanguage'>>;
+  let subscriptions: {
+    assertSubscriptionActive: jest.Mock;
+    assertCanGenerateReading: jest.Mock;
+    assertLanguageAllowed: jest.Mock;
+    assertCanAskQuestion: jest.Mock;
+    recordExplanation: jest.Mock;
+  };
   let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock; delete: jest.Mock };
 
   const buildModuleWithDb = async (dbMock: typeof db): Promise<ReadingsService> => {
@@ -27,6 +46,8 @@ describe('ReadingsService', () => {
         { provide: AiResponseParserService, useValue: parser },
         { provide: PromptLogService, useValue: logs },
         { provide: UsersService, useValue: users },
+        { provide: SettingsService, useValue: settings },
+        { provide: SubscriptionsService, useValue: subscriptions },
         { provide: DRIZZLE, useValue: dbMock },
       ],
     }).compile();
@@ -38,12 +59,49 @@ describe('ReadingsService', () => {
     promptGen = {
       buildPrompt: jest.fn(),
       generateRandomParams: jest.fn(),
+      buildEnrichmentPrompt: jest.fn().mockReturnValue({
+        systemPrompt: 'enrich_sys',
+        userPrompt: 'enrich_usr',
+        seed: 'enrich_seed',
+      }),
+      parseEnrichmentResponse: jest.fn().mockImplementation((_raw, _fallback) => ({
+        subtopic: 'Test Subtopic',
+        perspective: 'causes',
+        uniqueFocusElement: 'its impact on daily life',
+        keyConcepts: ['concept1'],
+      })),
+      buildFallbackEnrichedTopic: jest.fn().mockReturnValue({
+        subtopic: 'Fallback Subtopic',
+        perspective: 'causes',
+        uniqueFocusElement: 'its impact on daily life',
+        keyConcepts: [],
+      }),
     };
     parser = {
       parseGeneratedText: jest.fn(),
       parseEvaluation: jest.fn(),
     };
     logs = { logPromptSuccess: jest.fn(), logPromptError: jest.fn() };
+    subscriptions = {
+      assertSubscriptionActive: jest.fn().mockResolvedValue(undefined),
+      assertCanGenerateReading: jest.fn().mockResolvedValue(undefined),
+      assertLanguageAllowed: jest.fn().mockResolvedValue(undefined),
+      assertCanAskQuestion: jest.fn().mockResolvedValue(undefined),
+      recordExplanation: jest.fn().mockResolvedValue(undefined),
+    };
+    settings = {
+      getLanguage: jest.fn().mockResolvedValue('en'),
+      getCategories: jest
+        .fn()
+        .mockResolvedValue([
+          'technology',
+          'history',
+          'education',
+          'programming',
+          'culture',
+          'pop_culture',
+        ]),
+    };
     users = {
       findById: jest.fn().mockResolvedValue({
         id: 42,
@@ -85,7 +143,9 @@ describe('ReadingsService', () => {
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
             limit: jest.fn().mockResolvedValue([insertedReading]),
-            orderBy: jest.fn().mockResolvedValue([insertedReading]),
+            orderBy: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([insertedReading]),
+            }),
           }),
         }),
       }),
@@ -113,7 +173,9 @@ describe('ReadingsService', () => {
           from: jest.fn().mockReturnValue({
             where: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue([returned]),
-              orderBy: jest.fn().mockResolvedValue([returned]),
+              orderBy: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue([returned]),
+              }),
             }),
           }),
         }),
@@ -173,11 +235,13 @@ describe('ReadingsService', () => {
         options: { category: 'history', difficulty: 'medium', size: 'medium' },
       });
 
-      expect(promptGen.generateRandomParams).toHaveBeenCalledWith({
-        category: 'history',
-        difficulty: 'medium',
-        size: 'medium',
-      });
+      expect(promptGen.generateRandomParams).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'history',
+          difficulty: 'medium',
+          size: 'medium',
+        }),
+      );
       expect(promptGen.buildPrompt).toHaveBeenCalledWith(params);
       expect(factory.getFullResponse).toHaveBeenCalled();
       expect(parser.parseGeneratedText).toHaveBeenCalled();
@@ -315,6 +379,143 @@ describe('ReadingsService', () => {
       await expect(
         service.generate({ userId: 42, options: { category: 'history', difficulty: 'medium' } }),
       ).rejects.toBeInstanceOf(AppHttpException);
+    });
+
+    it('rejects with RESOURCE_FORBIDDEN if category is not in user preferences', async () => {
+      settings.getCategories.mockResolvedValue(['technology', 'history']);
+      service = await buildModuleWithDb(db);
+
+      await expect(
+        service.generate({ userId: 42, options: { category: 'gastronomy', difficulty: 'medium' } }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'RESOURCE_FORBIDDEN',
+        }),
+      });
+    });
+
+    it('supports custom dynamic categories if they are in user preferences', async () => {
+      settings.getCategories.mockResolvedValue(['quantum_physics']);
+      const params: RandomPromptParams = {
+        category: 'quantum_physics',
+        difficulty: 'hard',
+        size: 'long',
+        subcategories: ['Quantum Entanglement'],
+        contentType: 'interesting_discovery',
+        perspective: 'causes',
+        uniqueFocusElement: 'the paradox of spooky action at a distance',
+        keyConcepts: ['entanglement', 'Bell inequality'],
+      };
+      promptGen.generateRandomParams.mockReturnValue(params);
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys',
+        userPrompt: 'usr',
+        seed: 'seed-qp',
+        params,
+      });
+      factory.getFullResponse.mockResolvedValue(
+        '{"title":"Quantum Wonders","description":"D","content":"C","category":"quantum_physics","difficulty":"hard"}',
+      );
+      const returned = {
+        id: 99,
+        userId: 42,
+        status: 'pending',
+        title: 'Quantum Wonders',
+        description: 'D',
+        content: 'C',
+        category: 'quantum_physics',
+        difficulty: 'hard' as const,
+        wordCount: 100,
+        score: null,
+        passed: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      parser.parseGeneratedText.mockReturnValue(returned);
+      const localDb = makeDbReturning(returned);
+      service = await buildModuleWithDb(localDb);
+
+      const result = await service.generate({
+        userId: 42,
+        options: { category: 'quantum_physics', difficulty: 'hard', size: 'long' },
+      });
+
+      expect(result.category).toBe('quantum_physics');
+      expect(promptGen.buildEnrichmentPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'quantum_physics' }),
+      );
+    });
+
+    it('passes recent titles to the enrichment prompt to prevent repetition', async () => {
+      const recentReading1 = { title: 'Steam Engine Revolution' };
+      const recentReading2 = { title: 'Printing Press Evolution' };
+      const queryResult = [recentReading1, recentReading2];
+      const orderByChain: any = Promise.resolve(queryResult);
+      orderByChain.limit = jest.fn().mockResolvedValue(queryResult);
+
+      const selectWithTitles = {
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            orderBy: jest.fn().mockReturnValue(orderByChain),
+            limit: jest.fn().mockResolvedValue([]),
+          }),
+        }),
+      };
+      const returned = {
+        id: 101,
+        userId: 42,
+        status: 'pending',
+        title: 'Industrial Age',
+        description: 'D',
+        content: 'C',
+        category: 'history',
+        difficulty: 'medium' as const,
+        wordCount: 100,
+        score: null,
+        passed: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      parser.parseGeneratedText.mockReturnValue(returned);
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys',
+        userPrompt: 'usr',
+        seed: 'seed-titles',
+        params: {
+          category: 'history',
+          difficulty: 'medium',
+          size: 'medium',
+          subcategories: ['Subcategory test'],
+          contentType: 'interesting_discovery',
+          perspective: 'causes',
+          uniqueFocusElement: 'its impact on daily life',
+        },
+      });
+      factory.getFullResponse.mockResolvedValue(
+        '{"title":"Industrial Age","description":"D","content":"C","category":"history","difficulty":"medium"}',
+      );
+      const localDb = {
+        ...makeDbReturning(returned),
+        select: jest.fn().mockReturnValue(selectWithTitles),
+      };
+      service = await buildModuleWithDb(localDb);
+
+      await service.generate({
+        userId: 42,
+        options: { category: 'history', difficulty: 'medium' },
+      });
+
+      expect(promptGen.buildEnrichmentPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'history',
+          recentTitles: expect.arrayContaining([
+            'Steam Engine Revolution',
+            'Printing Press Evolution',
+          ]),
+        }),
+      );
     });
   });
 
@@ -522,6 +723,8 @@ describe('ReadingsService', () => {
           { provide: AiResponseParserService, useValue: parser },
           { provide: PromptLogService, useValue: logs },
           { provide: UsersService, useValue: users },
+          { provide: SettingsService, useValue: settings },
+          { provide: SubscriptionsService, useValue: subscriptions },
           { provide: DRIZZLE, useValue: dbWithCapture },
         ],
       }).compile();

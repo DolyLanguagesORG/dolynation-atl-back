@@ -18,6 +18,7 @@ describe('AuthService', () => {
     id: 1,
     email: 'a@b.c',
     fullName: 'A B',
+    subscriptionTier: null,
     currentStreak: 0,
     lastStreakDate: null,
     createdAt: new Date(),
@@ -74,6 +75,7 @@ describe('AuthService', () => {
         createdAt: new Date(),
         updatedAt: null,
         deletedAt: null,
+        subscriptionTier: null,
       };
       usersService.findByEmail.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRow);
@@ -119,6 +121,7 @@ describe('AuthService', () => {
         createdAt: new Date(),
         updatedAt: null,
         deletedAt: null,
+        subscriptionTier: null,
       };
       usersService.findByEmail.mockResolvedValue(userRow);
       usersService.verifyPassword.mockResolvedValue(true);
@@ -149,6 +152,7 @@ describe('AuthService', () => {
         createdAt: new Date(),
         updatedAt: null,
         deletedAt: null,
+        subscriptionTier: null,
       };
       usersService.findByEmail.mockResolvedValue(userRow);
       usersService.verifyPassword.mockResolvedValue(false);
@@ -170,6 +174,7 @@ describe('AuthService', () => {
         createdAt: new Date(),
         updatedAt: null,
         deletedAt: null,
+        subscriptionTier: null,
       };
       usersService.findById.mockResolvedValue(userRow);
       usersService.toPublic.mockReturnValue(publicUserFixture);

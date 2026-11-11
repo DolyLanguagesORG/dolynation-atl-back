@@ -2,8 +2,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AIProviderFactory } from '../ia/providers/ai-provider.factory';
-import { PromptBuilderService, READING_CATEGORIES } from './prompt-generation';
-import type { DifficultyLevel, RandomPromptParams } from './prompt-generation/catalog.types';
+import { PromptBuilderService } from './prompt-generation';
+import type {
+  DifficultyLevel,
+  EnrichedTopic,
+  RandomPromptParams,
+} from './prompt-generation/catalog.types';
 import {
   AiResponseParserService,
   type GeneratedText,
@@ -11,6 +15,8 @@ import {
 } from './ai-response-parser.service';
 import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
+import { SettingsService } from '../settings/settings.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readings } from '../../database/drizzle/schema';
@@ -33,6 +39,8 @@ export class ReadingsService {
     private readonly parser: AiResponseParserService,
     private readonly promptLogs: PromptLogService,
     private readonly users: UsersService,
+    private readonly settings: SettingsService,
+    private readonly subscriptions: SubscriptionsService,
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
   ) {}
 
@@ -42,18 +50,90 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
     }
 
+    // Subscription & Daily Limits check
+    await this.subscriptions.assertSubscriptionActive(input.userId);
+    await this.subscriptions.assertCanGenerateReading(input.userId);
+
+    // Target language validation against active subscription plan
+    const targetLanguage =
+      input.options.language ?? (await this.settings.getLanguage(input.userId));
+    await this.subscriptions.assertLanguageAllowed(input.userId, targetLanguage);
+
     const pendingCount = await this.getPendingCount(input.userId);
     if (pendingCount >= MAX_PENDING) {
       throw new AppHttpException(ErrorCode.READING_PENDING_LIMIT_REACHED, { max: MAX_PENDING });
     }
 
-    // The client controls 3 explicit fields (category, difficulty, size).
-    // The system picks the rest — subcategory focus, content type, perspective
-    // and unique angle — so the LLM gets a non-trivial composition every time.
+    // Dynamic Category Validation:
+    // The requested category MUST be among the user's preferred categories configured in their profile.
+    const userCategories = await this.settings.getCategories(input.userId);
+    const requestedCategory = input.options.category.trim();
+    const isAllowed = userCategories.some(
+      (c) => c.trim().toLowerCase() === requestedCategory.toLowerCase(),
+    );
+
+    if (!isAllowed) {
+      throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+        category: input.options.category,
+        message: `Category '${input.options.category}' is not in your configured preferences. Please add it to your categories in settings first.`,
+        userCategories,
+      });
+    }
+
+    // Retrieve recent reading titles in this category to prevent duplicate or repetitive content
+    const recentReadings = await this.db
+      .select({ title: readings.title })
+      .from(readings)
+      .where(
+        and(
+          eq(readings.userId, input.userId),
+          eq(readings.category, input.options.category),
+          isNull(readings.deletedAt),
+        ),
+      )
+      .orderBy(desc(readings.createdAt))
+      .limit(20);
+    const recentTitles = recentReadings.map((r) => r.title);
+
+    const requestedDifficulty: DifficultyLevel = input.options.difficulty ?? 'medium';
+
+    // Step 1: Intermediate Prompt — Brainstorming & Topic Enrichment
+    // Asks the AI for a novel, specific subtopic, perspective angle, and key concepts,
+    // explicitly providing the last up to 20 titles to forbid repetition.
+    const fallbackTopic = this.promptGen.buildFallbackEnrichedTopic(
+      input.options.category,
+      requestedDifficulty,
+    );
+    const enrichmentPrompt = this.promptGen.buildEnrichmentPrompt({
+      category: input.options.category,
+      difficulty: requestedDifficulty,
+      recentTitles,
+      language: targetLanguage,
+    });
+
+    let enrichedTopic: EnrichedTopic;
+    try {
+      const rawEnrichment = await this.factory.getFullResponse([
+        { role: 'system', content: enrichmentPrompt.systemPrompt },
+        { role: 'user', content: enrichmentPrompt.userPrompt },
+      ]);
+      enrichedTopic = this.promptGen.parseEnrichmentResponse(rawEnrichment, fallbackTopic);
+    } catch (_err) {
+      enrichedTopic = fallbackTopic;
+    }
+
+    // Step 2: Final Text Generation Prompt
+    // Builds the full generation prompt with pedagogical constraints (CEFR, vocabulary, grammar)
+    // and feeds the enriched subtopic and key concepts.
     const params: RandomPromptParams = this.promptGen.generateRandomParams({
       category: input.options.category,
-      difficulty: input.options.difficulty ?? 'medium',
+      difficulty: requestedDifficulty,
       size: input.options.size ?? 'medium',
+      subcategories: [enrichedTopic.subtopic],
+      uniqueFocusElement: enrichedTopic.uniqueFocusElement,
+      keyConcepts: enrichedTopic.keyConcepts,
+      avoidTopics: recentTitles,
+      language: targetLanguage,
     });
     const prompt = this.promptGen.buildPrompt(params);
 
@@ -69,7 +149,10 @@ export class ReadingsService {
 
     let parsed: GeneratedText;
     try {
-      parsed = this.parser.parseGeneratedText(rawResponse);
+      parsed = this.parser.parseGeneratedText(rawResponse, [
+        input.options.category,
+        ...userCategories,
+      ]);
     } catch (err) {
       await this.promptLogs.logPromptError(
         'text_generation_failed',
@@ -80,16 +163,10 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_parse' });
     }
 
-    // Enforce the requested difficulty. The system prompt tells the LLM
-    // the output "difficulty" field MUST be the requested one, but if the
-    // model ignores that and returns a different level, we override it
-    // before persisting so the database stays in sync with the user's
-    // request.
-    const requestedDifficulty: DifficultyLevel = input.options.difficulty ?? 'medium';
+    // Enforce the requested difficulty and category so database state stays consistent
     if (parsed.difficulty !== requestedDifficulty) {
       const previousDifficulty = parsed.difficulty;
       parsed = { ...parsed, difficulty: requestedDifficulty };
-      // Don't bail — log and continue.
       // eslint-disable-next-line no-console
       console.warn('Difficulty mismatch between prompt and AI response', {
         userId: input.userId,
@@ -99,13 +176,7 @@ export class ReadingsService {
       });
     }
 
-    // Normalise the category too: the LLM should echo one of the documented
-    // values. If it picks something off-list, fall back to what the user
-    // requested so the reading stays in scope.
-    const allowedCategories = new Set<string>(READING_CATEGORIES);
-    if (!allowedCategories.has(parsed.category)) {
-      parsed = { ...parsed, category: input.options.category };
-    }
+    parsed = { ...parsed, category: input.options.category };
 
     const wordCount = parsed.content.trim().split(/\s+/).filter(Boolean).length;
     const row: NewReading = {
@@ -137,12 +208,15 @@ export class ReadingsService {
         contentType: prompt.params.contentType,
         perspective: prompt.params.perspective,
         uniqueFocusElement: prompt.params.uniqueFocusElement,
+        keyConcepts: prompt.params.keyConcepts,
+        enrichedSubtopic: enrichedTopic.subtopic,
       },
     );
     return inserted;
   }
 
   async findById(id: number, userId: number): Promise<Reading> {
+    await this.subscriptions.assertSubscriptionActive(userId);
     const rows = await this.db
       .select()
       .from(readings)
@@ -156,6 +230,7 @@ export class ReadingsService {
   }
 
   async listPending(userId: number): Promise<Reading[]> {
+    await this.subscriptions.assertSubscriptionActive(userId);
     return this.db
       .select()
       .from(readings)
@@ -170,6 +245,7 @@ export class ReadingsService {
   }
 
   async listCompleted(userId: number): Promise<Reading[]> {
+    await this.subscriptions.assertSubscriptionActive(userId);
     return this.db
       .select()
       .from(readings)
@@ -285,6 +361,8 @@ Evaluate how well the user understood the main idea of the text.`;
     word: string,
     context?: string,
   ): Promise<{ explanation: string; reading: Reading }> {
+    await this.subscriptions.assertSubscriptionActive(userId);
+    await this.subscriptions.assertCanAskQuestion(userId);
     const reading = await this.findById(id, userId);
 
     const systemPrompt = `You are an English vocabulary explainer for language learners.
@@ -313,6 +391,15 @@ The explanation should be 1-2 sentences, simple enough for a B1-B2 learner.`;
     } catch {
       explanation = raw.trim();
     }
+
+    await this.subscriptions.recordExplanation({
+      readingId: id,
+      userId,
+      word,
+      context,
+      explanation,
+    });
+
     return { explanation, reading };
   }
 

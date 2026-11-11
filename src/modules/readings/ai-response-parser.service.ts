@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-export type TextCategory =
-  'technology' | 'history' | 'education' | 'programming' | 'culture' | 'pop_culture';
+export type TextCategory = string;
 export type TextDifficulty = 'easy' | 'medium' | 'hard';
 
 export interface GeneratedText {
@@ -50,22 +49,30 @@ function asString(value: unknown, field: string): string {
 
 @Injectable()
 export class AiResponseParserService {
-  parseGeneratedText(rawResponse: string): GeneratedText {
+  parseGeneratedText(rawResponse: string, allowedCategories?: string[]): GeneratedText {
     const parsed = this.extractJson(rawResponse) as Record<string, unknown>;
 
     if (!parsed.title || !parsed.description || !parsed.content || !parsed.category) {
       throw new Error('Missing required fields in generated text response');
     }
 
-    const categoryNormalized = asString(parsed.category, 'category')
-      .toLowerCase()
-      .trim()
-      .replace(/[\s-]+/g, '_');
+    const categoryRaw = asString(parsed.category, 'category').trim();
+    const categoryNormalized = categoryRaw.toLowerCase().replace(/[\s-]+/g, '_');
 
-    if (!ALLOWED_CATEGORIES.includes(categoryNormalized as TextCategory)) {
-      throw new Error(`Invalid category: ${asString(parsed.category, 'category')}`);
+    const validList =
+      allowedCategories && allowedCategories.length > 0
+        ? allowedCategories.map((c) =>
+            c
+              .trim()
+              .toLowerCase()
+              .replace(/[\s-]+/g, '_'),
+          )
+        : ALLOWED_CATEGORIES;
+
+    if (!validList.includes(categoryNormalized) && !validList.includes(categoryRaw.toLowerCase())) {
+      throw new Error(`Invalid category: ${categoryRaw}`);
     }
-    const category = categoryNormalized as TextCategory;
+    const category = categoryNormalized;
 
     const difficultyRaw = asString(parsed.difficulty ?? '', 'difficulty').toLowerCase();
     const difficulty: TextDifficulty = ALLOWED_DIFFICULTIES.includes(

@@ -30,6 +30,7 @@ export const users = pgTable(
     fullName: varchar('full_name', { length: 255 }),
     email: varchar('email', { length: 254 }).notNull(),
     password: varchar('password', { length: 255 }).notNull(),
+    subscriptionTier: varchar('subscription_tier', { length: 30 }),
     currentStreak: integer('current_streak').notNull().default(0),
     lastStreakDate: date('last_streak_date'),
     createdAt: timestamp('created_at', { withTimezone: false }).notNull(),
@@ -144,11 +145,37 @@ export const promptLogs = pgTable(
   }),
 );
 
+export const readingExplanations = pgTable(
+  'reading_explanations',
+  {
+    id: serial('id').primaryKey(),
+    readingId: integer('reading_id')
+      .notNull()
+      .references(() => readings.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    word: varchar('word', { length: 255 }).notNull(),
+    context: text('context'),
+    explanation: text('explanation').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    readingIdIdx: index('idx_reading_explanations_reading_id').on(table.readingId),
+    userCreatedIdx: index('idx_reading_explanations_user_created').on(
+      table.userId,
+      table.createdAt,
+    ),
+    createdAtIdx: index('idx_reading_explanations_created_at').on(table.createdAt),
+  }),
+);
+
 export const schema = {
   users,
   userSettings,
   admins,
   authAccessTokens,
   readings,
+  readingExplanations,
   promptLogs,
 };

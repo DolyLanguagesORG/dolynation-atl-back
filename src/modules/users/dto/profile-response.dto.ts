@@ -14,6 +14,14 @@ export class ProfileResponseDto {
   })
   fullName!: string | null;
 
+  @ApiProperty({
+    example: 'dolly',
+    nullable: true,
+    description: 'Current subscription plan tier (dolly, dolly_plus, dolly_pro, or null)',
+    enum: ['dolly', 'dolly_plus', 'dolly_pro'],
+  })
+  subscriptionTier!: string | null;
+
   @ApiProperty({ example: 5, description: 'Consecutive days with completed activity' })
   currentStreak!: number;
 

@@ -174,4 +174,127 @@ describe('PromptBuilderService', () => {
       expect(a).not.toBe(b);
     });
   });
+
+  describe('intermediate enrichment prompt (Step 1)', () => {
+    it('builds an enrichment prompt with anti-repetition rules when recent titles exist', () => {
+      const { systemPrompt, userPrompt, seed } = service.buildEnrichmentPrompt({
+        category: 'technology',
+        difficulty: 'medium',
+        recentTitles: ['Smartphones Evolution', 'Social Media Algorithms'],
+        randomAngle: 'an unexpected mistake that led to a discovery',
+      });
+
+      expect(systemPrompt).toContain('subtopic');
+      expect(systemPrompt).toContain('uniqueFocusElement');
+      expect(systemPrompt).toContain('keyConcepts');
+      expect(userPrompt).toContain('Smartphones Evolution');
+      expect(userPrompt).toContain('Social Media Algorithms');
+      expect(userPrompt).toContain('ANTI-REPETITION CONSTRAINT');
+      expect(userPrompt).toContain('an unexpected mistake that led to a discovery');
+      expect(seed).toContain('enrich_');
+    });
+
+    it('limits anti-repetition list to at most 20 titles', () => {
+      const manyTitles = Array.from({ length: 30 }, (_, i) => `Title ${i + 1}`);
+      const { userPrompt } = service.buildEnrichmentPrompt({
+        category: 'technology',
+        difficulty: 'medium',
+        recentTitles: manyTitles,
+      });
+
+      expect(userPrompt).toContain('Title 20');
+      expect(userPrompt).not.toContain('Title 21');
+    });
+
+    it('omits anti-repetition section if recent titles array is empty', () => {
+      const { userPrompt } = service.buildEnrichmentPrompt({
+        category: 'technology',
+        difficulty: 'easy',
+        recentTitles: [],
+      });
+
+      expect(userPrompt).not.toContain('ANTI-REPETITION CONSTRAINT');
+    });
+  });
+
+  describe('parseEnrichmentResponse', () => {
+    const fallback = {
+      subtopic: 'Fallback Subtopic',
+      perspective: 'causes',
+      uniqueFocusElement: 'impact on society',
+      keyConcepts: ['concept1'],
+    };
+
+    it('parses valid JSON response correctly', () => {
+      const raw = JSON.stringify({
+        subtopic: 'Quantum Cryptography',
+        perspective: 'practical applications',
+        uniqueFocusElement: 'how photon polarization prevents eavesdropping',
+        keyConcepts: ['photons', 'Heisenberg uncertainty', 'no-cloning theorem'],
+      });
+
+      const result = service.parseEnrichmentResponse(raw, fallback);
+      expect(result.subtopic).toBe('Quantum Cryptography');
+      expect(result.perspective).toBe('practical applications');
+      expect(result.uniqueFocusElement).toContain('photon polarization');
+      expect(result.keyConcepts).toHaveLength(3);
+    });
+
+    it('handles markdown code fences and think blocks cleanly', () => {
+      const raw = `
+<think>Brainstorming quantum ideas...</think>
+\`\`\`json
+{
+  "subtopic": "Deep Sea Hydrothermal Vents",
+  "perspective": "evolutionary adaptation",
+  "uniqueFocusElement": "chemosynthesis replacing photosynthesis",
+  "keyConcepts": ["chemosynthesis", "extremophiles", "black smokers"]
+}
+\`\`\`
+      `;
+
+      const result = service.parseEnrichmentResponse(raw, fallback);
+      expect(result.subtopic).toBe('Deep Sea Hydrothermal Vents');
+      expect(result.keyConcepts).toContain('extremophiles');
+    });
+
+    it('returns fallback if JSON is invalid or missing required subtopic', () => {
+      const invalid = 'Not valid json';
+      expect(service.parseEnrichmentResponse(invalid, fallback)).toBe(fallback);
+
+      const missingSubtopic = JSON.stringify({ perspective: 'causes' });
+      expect(service.parseEnrichmentResponse(missingSubtopic, fallback)).toBe(fallback);
+    });
+  });
+
+  describe('dynamic categories & key concepts', () => {
+    it('supports arbitrary dynamic category strings without throwing', () => {
+      const prompt = service.buildPrompt({
+        category: 'quantum_entanglement',
+        difficulty: 'hard',
+        size: 'medium',
+        subcategories: ['Bell Tests'],
+        contentType: 'interesting_discovery',
+        perspective: 'causes',
+        uniqueFocusElement: 'loophole-free experimental tests',
+        keyConcepts: ['spooky action', 'locality', 'detector efficiency'],
+      });
+
+      expect(prompt.userPrompt).toContain('Quantum Entanglement');
+      expect(prompt.userPrompt).toContain('Bell Tests');
+      expect(prompt.userPrompt).toContain('loophole-free experimental tests');
+      expect(prompt.userPrompt).toContain(
+        'Key concepts to weave in: spooky action, locality, detector efficiency',
+      );
+      expect(prompt.systemPrompt).toContain('"quantum_entanglement"');
+    });
+
+    it('buildFallbackEnrichedTopic returns valid topic for dynamic category', () => {
+      const result = service.buildFallbackEnrichedTopic('renewable_energy', 'medium');
+      expect(result.subtopic).toBeDefined();
+      expect(result.perspective).toBeDefined();
+      expect(result.uniqueFocusElement).toBeDefined();
+      expect(Array.isArray(result.keyConcepts)).toBe(true);
+    });
+  });
 });

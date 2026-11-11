@@ -242,3 +242,29 @@ export const UNIQUE_FOCUS_BY_CATEGORY: Record<CategoryId, string[]> = {
     'the evolution from original to modern adaptations',
   ],
 };
+
+export const GENERIC_UNIQUE_FOCUS: readonly string[] = [
+  'its unexpected origins and early history',
+  'how it quietly impacts daily life and society',
+  'a little-known breakthrough or failure that led to success',
+  'common misconceptions and myths surrounding it',
+  'the environmental, ethical, or human implications',
+  'how it operates at a fundamental or microscopic level',
+  'a fascinating paradox or curious phenomenon related to it',
+  'forgotten pioneers or innovators who made it possible',
+  'how it might evolve or reshape the future',
+  'a surprising real-world application in an unexpected field',
+];
+
+export const CREATIVE_PERSPECTIVE_ANGLES: readonly string[] = [
+  'an unexpected accident or mistake that led to a major discovery',
+  'how microscopic or hidden details drive the entire system',
+  'a historical controversy or fierce debate between competing ideas',
+  'an overlooked human story or unsung contributor behind the scene',
+  'an environmental or ecological ripple effect few people realize',
+  'a paradox where the intuitive assumption turns out to be wrong',
+  'how an ancient technique is being revived with modern science',
+  'a surprising connection between two seemingly unrelated fields',
+  'the psychological or behavioral impact on how humans think or act',
+  'a future dilemma or ethical question raised by recent breakthroughs',
+];

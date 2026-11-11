@@ -28,6 +28,14 @@ export enum ErrorCode {
   // === Readings domain (4xx) ===
   READING_PENDING_LIMIT_REACHED = 'READING_PENDING_LIMIT_REACHED',
   READING_ALREADY_EVALUATED = 'READING_ALREADY_EVALUATED',
+  READING_DAILY_LIMIT_REACHED = 'READING_DAILY_LIMIT_REACHED',
+  EXPLANATION_DAILY_LIMIT_REACHED = 'EXPLANATION_DAILY_LIMIT_REACHED',
+
+  // === Subscriptions (4xx) ===
+  SUBSCRIPTION_REQUIRED = 'SUBSCRIPTION_REQUIRED',
+  SUBSCRIPTION_INVALID_TIER = 'SUBSCRIPTION_INVALID_TIER',
+  SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED = 'SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED',
+  SUBSCRIPTION_LANGUAGE_NOT_ALLOWED = 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED',
 
   // === Validation (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
@@ -115,6 +123,36 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.READING_ALREADY_EVALUATED,
     400,
     'This reading has already been evaluated and cannot be modified',
+  ),
+  [ErrorCode.READING_DAILY_LIMIT_REACHED]: entry(
+    ErrorCode.READING_DAILY_LIMIT_REACHED,
+    429,
+    'You have reached your daily reading generation limit for today',
+  ),
+  [ErrorCode.EXPLANATION_DAILY_LIMIT_REACHED]: entry(
+    ErrorCode.EXPLANATION_DAILY_LIMIT_REACHED,
+    429,
+    'You have reached your daily reading question limit for today',
+  ),
+  [ErrorCode.SUBSCRIPTION_REQUIRED]: entry(
+    ErrorCode.SUBSCRIPTION_REQUIRED,
+    403,
+    'A subscription plan is required to perform this action. Please select a plan',
+  ),
+  [ErrorCode.SUBSCRIPTION_INVALID_TIER]: entry(
+    ErrorCode.SUBSCRIPTION_INVALID_TIER,
+    400,
+    'The specified subscription plan is invalid. Choose one of: dolly, dolly_plus, dolly_pro',
+  ),
+  [ErrorCode.SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED]: entry(
+    ErrorCode.SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED,
+    400,
+    'You have exceeded the category limit for your subscription plan',
+  ),
+  [ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED]: entry(
+    ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED,
+    403,
+    'Your subscription plan only allows English readings. Upgrade your plan to unlock more languages',
   ),
   [ErrorCode.VALIDATION_ERROR]: entry(
     ErrorCode.VALIDATION_ERROR,
