@@ -142,7 +142,7 @@ jobs:
           # Una linea por item: repo<TAB>numero<TAB>item_id<TAB>status<TAB>prs_abiertos<TAB>prs_mergeados
           jq -r '
             .data.node.items.nodes[]
-            | select(.content.repository.name == env.REPO)
+            | select(.content.repository.name == (env.REPO | split("/") | last))
             | (.fieldValues.nodes
                | map(select(.optionId != null) | .optionId) | first // "") as $status
               | ([.fieldValues.nodes[] | select(.pullRequests != null) | .pullRequests.nodes[] | select(.state == "OPEN") ] | length) as $abiertos
