@@ -1,12 +1,19 @@
 import { Test } from '@nestjs/testing';
 import { SettingsController } from './settings.controller';
 import { SettingsService } from './settings.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+
 describe('SettingsController', () => {
   let controller: SettingsController;
   let settings: jest.Mocked<
     Pick<SettingsService, 'getCategories' | 'getLanguage' | 'setCategories' | 'setLanguage'>
   >;
+  let subscriptions: {
+    assertSubscriptionActive: jest.Mock;
+    assertCategoryLimit: jest.Mock;
+    assertLanguageAllowed: jest.Mock;
+  };
   const user: AuthUser = { id: 42, email: 'a@b.c', fullName: 'A B' };
 
   beforeEach(async () => {
@@ -17,9 +24,18 @@ describe('SettingsController', () => {
       setLanguage: jest.fn().mockImplementation((_: number, l: string) => Promise.resolve(l)),
     };
 
+    subscriptions = {
+      assertSubscriptionActive: jest.fn().mockResolvedValue(undefined),
+      assertCategoryLimit: jest.fn().mockResolvedValue(undefined),
+      assertLanguageAllowed: jest.fn().mockResolvedValue(undefined),
+    };
+
     const moduleRef = await Test.createTestingModule({
       controllers: [SettingsController],
-      providers: [{ provide: SettingsService, useValue: settings }],
+      providers: [
+        { provide: SettingsService, useValue: settings },
+        { provide: SubscriptionsService, useValue: subscriptions },
+      ],
     }).compile();
 
     controller = moduleRef.get(SettingsController);
