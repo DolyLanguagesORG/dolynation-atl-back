@@ -126,6 +126,27 @@ jobs:
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
+          SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
+          SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
+          SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
         run: |
           set -euo pipefail
           # El agente SSH se creo en el paso anterior, en otro shell: hay que
@@ -156,6 +177,27 @@ jobs:
             printf 'MINIMAX_API_KEY=%s\n' "$MINIMAX_API_KEY"
             printf 'MINIMAX_MODEL=%s\n'   "$MINIMAX_MODEL"
             printf 'GROQ_API_KEY=%s\n'    "$GROQ_API_KEY"
+            printf 'SMTP_HOST=%s\n'       "$SMTP_HOST"
+            printf 'SMTP_PORT=%s\n'       "$SMTP_PORT"
+            printf 'SMTP_USER=%s\n'       "$SMTP_USER"
+            printf 'SMTP_PASSWORD=%s\n'   "$SMTP_PASSWORD"
+            printf 'SMTP_FROM=%s\n'       "$SMTP_FROM"
+            printf 'SMTP_FROM_NAME=%s\n'  "$SMTP_FROM_NAME"
+            printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
+            printf 'SMTP_HOST=%s\n'       "$SMTP_HOST"
+            printf 'SMTP_PORT=%s\n'       "$SMTP_PORT"
+            printf 'SMTP_USER=%s\n'       "$SMTP_USER"
+            printf 'SMTP_PASSWORD=%s\n'   "$SMTP_PASSWORD"
+            printf 'SMTP_FROM=%s\n'       "$SMTP_FROM"
+            printf 'SMTP_FROM_NAME=%s\n'  "$SMTP_FROM_NAME"
+            printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
+            printf 'SMTP_HOST=%s\n'       "$SMTP_HOST"
+            printf 'SMTP_PORT=%s\n'       "$SMTP_PORT"
+            printf 'SMTP_USER=%s\n'       "$SMTP_USER"
+            printf 'SMTP_PASSWORD=%s\n'   "$SMTP_PASSWORD"
+            printf 'SMTP_FROM=%s\n'       "$SMTP_FROM"
+            printf 'SMTP_FROM_NAME=%s\n'  "$SMTP_FROM_NAME"
+            printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
           } > /tmp/backend.env
           base64 -w0 /tmp/backend.env | ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \
