@@ -5,8 +5,16 @@ export {
   READING_DIFFICULTIES,
   READING_TEXT_SIZES,
   READING_CEFR_LEVELS,
+  GENERIC_UNIQUE_FOCUS,
+  CREATIVE_PERSPECTIVE_ANGLES,
 } from './catalog.constants';
-export { pickRandom, resolveCefrLevel, getCategoryConfig } from './catalog.helpers';
+export {
+  pickRandom,
+  resolveCefrLevel,
+  getCategoryConfig,
+  formatCategoryName,
+  getUniqueFocusForCategory,
+} from './catalog.helpers';
 export type {
   CategoryId,
   DifficultyLevel,
@@ -20,4 +28,6 @@ export type {
   DifficultyConfig,
   RandomPromptParams,
   GeneratedPrompt,
+  EnrichedTopic,
+  EnrichmentPromptParams,
 } from './catalog.types';

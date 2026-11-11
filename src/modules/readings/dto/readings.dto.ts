@@ -7,12 +7,7 @@ import {
   READING_DIFFICULTIES,
   READING_TEXT_SIZES,
 } from '../prompt-generation';
-import type {
-  CategoryId,
-  CefrLevel,
-  DifficultyLevel,
-  TextSize,
-} from '../prompt-generation/catalog.types';
+import type { CefrLevel, DifficultyLevel, TextSize } from '../prompt-generation/catalog.types';
 
 /**
  * GenerateReadingDto is the client-facing input for the readings endpoint.
@@ -28,13 +23,14 @@ import type {
  */
 export class GenerateReadingDto {
   @ApiProperty({
-    description: 'Topic category for the generated reading. **Required.**',
+    description:
+      'Topic category for the generated reading. Must match one of the user’s configured study categories.',
     enum: READING_CATEGORIES,
     example: 'technology',
   })
   @IsString()
-  @IsIn(READING_CATEGORIES as readonly string[])
-  category!: CategoryId;
+  @Length(2, 50)
+  category!: string;
 
   @ApiProperty({
     description:
@@ -62,6 +58,16 @@ export class GenerateReadingDto {
   @IsOptional()
   @IsIn(READING_TEXT_SIZES as readonly string[])
   size?: TextSize;
+
+  @ApiProperty({
+    description:
+      'Target language for the generated reading (e.g. en, es, fr, pt, de). Defaults to the user’s preferred study language.',
+    example: 'en',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  language?: string;
 
   /** Lookup kept around for /readings/options; not exposed in the API. */
   static cefrLevelsForDifficulty(difficulty: DifficultyLevel): readonly CefrLevel[] {

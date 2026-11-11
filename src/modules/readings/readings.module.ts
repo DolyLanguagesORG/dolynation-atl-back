@@ -6,9 +6,11 @@ import { AiResponseParserService } from './ai-response-parser.service';
 import { PromptLogService, AuthEventLogService } from './prompt-logs';
 import { UsersModule } from '../users/users.module';
 import { IaModule } from '../ia/ia.module';
+import { SettingsModule } from '../settings/settings.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 @Module({
-  imports: [UsersModule, IaModule],
+  imports: [UsersModule, IaModule, SettingsModule, SubscriptionsModule],
   controllers: [ReadingsController],
   providers: [
     ReadingsService,
