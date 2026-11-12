@@ -11,6 +11,27 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.5.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.4.0...v0.5.0) (2026-11-12)
+
+
+### Features
+
+* **kanban:** las issues pasan a 'In Review' solas ([#106](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/106)) ([fbe5801](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/fbe5801387801efde406c2e037a7671cc6b584c2)), closes [#66](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/66)
+* **kanban:** las issues pasan a 'In Review' solas ([#107](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/107)) ([467b5c4](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/467b5c492188c91066e0edf67eef189a0374f201)), closes [#66](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/66)
+* **kanban:** las issues pasan a 'In Review' solas ([#108](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/108)) ([8141597](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/8141597d77694fef134f86a99be665e3ce19bf74)), closes [#66](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/66)
+* **kanban:** las issues pasan a 'In Review' solas ([#109](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/109)) ([bffc828](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/bffc828c67a2efa545aba438cbbbd632dd668329)), closes [#66](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/66)
+* **kanban:** las issues pasan a 'In Review' solas ([#110](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/110)) ([874fc3a](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/874fc3a51b14b7fe12bd1a572f5b9eddd10b02eb)), closes [#66](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/66)
+* **kanban:** las issues pasan a 'In Review' solas ([#111](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/111)) ([e8a83bb](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/e8a83bbebdef40d78e1c50c3afbf5a0bb396c8d2)), closes [#66](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/66)
+* **readings:** validar cuotas, idioma y enriquecer prompts ([#105](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/105)) ([549ee01](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/549ee0165b56771e7f28a217d0fe76d45301e384))
+* **smtp:** el .env de desarrollo lleva las variables de correo ([#103](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/103)) ([93cf8ef](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/93cf8ef29c4fd7bcc910997d5e221d9ac9f592fd)), closes [#102](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/102)
+
+
+### Bug Fixes
+
+* **ci:** quitar las claves duplicadas del deploy y validar los workflows con actionlint ([#112](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/112)) ([be74733](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/be74733dd3a5566794a55e9f568b2a9205eb2d4b)), closes [#103](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/103)
+* **ci:** separar las unitarias de las e2e y dejar el proveedor de IA consistente ([#100](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/100)) ([b0a840d](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/b0a840d163399dbc8caa2d7e97dd84143266f58f))
+* **ci:** validar la rama normalizada (los acentos no bloquean el PR) ([#98](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/98)) ([4aba3b0](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/4aba3b0b0940acbc3b6b1c19ba1ea8ce14b001f3)), closes [#46](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/46)
+
 ## [0.4.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.3.2...v0.4.0) (2026-11-09)
 
 
