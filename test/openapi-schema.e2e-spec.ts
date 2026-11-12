@@ -26,7 +26,7 @@ describe('OpenAPI schema documentation', () => {
             DB_PASSWORD: 'test',
             DB_DATABASE: 'test',
             JWT_SECRET: 'a'.repeat(64),
-            JWT_ACCESS_TTL: '15m',
+            JWT_ACCESS_TTL: '5m',
             JWT_REFRESH_TTL: '30d',
             AI_DEFAULT_PROVIDER: 'minimax',
             MINIMAX_API_KEY: 'sk-test',
@@ -90,7 +90,7 @@ describe('OpenAPI schema documentation', () => {
       const schema = schemas()['RefreshTokenDto'];
       expect(schema).toBeDefined();
       const props = (schema.properties ?? {}) as Record<string, unknown>;
-      expect(props['refreshToken']).toBeDefined();
+      expect(props['refreshToken']).toMatchObject({ minLength: 1 });
     });
   });
 
@@ -178,6 +178,11 @@ describe('OpenAPI schema documentation', () => {
 
     it('POST /auth/login references LoginDto', () => {
       requiresBodySchema('post', '/api/v1/auth/login', 'LoginDto');
+    });
+
+    it('POST /auth/refresh and /auth/logout reference RefreshTokenDto', () => {
+      requiresBodySchema('post', '/api/v1/auth/refresh', 'RefreshTokenDto');
+      requiresBodySchema('post', '/api/v1/auth/logout', 'RefreshTokenDto');
     });
 
     it('POST /readings references GenerateReadingDto', () => {

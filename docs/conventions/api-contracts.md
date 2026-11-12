@@ -76,7 +76,7 @@ verifica exhaustividad.
 | ----------------------------------- | ---- | ------------------------------------------------------------ |
 | `AUTH_INVALID_CREDENTIALS`          | 401  | Email o password incorrectos al login                        |
 | `AUTH_TOKEN_EXPIRED`                | 401  | El JWT de acceso expiró, renovar con refresh                 |
-| `AUTH_TOKEN_INVALID`                | 401  | El JWT es inválido (firma o formato)                         |
+| `AUTH_TOKEN_INVALID`                | 401  | JWT inválido, expirado, revocado o de tipo incorrecto        |
 | `AUTH_EMAIL_ALREADY_EXISTS`         | 409  | Email ya registrado en signup                                |
 | `AUTH_PASSWORD_TOO_WEAK`            | 400  | Password no cumple requisitos mínimos                        |
 | `AUTH_UNAUTHORIZED`                 | 401  | Ruta protegida sin token válido                              |
@@ -132,7 +132,7 @@ cliente solo recibe un código estable + mensaje seguro.
 
 | Método y ruta | Estado | Issue |
 | --- | --- | --- |
-| `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`; `GET /auth/me` | Implementado | `back#4` |
+| `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`; `GET /auth/me` | Implementado | `back#4` |
 | `GET/PATCH /api/v1/user/profile` | En PR S1 | `back#5` |
 | `GET /api/v1/user/streak` | Implementado (stub inicial) | `back#15` |
 | `GET /api/v1/user/points` | Planificado S4 | `back#15` |

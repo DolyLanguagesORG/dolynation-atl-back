@@ -57,7 +57,7 @@ const mockEnv: Record<string, string> = {
   DB_PASSWORD: 'test',
   DB_DATABASE: 'test',
   JWT_SECRET: 'a'.repeat(64),
-  JWT_ACCESS_TTL: '15m',
+  JWT_ACCESS_TTL: '5m',
   JWT_REFRESH_TTL: '30d',
   AI_DEFAULT_PROVIDER: 'minimax',
   MINIMAX_API_KEY: 'sk-test',

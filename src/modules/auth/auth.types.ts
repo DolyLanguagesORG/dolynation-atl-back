@@ -23,6 +23,7 @@ export interface IAuthService {
   register(input: RegisterDto): Promise<{ user: AuthUserView; tokens: AuthTokens }>;
   login(input: LoginDto): Promise<{ user: AuthUserView; tokens: AuthTokens }>;
   refresh(refreshToken: string): Promise<AuthTokens>;
-  logout(userId: number): Promise<void>;
+  logout(userId: number, refreshToken: string): Promise<void>;
+  logoutAll(userId: number): Promise<void>;
   me(userId: number): Promise<AuthUserView>;
 }

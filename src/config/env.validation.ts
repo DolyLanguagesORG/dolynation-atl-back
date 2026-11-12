@@ -38,7 +38,7 @@ const envSchema = z.object({
 
   // ===== Auth (JWT) =====
   JWT_SECRET: z.string().min(32).default('change-me-in-production-please-32-chars-minimum'),
-  JWT_ACCESS_TTL: z.string().default('15m'),
+  JWT_ACCESS_TTL: z.string().default('5m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
 
   // ===== AI providers =====

@@ -9,6 +9,7 @@ import type { AuthUser } from '../../../common/decorators/current-user.decorator
 export interface JwtPayload {
   sub: number;
   email: string;
+  type: 'access' | 'refresh';
 }
 
 @Injectable()
@@ -33,6 +34,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async validate(payload: JwtPayload): Promise<AuthUser> {
+    if (payload.type !== 'access') {
+      throw new UnauthorizedException({
+        code: 'AUTH.INVALID_TOKEN',
+        message: 'Access token required',
+      });
+    }
+
     const user = await this.users.findById(payload.sub);
     if (!user) {
       throw new UnauthorizedException({

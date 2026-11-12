@@ -80,7 +80,7 @@ export class AuthTokensDto {
   @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…' })
   refreshToken!: string;
 
-  @ApiProperty({ example: 900, description: 'Access token lifetime in seconds.' })
+  @ApiProperty({ example: 300, description: 'Access token lifetime in seconds.' })
   expiresIn!: number;
 }
 

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { JwtService } from '@nestjs/jwt';
@@ -6,12 +6,41 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { AuthEventLogService } from '../readings/prompt-logs';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
+import { createHash, randomUUID } from 'node:crypto';
+import { DRIZZLE } from '../../database/database.tokens';
+import { authAccessTokens } from '../../database/drizzle/schema';
+import type { DrizzleDb } from '../../database/database.module';
 import type { IAuthService, AuthTokens, AuthUserView } from './auth.types';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 
 interface JwtPayload {
   sub: number;
   email: string;
   type: 'access' | 'refresh';
+  jti?: string;
+}
+
+function ttlToMilliseconds(ttl: string): number {
+  const match = /^(\d+)([smhd])$/.exec(ttl);
+  if (!match) {
+    throw new Error('JWT TTL must use seconds, minutes, hours, or days');
+  }
+
+  const amount = Number(match[1]);
+  const unit = match[2];
+
+  switch (unit) {
+    case 's':
+      return amount * 1_000;
+    case 'm':
+      return amount * 60_000;
+    case 'h':
+      return amount * 3_600_000;
+    case 'd':
+      return amount * 86_400_000;
+    default:
+      throw new Error('Unsupported JWT_REFRESH_TTL unit');
+  }
 }
 
 @Injectable()
@@ -23,9 +52,10 @@ export class AuthService implements IAuthService {
     private readonly users: UsersService,
     private readonly jwt: JwtService,
     config: ConfigService,
+    @Inject(DRIZZLE) private readonly db: DrizzleDb,
     private readonly authEventLogs: AuthEventLogService,
   ) {
-    this.accessTtl = config.get<string>('JWT_ACCESS_TTL') ?? '15m';
+    this.accessTtl = config.get<string>('JWT_ACCESS_TTL') ?? '5m';
     this.refreshTtl = config.get<string>('JWT_REFRESH_TTL') ?? '30d';
   }
 
@@ -68,13 +98,76 @@ export class AuthService implements IAuthService {
     if (payload.type !== 'refresh') {
       throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID, { reason: 'wrong_type' });
     }
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+    const now = new Date();
+    const [storedToken] = await this.db
+      .select()
+      .from(authAccessTokens)
+      .where(
+        and(
+          eq(authAccessTokens.tokenableId, payload.sub),
+          eq(authAccessTokens.type, 'refresh'),
+          eq(authAccessTokens.hash, tokenHash),
+          isNull(authAccessTokens.deletedAt),
+          gt(authAccessTokens.expiresAt, now),
+        ),
+      )
+      .limit(1);
+
+    if (!storedToken) {
+      throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID);
+    }
+
+    const [revokedToken] = await this.db
+      .update(authAccessTokens)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(authAccessTokens.id, storedToken.id),
+          isNull(authAccessTokens.deletedAt),
+          gt(authAccessTokens.expiresAt, now),
+        ),
+      )
+      .returning({ id: authAccessTokens.id });
+
+    if (!revokedToken) {
+      throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID);
+    }
     return this.signTokensFor(payload.sub, payload.email);
   }
 
-  async logout(_userId: number): Promise<void> {
-    // Stateless JWT — logout is a no-op on the server. The mobile client drops the tokens.
-    // A future enhancement could maintain a revocation list in Redis.
-    return Promise.resolve();
+  async logout(userId: number, refreshToken: string): Promise<void> {
+    const now = new Date();
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+
+    await this.db
+      .update(authAccessTokens)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(authAccessTokens.tokenableId, userId),
+          eq(authAccessTokens.type, 'refresh'),
+          eq(authAccessTokens.hash, tokenHash),
+          isNull(authAccessTokens.deletedAt),
+          gt(authAccessTokens.expiresAt, now),
+        ),
+      );
+  }
+
+  async logoutAll(userId: number): Promise<void> {
+    const now = new Date();
+
+    await this.db
+      .update(authAccessTokens)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(authAccessTokens.tokenableId, userId),
+          eq(authAccessTokens.type, 'refresh'),
+          isNull(authAccessTokens.deletedAt),
+          gt(authAccessTokens.expiresAt, now),
+        ),
+      );
   }
 
   async me(userId: number): Promise<AuthUserView> {
@@ -91,9 +184,25 @@ export class AuthService implements IAuthService {
       { expiresIn: this.accessTtl as `${number}${'s' | 'm' | 'h' | 'd'}` },
     );
     const refreshToken = await this.jwt.signAsync(
-      { sub: userId, email, type: 'refresh' } satisfies JwtPayload,
+      { sub: userId, email, type: 'refresh', jti: randomUUID() } satisfies JwtPayload,
       { expiresIn: this.refreshTtl as `${number}${'s' | 'm' | 'h' | 'd'}` },
     );
-    return { accessToken, refreshToken, expiresIn: 900 };
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + ttlToMilliseconds(this.refreshTtl));
+
+    await this.db.insert(authAccessTokens).values({
+      tokenableId: userId,
+      type: 'refresh',
+      hash: createHash('sha256').update(refreshToken).digest('hex'),
+      abilities: JSON.stringify(['refresh']),
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    });
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: Math.floor(ttlToMilliseconds(this.accessTtl) / 1_000),
+    };
   }
 }

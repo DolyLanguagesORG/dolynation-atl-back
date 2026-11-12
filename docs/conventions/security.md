@@ -15,11 +15,16 @@ de la librería es suficiente para nuestro nivel de tráfico.
 ### JWT (JSON Web Tokens)
 
 - **Algoritmo**: HS256 con `JWT_SECRET` (≥48 caracteres random).
-- **Access token TTL**: `15m` (default, configurable vía `JWT_ACCESS_TTL`).
+- **Access token TTL**: `5m` (default, configurable vía `JWT_ACCESS_TTL`).
 - **Refresh token TTL**: `30d` (configurable vía `JWT_REFRESH_TTL`).
 - **Storage en cliente**: access token en memoria/contexto; refresh en almacenamiento seguro del cliente. No usar `localStorage` para tokens.
 - **Refresh tokens persistidos** en `auth_access_tokens` con hash, **nunca
   en claro**.
+- `POST /auth/refresh` rota el refresh token; el anterior deja de ser utilizable.
+- `POST /auth/logout` invalida el refresh token de la sesión indicada.
+- `POST /auth/logout-all` invalida los refresh tokens activos del usuario.
+- El access token ya emitido puede seguir siendo válido hasta su expiración,
+  incluso después de logout.
 
 ### Decoradores
 
@@ -96,12 +101,11 @@ Ver [api-contracts.md](./api-contracts.md) para el detalle.
 
 ## Brechas conocidas
 
-| Brecha                                       | Estado          |
-| -------------------------------------------- | --------------- |
-| Rate limiting (express-rate-limit ausente)   | Pendiente       |
-| CORS con `origin: true` (permite cualquiera)  | Pendiente       |
-| Refresh token rotation no implementada       | Pendiente       |
-| Audit log de acciones sensibles              | Pendiente       |
-| HTTPS forzado en prod (depende del proxy)    | Depende del infra |
+| Brecha                                         | Estado            |
+| ---------------------------------------------- | ----------------- |
+| Rate limiting (express-rate-limit ausente)     | Pendiente         |
+| CORS con `origin: true` (permite cualquiera) | Pendiente         |
+| Audit log de acciones sensibles                | Pendiente         |
+| HTTPS forzado en prod (depende del proxy)      | Depende del infra |
 
 Estas brechas están documentadas para que cualquier dev pueda priorizarlas.

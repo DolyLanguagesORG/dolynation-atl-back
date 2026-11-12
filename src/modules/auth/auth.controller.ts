@@ -68,13 +68,28 @@ export class AuthController {
 
   @ApiBearerAuth('access-token')
   @Post('logout')
-  @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Logout the current user (client should drop the tokens)' })
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout the current session by invalidating its refresh token' })
   @ApiOkResponseEmpty()
   @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  async logout(@CurrentUser() current: AuthUser): Promise<ApiResponse<null>> {
-    await this.auth.logout(current.id);
+  @ApiBadRequestResponse({ description: 'Validation failed', type: ApiErrorDto })
+  async logout(
+    @CurrentUser() current: AuthUser,
+    @Body() dto: RefreshTokenDto,
+  ): Promise<ApiResponse<null>> {
+    await this.auth.logout(current.id, dto.refreshToken);
     return apiOk('Logged out', null);
+  }
+
+  @ApiBearerAuth('access-token')
+  @Post('logout-all')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Logout all sessions by invalidating all refresh tokens' })
+  @ApiOkResponseEmpty()
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  async logoutAll(@CurrentUser() current: AuthUser): Promise<ApiResponse<null>> {
+    await this.auth.logoutAll(current.id);
+    return apiOk('Logged out from all sessions', null);
   }
 
   @ApiBearerAuth('access-token')

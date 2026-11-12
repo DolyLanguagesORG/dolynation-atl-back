@@ -5,6 +5,9 @@ import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import { UsersService, type PublicUser } from '../users/users.service';
 import { AuthEventLogService } from '../readings/prompt-logs';
+import { createHash } from 'node:crypto';
+import { DRIZZLE } from '../../database/database.tokens';
+import { authAccessTokens } from '../../database/drizzle/schema';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -13,6 +16,7 @@ describe('AuthService', () => {
   >;
   let jwtService: jest.Mocked<Pick<JwtService, 'signAsync' | 'verifyAsync'>>;
   let authEventLogService: jest.Mocked<Pick<AuthEventLogService, 'logAuthEvent'>>;
+  const db = { insert: jest.fn(), select: jest.fn(), update: jest.fn() };
 
   const publicUserFixture: PublicUser = {
     id: 1,
@@ -25,6 +29,10 @@ describe('AuthService', () => {
   };
 
   beforeEach(async () => {
+    db.insert.mockReset();
+    db.select.mockReset();
+    db.update.mockReset();
+    db.insert.mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
     usersService = {
       findByEmail: jest.fn(),
       findById: jest.fn(),
@@ -44,7 +52,7 @@ describe('AuthService', () => {
 
     const configMock = {
       get: jest.fn((key: string): string | undefined => {
-        if (key === 'JWT_ACCESS_TTL') return '15m';
+        if (key === 'JWT_ACCESS_TTL') return '5m';
         if (key === 'JWT_REFRESH_TTL') return '30d';
         return undefined;
       }),
@@ -57,6 +65,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: jwtService },
         { provide: ConfigService, useValue: configMock },
         { provide: AuthEventLogService, useValue: authEventLogService },
+        { provide: DRIZZLE, useValue: db },
       ],
     }).compile();
 
@@ -131,7 +140,42 @@ describe('AuthService', () => {
       const result = await service.login({ email: 'a@b.c', password: 'secret123' });
 
       expect(result.tokens.accessToken).toBe('access.jwt');
+      expect(result.tokens.expiresIn).toBe(300);
       expect(authEventLogService.logAuthEvent).toHaveBeenCalledWith('user_login', 1);
+    });
+
+    it('persists only a SHA-256 hash of the refresh token', async () => {
+      const values = jest.fn().mockResolvedValue(undefined);
+      db.insert.mockReturnValue({ values });
+      const userRow = {
+        id: 1,
+        email: 'a@b.c',
+        password: 'hash',
+        fullName: 'A B',
+        currentStreak: 0,
+        lastStreakDate: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+
+      usersService.findByEmail.mockResolvedValue(userRow);
+      usersService.verifyPassword.mockResolvedValue(true);
+      usersService.toPublic.mockReturnValue(publicUserFixture);
+      jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
+
+      await service.login({ email: 'a@b.c', password: 'secret123' });
+
+      expect(db.insert).toHaveBeenCalledWith(authAccessTokens);
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tokenableId: 1,
+          type: 'refresh',
+          hash: createHash('sha256').update('refresh.jwt').digest('hex'),
+          abilities: expect.any(String),
+          expiresAt: expect.any(Date),
+        }),
+      );
     });
 
     it('throws UnauthorizedException for unknown email', async () => {
@@ -159,6 +203,121 @@ describe('AuthService', () => {
       await expect(service.login({ email: 'a@b.c', password: 'wrong' })).rejects.toBeInstanceOf(
         AppHttpException,
       );
+    });
+  });
+
+  describe('refresh', () => {
+    it('rejects a valid JWT that is not stored in the database', async () => {
+      const limit = jest.fn().mockResolvedValue([]);
+      const where = jest.fn().mockReturnValue({ limit });
+      const from = jest.fn().mockReturnValue({ where });
+      db.select.mockReturnValue({ from });
+
+      jwtService.verifyAsync.mockResolvedValue({
+        sub: 1,
+        email: 'a@b.c',
+        type: 'refresh',
+      });
+      jwtService.signAsync
+        .mockResolvedValueOnce('new.access.jwt')
+        .mockResolvedValueOnce('new.refresh.jwt');
+
+      await expect(service.refresh('valid.refresh.jwt')).rejects.toBeInstanceOf(AppHttpException);
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+    });
+
+    it('revokes the stored refresh token and persists the replacement', async () => {
+      const oldToken = 'valid.refresh.jwt';
+      const activeToken = {
+        id: 7,
+        tokenableId: 1,
+        type: 'refresh',
+        hash: createHash('sha256').update(oldToken).digest('hex'),
+        abilities: '["refresh"]',
+        createdAt: new Date(),
+        updatedAt: null,
+        lastUsedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        deletedAt: null,
+        name: null,
+      };
+
+      const limit = jest.fn().mockResolvedValue([activeToken]);
+      const whereSelect = jest.fn().mockReturnValue({ limit });
+      const from = jest.fn().mockReturnValue({ where: whereSelect });
+      db.select.mockReturnValue({ from });
+
+      const returning = jest.fn().mockResolvedValue([{ id: 7 }]);
+      const whereUpdate = jest.fn().mockReturnValue({ returning });
+      const set = jest.fn().mockReturnValue({ where: whereUpdate });
+      db.update.mockReturnValue({ set });
+
+      const values = jest.fn().mockResolvedValue(undefined);
+      db.insert.mockReturnValue({ values });
+
+      jwtService.verifyAsync.mockResolvedValue({
+        sub: 1,
+        email: 'a@b.c',
+        type: 'refresh',
+      });
+      jwtService.signAsync
+        .mockResolvedValueOnce('new.access.jwt')
+        .mockResolvedValueOnce('new.refresh.jwt');
+
+      const result = await service.refresh(oldToken);
+
+      expect(result.accessToken).toBe('new.access.jwt');
+      expect(result.refreshToken).toBe('new.refresh.jwt');
+      expect(result.refreshToken).not.toBe(oldToken);
+      expect(db.update).toHaveBeenCalledWith(authAccessTokens);
+      expect(set).toHaveBeenCalledWith(expect.objectContaining({ deletedAt: expect.any(Date) }));
+      expect(whereUpdate).toHaveBeenCalled();
+      expect(db.insert).toHaveBeenCalledWith(authAccessTokens);
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tokenableId: 1,
+          type: 'refresh',
+          hash: createHash('sha256').update('new.refresh.jwt').digest('hex'),
+        }),
+      );
+    });
+  });
+
+  describe('logout', () => {
+    it('invalidates only the supplied refresh token for the current user', async () => {
+      const where = jest.fn().mockResolvedValue(undefined);
+      const set = jest.fn().mockReturnValue({ where });
+      db.update.mockReturnValue({ set });
+      const refreshToken = 'current.session.refresh.jwt';
+
+      await service.logout(1, refreshToken);
+
+      expect(db.update).toHaveBeenCalledWith(authAccessTokens);
+      expect(set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deletedAt: expect.any(Date),
+          updatedAt: expect.any(Date),
+        }),
+      );
+      expect(where).toHaveBeenCalled();
+      expect(jwtService.verifyAsync).not.toHaveBeenCalled();
+    });
+
+    it('invalidates all refresh tokens for the current user', async () => {
+      const where = jest.fn().mockResolvedValue(undefined);
+      const set = jest.fn().mockReturnValue({ where });
+      db.update.mockReturnValue({ set });
+
+      await service.logoutAll(1);
+
+      expect(db.update).toHaveBeenCalledWith(authAccessTokens);
+      expect(set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          deletedAt: expect.any(Date),
+          updatedAt: expect.any(Date),
+        }),
+      );
+      expect(where).toHaveBeenCalled();
     });
   });
 

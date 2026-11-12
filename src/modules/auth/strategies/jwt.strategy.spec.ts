@@ -16,7 +16,7 @@ describe('JwtStrategy', () => {
     const configMock = {
       get: jest.fn((key: string) => {
         if (key === 'JWT_SECRET') return 'a'.repeat(64);
-        if (key === 'JWT_ACCESS_TTL') return '15m';
+        if (key === 'JWT_ACCESS_TTL') return '5m';
         return undefined;
       }),
     } as unknown as ConfigService;
@@ -36,14 +36,20 @@ describe('JwtStrategy', () => {
   it('returns the user when the JWT payload references a real user', async () => {
     const userRow = { id: 42, email: 'a@b.c', fullName: 'A B' };
     usersService.findById.mockResolvedValue(userRow as never);
-    const payload = { sub: 42, email: 'a@b.c' };
+    const payload = { sub: 42, email: 'a@b.c', type: 'access' as const };
     const result = await strategy.validate(payload);
     expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B' });
   });
 
+  it('rejects a refresh token used as a bearer access token', async () => {
+    const payload = { sub: 42, email: 'a@b.c', type: 'refresh' as const };
+    await expect(strategy.validate(payload)).rejects.toBeInstanceOf(UnauthorizedException);
+    expect(usersService.findById).not.toHaveBeenCalled();
+  });
+
   it('throws UnauthorizedException when the user no longer exists', async () => {
     usersService.findById.mockResolvedValue(null);
-    const payload = { sub: 999, email: 'gone@x.com' };
+    const payload = { sub: 999, email: 'gone@x.com', type: 'access' as const };
     await expect(strategy.validate(payload)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });

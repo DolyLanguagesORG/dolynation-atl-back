@@ -31,30 +31,7 @@ import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { AppModule } from '../src/app.module';
 import { AppConfigService } from '../src/config/env.config';
-
-const mockEnv: Record<string, string> = {
-  NODE_ENV: 'test',
-  PORT: '0',
-  HOST: '127.0.0.1',
-  API_PREFIX: 'api/v1',
-  DB_HOST: '127.0.0.1',
-  DB_PORT: '5432',
-  DB_USER: 'test',
-  DB_PASSWORD: 'test',
-  DB_DATABASE: 'test',
-  JWT_SECRET: 'a'.repeat(64),
-  JWT_ACCESS_TTL: '15m',
-  JWT_REFRESH_TTL: '30d',
-  AI_DEFAULT_PROVIDER: 'minimax',
-  MINIMAX_API_KEY: 'sk-test',
-  MINIMAX_MODEL: 'MiniMax-M3',
-  MINIMAX_ENDPOINT: 'https://api.test/v1/chat',
-  MINIMAX_TIMEOUT_MS: '30000',
-  MINIMAX_MAX_TOKENS: '4096',
-  MINIMAX_TEMPERATURE: '0.6',
-};
 
 describe('main.ts bootstrap order produces a consistent OpenAPI document', () => {
   let app: INestApplication;
@@ -64,14 +41,14 @@ describe('main.ts bootstrap order produces a consistent OpenAPI document', () =>
   };
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    })
-      .overrideProvider('ConfigService')
-      .useValue({
-        get: (key: string): string => mockEnv[key] ?? '',
-      })
-      .compile();
+    process.env.NODE_ENV = 'test';
+    process.env.API_PREFIX = 'api/v1';
+    process.env.JWT_ACCESS_TTL = '5m';
+    process.env.JWT_REFRESH_TTL = '30d';
+    process.env.LOG_LEVEL = 'silent';
+
+    const { AppModule } = await import('../src/app.module');
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
 
     app = moduleRef.createNestApplication({ logger: false });
     app.useLogger({
