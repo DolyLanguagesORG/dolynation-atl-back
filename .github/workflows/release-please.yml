@@ -135,3 +135,48 @@ jobs:
             echo "::warning::No se pudo activar el auto-merge en el PR #$number."
             echo "::warning::El PR sigue abierto: se puede mergear a mano."
           fi
+
+      - name: Mergear el PR de release cuando la CI este en verde
+        # El auto-merge nativo espera a que se cumplan las reglas de la rama,
+        # y `develop` pide 1 aprobacion. El PR de release lo abre la misma
+        # cuenta que despliega (el PAT) y GitHub no deja aprobar el propio PR,
+        # asi que el auto-merge se queda esperando para siempre.
+        #
+        # Aqui se espera a que los checks **requeridos** esten en verde y se
+        # mergea con privilegio de admin. Las PRs de feature siguen exigiendo
+        # la aprobacion de una persona: esto solo aplica al PR de release.
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          number="$(gh pr list --repo "${{ github.repository }}"             --label 'autorelease: pending'             --state open             --json number             --jq '.[0].number // empty')"
+
+          if [ -z "$number" ]; then
+            echo "No hay PR de release abierto: nada que hacer."
+            exit 0
+          fi
+
+          for i in $(seq 1 40); do
+            checks="$(gh pr checks "$number" --repo "${{ github.repository }}" --required --json name,state 2>/dev/null || echo '[]')"
+
+            total="$(printf '%s' "$checks" | jq 'length')"
+            pendientes="$(printf '%s' "$checks" | jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED")] | length')"
+            fallidos="$(printf '%s' "$checks" | jq '[.[] | select(.state == "FAILURE" or .state == "CANCELLED" or .state == "TIMED_OUT")] | length')"
+
+            if [ "$fallidos" -gt 0 ]; then
+              echo "::warning::Un check del PR de release fallo: no se mergea (queda abierto para revision)."
+              exit 0
+            fi
+
+            if [ "$total" -gt 0 ] && [ "$pendientes" -eq 0 ]; then
+              echo "Los $total checks requeridos estan en verde: se mergea el PR de release."
+              gh pr merge "$number" --repo "${{ github.repository }}" --squash --admin --delete-branch=false
+              exit 0
+            fi
+
+            echo "Checks del PR de release: $total en total, $pendientes pendientes (intento $i/40)."
+            sleep 30
+          done
+
+          echo "::warning::Se agoto el tiempo esperando los checks: el PR de release sigue abierto."
