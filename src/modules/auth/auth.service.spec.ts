@@ -81,10 +81,10 @@ describe('AuthService', () => {
         fullName: 'A B',
         currentStreak: 0,
         lastStreakDate: null,
+        subscriptionTier: null,
         createdAt: new Date(),
         updatedAt: null,
         deletedAt: null,
-        subscriptionTier: null,
       };
       usersService.findByEmail.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRow);
@@ -154,6 +154,7 @@ describe('AuthService', () => {
         fullName: 'A B',
         currentStreak: 0,
         lastStreakDate: null,
+        subscriptionTier: null,
         createdAt: new Date(),
         updatedAt: null,
         deletedAt: null,
