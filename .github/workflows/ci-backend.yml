@@ -25,18 +25,25 @@ jobs:
     name: workflow-lint
     runs-on: ubuntu-latest
     steps:
-      # actionlint valida la SINTAXIS de los workflows, que es mas estricta que
-      # YAML: detecta claves duplicadas (GitHub rechaza el workflow entero y
-      # el run nace sin jobs), expresiones invalidas, `uses:` sin version, etc.
       - uses: actions/checkout@v4
 
+      # `actionlint` NO es una action de GitHub (no trae action.yaml) y las
+      # imagenes de Docker Hub estan bloqueadas para Actions, asi que se
+      # instala el binario con el script oficial del proyecto.
+      - name: Instalar actionlint
+        run: |
+          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          chmod +x actionlint
+
+      # Valida la SINTAXIS de los workflows, que es mas estricta que YAML:
+      # claves duplicadas (GitHub rechaza el workflow entero y el run nace
+      # sin jobs), expresiones invalidas, `uses:` sin version, etc.
+      # `-shellcheck=` desactiva la integracion con shellcheck: aqui importa la
+      # sintaxis, no el estilo de los scripts.
       - name: Validar los workflows del repo
-        uses: docker://rhysd/actionlint:latest
-        with:
-          args: -color .github/workflows/*.yml
-  # ─────────────────────────────────────────────────────────────
-  # Static analysis + unit tests. Fast, no external services.
-  # ─────────────────────────────────────────────────────────────
+        run: ./actionlint -color -shellcheck= .github/workflows/*.yml
+
+
   unit-and-static:
     name: unit-and-static
     runs-on: ubuntu-latest
