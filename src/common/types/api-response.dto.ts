@@ -59,8 +59,20 @@ export class AuthUserViewDto {
   @ApiProperty({ example: 'sebastian@example.com', description: 'Correo electrónico de la cuenta' })
   email!: string;
 
-  @ApiProperty({ example: 'Sebastián Rodríguez', description: 'Nombre completo del usuario' })
-  fullName!: string;
+  @ApiProperty({
+    example: 'Sebastián Rodríguez',
+    nullable: true,
+    description: 'Nombre completo del usuario o nulo si aún no está configurado',
+  })
+  fullName!: string | null;
+
+  @ApiProperty({
+    example: 'dolly',
+    nullable: true,
+    enum: ['dolly', 'dolly_plus', 'dolly_pro'],
+    description: 'Nivel de suscripción actual (`dolly`, `dolly_plus`, `dolly_pro` o nulo)',
+  })
+  subscriptionTier!: string | null;
 
   @ApiProperty({ example: 5, description: 'Racha activa actual en días consecutivos.' })
   currentStreak!: number;
@@ -117,25 +129,23 @@ export class AuthResponseDto {
   tokens!: AuthTokensDto;
 }
 
-/**
- * Estructura de `data` para `/auth/refresh` (200).
- */
-export class RefreshResponseDto {
-  @ApiProperty({ type: () => AuthTokensDto, description: 'Nuevo par de tokens tras la rotación' })
-  tokens!: AuthTokensDto;
-}
-
-/**
- * Estructura de `data` para `/auth/me` (200).
- */
-export class MeResponseDto {
-  @ApiProperty({ type: () => AuthUserViewDto, description: 'Datos públicos del usuario actual' })
-  user!: AuthUserViewDto;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Subtema de categoría devuelto dentro de cada categoría en `/readings/options`.
+ */
+export class ReadingSubcategoryDto {
+  @ApiProperty({
+    example: 'web_development',
+    description: 'Identificador interno de la subcategoría',
+  })
+  id!: string;
+
+  @ApiProperty({ example: 'Web Development', description: 'Nombre legible de la subcategoría' })
+  name!: string;
+}
 
 /**
  * Entrada de categoría devuelta por `/readings/options`.
@@ -146,17 +156,20 @@ export class ReadingCategoryDto {
     enum: ['technology', 'history', 'education', 'programming', 'culture', 'pop_culture'],
     description: 'Identificador interno de la categoría',
   })
-  id!: 'technology' | 'history' | 'education' | 'programming' | 'culture' | 'pop_culture';
+  id!: string;
 
   @ApiProperty({ example: 'Programming', description: 'Nombre legible de la categoría' })
   name!: string;
 
   @ApiProperty({
-    example: ['Web Development', 'Databases'],
+    example: [
+      { id: 'web_development', name: 'Web Development' },
+      { id: 'databases', name: 'Databases' },
+    ],
     description: 'Subtemas en los que el LLM puede enfocarse dentro de esta categoría.',
-    type: [String],
+    type: [ReadingSubcategoryDto],
   })
-  subcategories!: string[];
+  subcategories!: ReadingSubcategoryDto[];
 }
 
 /**
@@ -168,7 +181,7 @@ export class ReadingSizeDto {
     enum: ['short', 'medium', 'long'],
     description: 'Identificador del tamaño',
   })
-  id!: 'short' | 'medium' | 'long';
+  id!: string;
 
   @ApiProperty({ example: 'Short', description: 'Etiqueta legible del tamaño' })
   label!: string;

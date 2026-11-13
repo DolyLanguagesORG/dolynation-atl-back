@@ -53,7 +53,7 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
   async register(@Body() dto: RegisterDto): Promise<ApiResponse<AuthResponseDto>> {
     const result = await this.auth.register(dto);
-    return apiOk('User registered successfully', result as unknown as AuthResponseDto);
+    return apiOk('User registered successfully', result);
   }
 
   @Public()
@@ -65,7 +65,7 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
   async login(@Body() dto: LoginDto): Promise<ApiResponse<AuthResponseDto>> {
     const result = await this.auth.login(dto);
-    return apiOk('Login successful', result as unknown as AuthResponseDto);
+    return apiOk('Login successful', result);
   }
 
   @Public()
@@ -139,6 +139,6 @@ export class AuthController {
     if (!user) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
     }
-    return apiOk('Current user', user as unknown as AuthUserViewDto);
+    return apiOk('Current user', user);
   }
 }

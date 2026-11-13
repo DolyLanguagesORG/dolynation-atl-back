@@ -203,4 +203,32 @@ describe('OpenAPI schema documentation', () => {
       requiresBodySchema('post', '/api/v1/ia/chat', 'ChatRequestDto');
     });
   });
+
+  describe('response and settings DTO consistency', () => {
+    it('AuthUserViewDto exposes subscriptionTier and nullable fullName matching PublicUser', () => {
+      const schema = schemas()['AuthUserViewDto'];
+      expect(schema).toBeDefined();
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+      expect(props['subscriptionTier']).toBeDefined();
+      expect(props['subscriptionTier']?.['nullable']).toBe(true);
+      expect(props['fullName']?.['nullable']).toBe(true);
+    });
+
+    it('ReadingCategoryDto documents subcategories as ReadingSubcategoryDto objects', () => {
+      const schema = schemas()['ReadingCategoryDto'];
+      expect(schema).toBeDefined();
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+      const subItems = props['subcategories']?.['items'] as { $ref?: string } | undefined;
+      expect(subItems?.$ref).toContain('ReadingSubcategoryDto');
+      expect(schemas()['ReadingSubcategoryDto']).toBeDefined();
+    });
+
+    it('UpdateCategoriesDto accepts free-text custom topics without fixed enum constraint', () => {
+      const schema = schemas()['UpdateCategoriesDto'];
+      expect(schema).toBeDefined();
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+      const items = props['categories']?.['items'] as Record<string, unknown> | undefined;
+      expect(items?.['enum']).toBeUndefined();
+    });
+  });
 });

@@ -60,10 +60,7 @@ export class ReadingsController {
     type: ApiErrorDto,
   })
   getOptions(): ApiResponse<ReadingOptionsDto> {
-    // El servicio devuelve una estructura equivalente pero con tipado abierto (`id: string`
-    // frente a las uniones literales del DTO). Se convierte a `ReadingOptionsDto` porque es
-    // el contrato canónico de respuesta del endpoint `/readings/options`.
-    return apiOk('Generation options', this.readings.getOptions() as unknown as ReadingOptionsDto);
+    return apiOk('Generation options', this.readings.getOptions());
   }
 
   /**
