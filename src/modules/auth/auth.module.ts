@@ -9,6 +9,10 @@ import { UsersModule } from '../users/users.module';
 import { ReadingsModule } from '../readings/readings.module';
 import type { EnvSchema } from '../../config/env.validation';
 
+/**
+ * Módulo de autenticación y gestión de sesiones JWT.
+ * Configura Passport y JwtModule con el secreto y tiempo de expiración desde las variables de entorno.
+ */
 @Module({
   imports: [
     UsersModule,

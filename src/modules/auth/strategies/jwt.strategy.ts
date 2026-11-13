@@ -6,12 +6,16 @@ import { UsersService } from '../../users/users.service';
 import { UnauthorizedException } from '@nestjs/common';
 import type { AuthUser } from '../../../common/decorators/current-user.decorator';
 
+/** Carga útil esperada dentro del token JWT. */
 export interface JwtPayload {
   sub: number;
   email: string;
   type: 'access' | 'refresh';
 }
 
+/**
+ * Estrategia de Passport encargada de validar los tokens Bearer de acceso en cada petición.
+ */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
@@ -28,9 +32,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   /**
-   * Called by passport-jwt after a token's signature + expiry are valid.
-   * Looks up the user in the DB to make sure the account still exists.
-   * Throws UnauthorizedException if not — passport will translate that to 401.
+   * Invocado por `passport-jwt` después de verificar firma y expiración del token.
+   * Comprueba que sea un token de acceso y que el usuario siga existiendo en la base de datos.
+   * Lanza `UnauthorizedException` en caso contrario (Passport lo traduce a HTTP 401).
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async validate(payload: JwtPayload): Promise<AuthUser> {

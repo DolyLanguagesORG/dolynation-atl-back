@@ -1,14 +1,17 @@
 import type { RegisterDto, LoginDto } from './dto/auth.dto';
 import type { PublicUser } from '../users/users.service';
 
+/** Par de tokens JWT emitidos tras autenticar o refrescar una sesión. */
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
 }
 
+/** Vista pública del usuario devuelta en respuestas de autenticación. */
 export type AuthUserView = PublicUser;
 
+/** Representación básica de un usuario autenticado. */
 export interface AuthenticatedUser {
   id: number;
   email: string;
@@ -16,8 +19,8 @@ export interface AuthenticatedUser {
 }
 
 /**
- * Public contract for the AuthService.
- * Implementation lives in auth.service.ts; this interface lets us mock it cleanly in tests.
+ * Contrato público para `AuthService`.
+ * La implementación vive en `auth.service.ts`; esta interfaz facilita simularla en pruebas.
  */
 export interface IAuthService {
   register(input: RegisterDto): Promise<{ user: AuthUserView; tokens: AuthTokens }>;

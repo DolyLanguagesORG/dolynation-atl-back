@@ -13,6 +13,7 @@ import type { DrizzleDb } from '../../database/database.module';
 import type { IAuthService, AuthTokens, AuthUserView } from './auth.types';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 
+/** Carga útil codificada dentro de los tokens JWT de acceso y refresco. */
 interface JwtPayload {
   sub: number;
   email: string;
@@ -20,6 +21,9 @@ interface JwtPayload {
   jti?: string;
 }
 
+/**
+ * Convierte una cadena de duración corta (ej. `5m`, `30d`) a milisegundos.
+ */
 function ttlToMilliseconds(ttl: string): number {
   const match = /^(\d+)([smhd])$/.exec(ttl);
   if (!match) {
@@ -43,6 +47,10 @@ function ttlToMilliseconds(ttl: string): number {
   }
 }
 
+/**
+ * Servicio responsable del registro, inicio de sesión, rotación de refresh tokens
+ * y cierre de sesión de usuarios.
+ */
 @Injectable()
 export class AuthService implements IAuthService {
   private readonly accessTtl: string;
@@ -59,6 +67,9 @@ export class AuthService implements IAuthService {
     this.refreshTtl = config.get<string>('JWT_REFRESH_TTL') ?? '30d';
   }
 
+  /**
+   * Registra un usuario nuevo, emite sus tokens iniciales y registra el evento de auditoría.
+   */
   async register(input: RegisterDto): Promise<{ user: AuthUserView; tokens: AuthTokens }> {
     const existing = await this.users.findByEmail(input.email);
     if (existing) {
@@ -74,6 +85,9 @@ export class AuthService implements IAuthService {
     return { user: this.users.toPublic(created), tokens };
   }
 
+  /**
+   * Valida correo y contraseña y devuelve el perfil público junto con los tokens JWT.
+   */
   async login(input: LoginDto): Promise<{ user: AuthUserView; tokens: AuthTokens }> {
     const user = await this.users.findByEmail(input.email);
     if (!user) {
@@ -88,6 +102,10 @@ export class AuthService implements IAuthService {
     return { user: this.users.toPublic(user), tokens };
   }
 
+  /**
+   * Verifica un refresh token válido, lo revoca de forma atómica (un solo uso)
+   * y emite un nuevo par de tokens.
+   */
   async refresh(refreshToken: string): Promise<AuthTokens> {
     let payload: JwtPayload;
     try {
@@ -98,6 +116,7 @@ export class AuthService implements IAuthService {
     if (payload.type !== 'refresh') {
       throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID, { reason: 'wrong_type' });
     }
+    // Buscamos el hash SHA-256 del token para comprobar que sigue activo y sin expirar.
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
     const now = new Date();
     const [storedToken] = await this.db
@@ -118,6 +137,7 @@ export class AuthService implements IAuthService {
       throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID);
     }
 
+    // Revocación atómica para impedir la reutilización concurrente del mismo refresh token.
     const [revokedToken] = await this.db
       .update(authAccessTokens)
       .set({ deletedAt: now, updatedAt: now })
@@ -136,6 +156,9 @@ export class AuthService implements IAuthService {
     return this.signTokensFor(payload.sub, payload.email);
   }
 
+  /**
+   * Cierra la sesión actual revocando en base de datos el refresh token recibido.
+   */
   async logout(userId: number, refreshToken: string): Promise<void> {
     const now = new Date();
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
@@ -154,6 +177,9 @@ export class AuthService implements IAuthService {
       );
   }
 
+  /**
+   * Cierra todas las sesiones activas del usuario revocando todos sus refresh tokens.
+   */
   async logoutAll(userId: number): Promise<void> {
     const now = new Date();
 
@@ -170,6 +196,9 @@ export class AuthService implements IAuthService {
       );
   }
 
+  /**
+   * Devuelve el perfil público del usuario autenticado actual.
+   */
   async me(userId: number): Promise<AuthUserView> {
     const user = await this.users.findById(userId);
     if (!user) {
@@ -178,6 +207,9 @@ export class AuthService implements IAuthService {
     return this.users.toPublic(user);
   }
 
+  /**
+   * Firma el par access/refresh token y almacena el hash del refresh token para rotación.
+   */
   private async signTokensFor(userId: number, email: string): Promise<AuthTokens> {
     const accessToken = await this.jwt.signAsync(
       { sub: userId, email, type: 'access' } satisfies JwtPayload,
