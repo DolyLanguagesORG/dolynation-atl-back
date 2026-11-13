@@ -9,10 +9,12 @@ import * as argon2 from 'argon2';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 
+/** Campos permitidos al actualizar el perfil de usuario. */
 export interface UpdateProfileInput {
   fullName?: string;
 }
 
+/** Representación pública y segura de un usuario (sin hash de contraseña ni campos internos). */
 export interface PublicUser {
   id: number;
   email: string;
@@ -23,20 +25,28 @@ export interface PublicUser {
   createdAt: Date;
 }
 
+/**
+ * Servicio de gestión de cuentas de usuario, credenciales Argon2id, perfil público y rachas.
+ */
 @Injectable()
 export class UsersService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  /** Busca un usuario por su correo electrónico. */
   async findByEmail(email: string): Promise<User | null> {
     const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
     return rows[0] ?? null;
   }
 
+  /** Busca un usuario por su identificador primario. */
   async findById(id: number): Promise<User | null> {
     const rows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
     return rows[0] ?? null;
   }
 
+  /**
+   * Crea un nuevo usuario generando el hash Argon2id de la contraseña e inicializando su racha en 0.
+   */
   async create(input: { email: string; password: string; fullName: string }): Promise<User> {
     const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     const now = new Date();
@@ -58,6 +68,7 @@ export class UsersService {
     return inserted;
   }
 
+  /** Verifica una contraseña en texto plano frente al hash almacenado. */
   async verifyPassword(plain: string, hash: string): Promise<boolean> {
     try {
       return await argon2.verify(hash, plain);
@@ -66,6 +77,7 @@ export class UsersService {
     }
   }
 
+  /** Proyecta una entidad `User` de base de datos al formato público expuesto por la API. */
   toPublic(user: User): PublicUser {
     return {
       id: user.id,
@@ -79,7 +91,7 @@ export class UsersService {
   }
 
   /**
-   * Compute the current streak for a user. Pure: does not write to DB.
+   * Calcula la racha actual de un usuario de forma pura (sin escribir en base de datos).
    */
   computeStreak(lastStreakDate: string | null, today: Date, currentStreak: number): number {
     if (!lastStreakDate) return 0;
@@ -92,8 +104,8 @@ export class UsersService {
   }
 
   /**
-   * Return the authenticated user's profile. Throws RESOURCE_NOT_FOUND if the
-   * row was deleted between token issue and the request.
+   * Devuelve el perfil del usuario autenticado. Lanza `RESOURCE_NOT_FOUND` si el
+   * registro fue eliminado entre la emisión del token y la petición.
    */
   async getProfile(userId: number): Promise<PublicUser> {
     const user = await this.findById(userId);
@@ -102,9 +114,9 @@ export class UsersService {
   }
 
   /**
-   * Update mutable profile fields. Only `fullName` is accepted; email and
-   * password are mutated through dedicated flows (not implemented here).
-   * No-op PATCHes are allowed and just return the current row.
+   * Actualiza los campos editables del perfil. Solo se acepta `fullName`; el correo y la
+   * contraseña se modifican mediante flujos dedicados (no implementados aquí).
+   * Se permiten peticiones PATCH sin cambios y devuelven el registro actual.
    */
   async updateProfile(userId: number, input: UpdateProfileInput): Promise<PublicUser> {
     const user = await this.findById(userId);
@@ -128,6 +140,9 @@ export class UsersService {
     return this.toPublic(updated);
   }
 
+  /**
+   * Genera la serie de actividad reciente por día para la ventana solicitada.
+   */
   async activeStreakFor(_userId: number, days = 7): Promise<number[]> {
     const result = Array.from({ length: days }, () => 1);
     await Promise.resolve(result);

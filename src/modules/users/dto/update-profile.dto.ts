@@ -2,16 +2,16 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsOptional, IsString, Length, Matches } from 'class-validator';
 
 /**
- * PATCH /user/profile — only safe-to-mutate fields.
- * Email and password are intentionally excluded: they belong to dedicated flows
- * with verification / re-authentication.
+ * DTO para `PATCH /user/profile` — incluye únicamente campos seguros de modificar.
+ * Correo y contraseña quedan excluidos intencionalmente: pertenecen a flujos dedicados
+ * con verificación o reautenticación.
  */
 export class UpdateProfileDto {
   @ApiPropertyOptional({
     example: 'Jane Doe',
     minLength: 1,
     maxLength: 255,
-    description: 'Display name; trimmed, non-empty when provided',
+    description: 'Nombre visible; se recorta al guardar y no puede estar vacío si se envía',
   })
   @IsOptional()
   @IsString()

@@ -1,40 +1,43 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/**
+ * DTO con los datos públicos del perfil del usuario autenticado.
+ */
 export class ProfileResponseDto {
-  @ApiProperty({ example: 42, description: 'User identifier' })
+  @ApiProperty({ example: 42, description: 'Identificador único del usuario' })
   id!: number;
 
-  @ApiProperty({ example: 'user@example.com', description: 'Account email' })
+  @ApiProperty({ example: 'user@example.com', description: 'Correo electrónico de la cuenta' })
   email!: string;
 
   @ApiProperty({
     example: 'Jane Doe',
     nullable: true,
-    description: 'Display name shown in the UI; may be null for legacy accounts',
+    description: 'Nombre visible mostrado en la interfaz; puede ser nulo en cuentas heredadas',
   })
   fullName!: string | null;
 
   @ApiProperty({
     example: 'dolly',
     nullable: true,
-    description: 'Current subscription plan tier (dolly, dolly_plus, dolly_pro, or null)',
+    description: 'Nivel de suscripción actual (`dolly`, `dolly_plus`, `dolly_pro` o nulo)',
     enum: ['dolly', 'dolly_plus', 'dolly_pro'],
   })
   subscriptionTier!: string | null;
 
-  @ApiProperty({ example: 5, description: 'Consecutive days with completed activity' })
+  @ApiProperty({ example: 5, description: 'Días consecutivos con actividad completada' })
   currentStreak!: number;
 
   @ApiProperty({
     example: '2026-10-18',
     nullable: true,
-    description: 'ISO date (YYYY-MM-DD) of the last day counted into the streak',
+    description: 'Fecha ISO (`YYYY-MM-DD`) del último día contabilizado en la racha',
   })
   lastStreakDate!: string | null;
 
   @ApiProperty({
     example: '2026-10-01T12:34:56.000Z',
-    description: 'Account creation timestamp',
+    description: 'Marca temporal de creación de la cuenta',
   })
   createdAt!: Date;
 }

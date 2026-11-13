@@ -17,31 +17,46 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 
+/**
+ * Controlador de perfil y racha de actividad del usuario autenticado (`/user`).
+ */
 @ApiTags('user')
 @ApiBearerAuth('access-token')
 @Controller('user')
 export class UsersController {
   constructor(private readonly users: UsersService) {}
 
+  /**
+   * Devuelve el perfil público del usuario autenticado.
+   */
   @Get('profile')
-  @ApiOperation({ summary: 'Get the authenticated user’s profile' })
+  @ApiOperation({ summary: 'Obtener el perfil del usuario autenticado' })
   @ApiOkResponseOf(ProfileResponseDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  @ApiNotFoundResponse({ description: 'User no longer exists', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiNotFoundResponse({ description: 'El usuario ya no existe', type: ApiErrorDto })
   async getProfile(@CurrentUser() current: AuthUser): Promise<ApiResponse<ProfileResponseDto>> {
     const profile = await this.users.getProfile(current.id);
     return apiOk('User profile', profile);
   }
 
+  /**
+   * Actualiza los campos editables permitidos en el perfil del usuario.
+   */
   @Patch('profile')
   @ApiOperation({
-    summary: 'Update the authenticated user’s profile',
+    summary: 'Actualizar el perfil del usuario autenticado',
     description:
-      'Only mutable profile fields can be updated here. Email and password changes have dedicated flows.',
+      'Solo pueden modificarse aquí los campos editables del perfil. Los cambios de correo electrónico y contraseña tienen flujos dedicados.',
   })
   @ApiOkResponseOf(ProfileResponseDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  @ApiNotFoundResponse({ description: 'User no longer exists', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiNotFoundResponse({ description: 'El usuario ya no existe', type: ApiErrorDto })
   async updateProfile(
     @CurrentUser() current: AuthUser,
     @Body() dto: UpdateProfileDto,
@@ -50,11 +65,17 @@ export class UsersController {
     return apiOk('Profile updated', profile);
   }
 
+  /**
+   * Devuelve el historial reciente de racha diaria para el número de días solicitado.
+   */
   @Get('streak')
-  @ApiOperation({ summary: 'Get the user’s recent streak history' })
+  @ApiOperation({ summary: 'Obtener el historial reciente de racha del usuario' })
   @ApiQuery({ name: 'days', type: StreakQueryDto, required: true })
   @ApiOkResponseOf(StreakResponseDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async getStreak(
     @CurrentUser() current: AuthUser,
     @Query() query: StreakQueryDto,
