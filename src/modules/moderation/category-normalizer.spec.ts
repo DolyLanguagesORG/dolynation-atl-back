@@ -20,8 +20,8 @@ describe('category-normalizer', () => {
       expect(stripDiacriticsAndHomoglyphs('Canción Informática')).toBe('cancion informatica');
       expect(stripDiacriticsAndHomoglyphs('мuеrtо')).toBe('muerto');
       expect(stripDiacriticsAndHomoglyphs('ｓｅｘｏ')).toBe('sexo');
-      expect(stripDiacriticsAndHomoglyphs('Scheiße Cœur Æther Português Français')).toBe(
-        'scheisse coeur aether portugues francais',
+      expect(stripDiacriticsAndHomoglyphs('Città Cœur Æther Italiano Français')).toBe(
+        'citta coeur aether italiano francais',
       );
     });
   });

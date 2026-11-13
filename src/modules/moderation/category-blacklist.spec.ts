@@ -1,7 +1,7 @@
 import { checkCategoryBlacklist } from './category-blacklist';
 
 describe('category-blacklist (Filter 1)', () => {
-  it('blocks explicit death, sexual, profanity, drugs and spam words across EN, ES, FR, PT and DE', () => {
+  it('blocks explicit death, sexual, profanity, drugs and spam words across ES, EN, FR and IT', () => {
     const blockedCases = [
       // ES + EN
       'Muertos',
@@ -24,23 +24,15 @@ describe('category-blacklist (Filter 1)', () => {
       'Meurtre',
       'Fils de pute',
       'azerty',
-      // PT
-      'Caralho',
-      'Buceta',
-      'Porra',
-      'Estupro',
-      'Maconha',
-      'Filho da puta',
-      // DE
-      'Scheiße',
-      'Arschloch',
-      'Selbstmord',
-      'Leiche',
-      'Vergewaltigung',
-      'Ficken',
-      'Müll',
-      'Möse',
-      'qwertz',
+      // IT
+      'Vaffanculo',
+      'Puttana',
+      'Coglione',
+      'Stronzo',
+      'Cadavere',
+      'Omicidio',
+      'Figlio di puttana',
+      'Stupro',
     ];
 
     for (const input of blockedCases) {
@@ -88,18 +80,16 @@ describe('category-blacklist (Filter 1)', () => {
       'Mar Muerto',
       'Astronomía Moderna',
       'Desarrollo Backend',
-      // FR + PT + DE safe cultural/historical phrases and false-positive guards
+      // FR + IT safe cultural/historical phrases and false-positive guards
       'Seconde Guerre Mondiale',
       'Nature morte',
       'Mer Morte',
-      'Dia dos Mortos',
-      'Natureza Morta',
-      'Zweiter Weltkrieg',
-      'Totes Meer',
-      'Menschliche Anatomie',
+      'Seconda Guerra Mondiale',
+      'Natura Morta',
+      'Mar Morto',
+      'Anatomia Umana',
+      'Articolo Scientifico',
       'Literary Heroines',
-      'Creative Mull',
-      'Politische FDP Debatte',
     ];
 
     for (const input of allowedCases) {

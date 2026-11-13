@@ -84,6 +84,13 @@ verifica exhaustividad.
 | `RESOURCE_FORBIDDEN`                | 403  | Usuario autenticado pero sin permiso                         |
 | `READING_PENDING_LIMIT_REACHED`     | 400  | Demasiadas lecturas pendientes, completar antes de generar    |
 | `READING_ALREADY_EVALUATED`         | 400  | La lectura ya fue evaluada, no se puede re-evaluar           |
+| `SUBSCRIPTION_REQUIRED`             | 403  | Se requiere seleccionar un plan de suscripción activo        |
+| `SUBSCRIPTION_INVALID_TIER`         | 400  | Plan inválido (`dolly`, `dolly_plus` o `dolly_pro`)          |
+| `SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED` | 400 | Excede el límite de categorías permitido por el plan        |
+| `SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED` | 400 | Excede la cantidad de idiomas permitida por el plan         |
+| `SUBSCRIPTION_LANGUAGE_NOT_ALLOWED` | 403  | El idioma solicitado no está activo en la selección del plan |
+| `LANGUAGE_NOT_SELECTED`             | 403  | El usuario aún no selecciona idiomas en `/settings/languages`|
+| `LANGUAGE_CHANGE_LOCKED`            | 403  | Selección bloqueada (cambio anual o vía crédito pagado)      |
 | `CATEGORY_MODERATION_REJECTED`      | 400  | Una o más categorías dinámicas rechazadas por moderación     |
 | `VALIDATION_ERROR`                  | 400  | Falló class-validator; `details.fields[]` con cada campo    |
 | `INTERNAL_ERROR`                    | 500  | Error no controlado; el cliente no recibe detalles internos  |
@@ -143,7 +150,7 @@ cliente solo recibe un código estable + mensaje seguro.
 | `POST /api/v1/readings/{id}/evaluate` | Implementado | `back#13` |
 | `POST /api/v1/readings/{id}/explanations` | Implementado | `back#11` |
 | `GET /api/v1/readings/{id}/tts` | Planificado S3 | `back#11` |
-| `GET/PUT /api/v1/settings/language`; `GET/PUT/POST /settings/categories` | Planificado S2 | `back#8` |
+| `GET/PUT /api/v1/settings/languages`, `PUT /settings/languages/reorder`, `POST /settings/languages/unlock-change`; `GET/PUT /settings/categories` | Implementado | `back#8` |
 | `GET /api/v1/history`, `/history/scores` | Planificado S4 | `back#16` |
 | `GET/POST/PATCH/DELETE /api/v1/admin/categories`; `GET /admin/users`; `PATCH /admin/users/{id}/role` | Planificado S4 | `back#17` |
 | `GET /api/v1/health/live`, `/health/ready` | Implementado | — |
