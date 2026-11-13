@@ -12,6 +12,7 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOperation,
   ApiTags,
@@ -70,7 +71,12 @@ export class ReadingsController {
   @ApiCreatedResponseOf(ReadingDto)
   @ApiBadRequestResponse({
     description:
-      'Se alcanzó el límite de lecturas pendientes, falló el proveedor de IA o hubo error de validación',
+      'Se alcanzó el límite de lecturas pendientes, falta el idioma obligatorio, la categoría no es válida o falló el proveedor de IA',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Suscripción requerida, sin idiomas seleccionados (LANGUAGE_NOT_SELECTED) o idioma fuera de los cupos activos del plan (SUBSCRIPTION_LANGUAGE_NOT_ALLOWED)',
     type: ApiErrorDto,
   })
   @ApiUnauthorizedResponse({

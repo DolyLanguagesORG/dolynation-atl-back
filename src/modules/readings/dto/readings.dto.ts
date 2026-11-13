@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
 import {
   CEFR_BY_DIFFICULTY,
   READING_CATEGORIES,
@@ -8,6 +9,8 @@ import {
   READING_TEXT_SIZES,
 } from '../prompt-generation';
 import type { CefrLevel, DifficultyLevel, TextSize } from '../prompt-generation/catalog.types';
+
+const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
 /**
  * `GenerateReadingDto` es el DTO de entrada expuesto al cliente para el endpoint de generación de lecturas.
@@ -59,13 +62,13 @@ export class GenerateReadingDto {
 
   @ApiProperty({
     description:
-      'Idioma objetivo de la lectura generada (ej. en, es, fr, pt, de). Por defecto usa el idioma de estudio preferido del usuario.',
-    example: 'en',
-    required: false,
+      'Target language for the generated reading (es, en, fr, it). Required; must be active in your configured languages and allowed by your subscription plan.',
+    enum: LANGUAGE_IDS,
+    example: 'es',
   })
-  @IsOptional()
   @IsString()
-  language?: string;
+  @IsIn(LANGUAGE_IDS)
+  language!: LanguageId;
 
   /** Consulta auxiliar conservada para `/readings/options`; no se expone en el esquema público. */
   static cefrLevelsForDifficulty(difficulty: DifficultyLevel): readonly CefrLevel[] {

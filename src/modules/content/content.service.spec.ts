@@ -23,19 +23,19 @@ describe('ContentService', () => {
   });
 
   describe('generate', () => {
-    it('forwards resolved options to readings.generate', async () => {
-      await service.generate(42, { category: 'technology', difficulty: 'hard' });
+    it('forwards explicit language and resolved options to readings.generate', async () => {
+      await service.generate(42, { category: 'technology', difficulty: 'hard', language: 'fr' });
       expect(readings.generate).toHaveBeenCalledWith({
         userId: 42,
-        options: { category: 'technology', difficulty: 'hard' },
+        options: { category: 'technology', difficulty: 'hard', language: 'fr' },
       });
     });
 
-    it('omits undefined difficulty and size', async () => {
-      await service.generate(42, { category: 'technology' });
+    it('omits undefined difficulty and size while forwarding language', async () => {
+      await service.generate(42, { category: 'technology', language: 'it' });
       expect(readings.generate).toHaveBeenCalledWith({
         userId: 42,
-        options: { category: 'technology' },
+        options: { category: 'technology', language: 'it' },
       });
     });
   });

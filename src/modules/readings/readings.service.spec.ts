@@ -29,7 +29,7 @@ describe('ReadingsService', () => {
   let parser: jest.Mocked<Pick<AiResponseParserService, 'parseGeneratedText' | 'parseEvaluation'>>;
   let logs: jest.Mocked<Pick<PromptLogService, 'logPromptSuccess' | 'logPromptError'>>;
   let users: jest.Mocked<Pick<UsersService, 'findById'>>;
-  let settings: jest.Mocked<Pick<SettingsService, 'getCategories' | 'getLanguage'>>;
+  let settings: jest.Mocked<Pick<SettingsService, 'getCategories'>>;
   let subscriptions: {
     assertSubscriptionActive: jest.Mock;
     assertCanGenerateReading: jest.Mock;
@@ -99,7 +99,6 @@ describe('ReadingsService', () => {
       assertCategoryAllowedForReading: jest.fn().mockResolvedValue(undefined),
     };
     settings = {
-      getLanguage: jest.fn().mockResolvedValue('en'),
       getCategories: jest
         .fn()
         .mockResolvedValue([
@@ -241,7 +240,7 @@ describe('ReadingsService', () => {
 
       const result = await service.generate({
         userId: 42,
-        options: { category: 'history', difficulty: 'medium', size: 'medium' },
+        options: { category: 'history', difficulty: 'medium', size: 'medium', language: 'en' },
       });
 
       expect(promptGen.generateRandomParams).toHaveBeenCalledWith(
@@ -300,7 +299,7 @@ describe('ReadingsService', () => {
 
       await service.generate({
         userId: 42,
-        options: { category: 'programming', difficulty: 'hard', size: 'medium' },
+        options: { category: 'programming', difficulty: 'hard', size: 'medium', language: 'fr' },
       });
 
       // buildPrompt receives the user-chosen category/difficulty/size inside
@@ -354,7 +353,7 @@ describe('ReadingsService', () => {
       const localDb = makeDbReturning(returned);
       service = await buildModuleWithDb(localDb);
 
-      await service.generate({ userId: 42, options: { category: 'culture' } });
+      await service.generate({ userId: 42, options: { category: 'culture', language: 'es' } });
 
       expect(promptGen.buildPrompt).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -386,8 +385,25 @@ describe('ReadingsService', () => {
       });
       service = await buildModuleWithDb(db);
       await expect(
-        service.generate({ userId: 42, options: { category: 'history', difficulty: 'medium' } }),
+        service.generate({
+          userId: 42,
+          options: { category: 'history', difficulty: 'medium', language: 'en' },
+        }),
       ).rejects.toBeInstanceOf(AppHttpException);
+    });
+
+    it('rejects with VALIDATION_ERROR when target language is missing', async () => {
+      service = await buildModuleWithDb(db);
+
+      await expect(
+        service.generate({
+          userId: 42,
+          options: { category: 'history' } as never,
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+      });
+      expect(subscriptions.assertLanguageAllowed).not.toHaveBeenCalled();
     });
 
     it('rejects with RESOURCE_FORBIDDEN if category is not in user preferences', async () => {
@@ -395,7 +411,10 @@ describe('ReadingsService', () => {
       service = await buildModuleWithDb(db);
 
       await expect(
-        service.generate({ userId: 42, options: { category: 'gastronomy', difficulty: 'medium' } }),
+        service.generate({
+          userId: 42,
+          options: { category: 'gastronomy', difficulty: 'medium', language: 'en' },
+        }),
       ).rejects.toMatchObject({
         response: expect.objectContaining({
           code: 'RESOURCE_FORBIDDEN',
@@ -447,7 +466,7 @@ describe('ReadingsService', () => {
 
       const result = await service.generate({
         userId: 42,
-        options: { category: 'quantum_physics', difficulty: 'hard', size: 'long' },
+        options: { category: 'quantum_physics', difficulty: 'hard', size: 'long', language: 'it' },
       });
 
       expect(result.category).toBe('quantum_physics');
@@ -513,7 +532,7 @@ describe('ReadingsService', () => {
 
       await service.generate({
         userId: 42,
-        options: { category: 'history', difficulty: 'medium' },
+        options: { category: 'history', difficulty: 'medium', language: 'en' },
       });
 
       expect(promptGen.buildEnrichmentPrompt).toHaveBeenCalledWith(
@@ -772,7 +791,10 @@ describe('ReadingsService', () => {
 
       let caught: AppHttpException | null = null;
       try {
-        await localService.generate({ userId: 42, options: { category: 'Muertos' } });
+        await localService.generate({
+          userId: 42,
+          options: { category: 'Muertos', language: 'es' },
+        });
       } catch (err) {
         caught = err as AppHttpException;
       }
@@ -796,7 +818,10 @@ describe('ReadingsService', () => {
       const localService = await buildModuleWithDb(db);
 
       await expect(
-        localService.generate({ userId: 42, options: { category: 'dia de muertos' } }),
+        localService.generate({
+          userId: 42,
+          options: { category: 'dia de muertos', language: 'es' },
+        }),
       ).rejects.toMatchObject({
         response: expect.objectContaining({
           code: ErrorCode.CATEGORY_MODERATION_REJECTED,

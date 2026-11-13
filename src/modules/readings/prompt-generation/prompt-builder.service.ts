@@ -29,11 +29,10 @@ import type {
 
 /** Nombres de idioma legibles inyectados en las instrucciones de los prompts al LLM. */
 const LANGUAGE_NAMES: Record<string, string> = {
-  en: 'English',
   es: 'Spanish',
+  en: 'English',
   fr: 'French',
-  pt: 'Portuguese',
-  de: 'German',
+  it: 'Italian',
 };
 
 /**

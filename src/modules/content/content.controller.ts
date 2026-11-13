@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -30,15 +31,20 @@ export class ContentController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
     summary:
-      'Generar una lectura usando las preferencias guardadas del usuario y el proveedor de IA activo',
+      'Generar una lectura usando el idioma elegido, las preferencias del usuario y el proveedor de IA activo',
     description:
-      'Los campos omitidos toman las preferencias guardadas del usuario (/settings/categories) ' +
-      'y, en su defecto, una selección aleatoria del catálogo. Delega la generación y persistencia al módulo de lecturas.',
+      'Exige explícitamente `language` (es, en, fr o it) dentro de los idiomas activos del plan del usuario. ' +
+      'Los campos opcionales toman las preferencias guardadas (/settings/categories) o una selección aleatoria del catálogo.',
   })
   @ApiCreatedResponseOf(ReadingDto)
   @ApiBadRequestResponse({
     description:
-      'Se alcanzó el límite de lecturas pendientes, falló el proveedor de IA o hubo un error de validación',
+      'Falta el idioma obligatorio, se alcanzó el límite de lecturas pendientes, falló el proveedor de IA o hubo un error de validación',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Suscripción requerida, sin idiomas seleccionados (LANGUAGE_NOT_SELECTED) o idioma fuera de los cupos activos del plan (SUBSCRIPTION_LANGUAGE_NOT_ALLOWED)',
     type: ApiErrorDto,
   })
   @ApiUnauthorizedResponse({

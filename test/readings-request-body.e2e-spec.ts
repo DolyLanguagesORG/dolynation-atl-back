@@ -133,7 +133,16 @@ describe('POST /readings request body is fully documented', () => {
       ]),
     );
     expect(category?.example).toBe('technology');
-    expect(schema?.required).toEqual(expect.arrayContaining(['category']));
+    expect(schema?.required).toEqual(expect.arrayContaining(['category', 'language']));
+  });
+
+  it('GenerateReadingDto documents language (required) with supported 4-language enum', () => {
+    const schema = document.components?.schemas?.['GenerateReadingDto'];
+    const language = schema?.properties?.['language'];
+    expect(language).toBeDefined();
+    expect(language?.type).toBe('string');
+    expect(language?.enum).toEqual(['es', 'en', 'fr', 'it']);
+    expect(schema?.required).toEqual(expect.arrayContaining(['language']));
   });
 
   it('GenerateReadingDto documents difficulty (optional) with the right enum and example', () => {

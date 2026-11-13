@@ -1,5 +1,6 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional, IsString } from 'class-validator';
+import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
 import {
   READING_CATEGORIES,
   READING_DIFFICULTIES,
@@ -11,12 +12,22 @@ import type {
   TextSize,
 } from '../../readings/prompt-generation/catalog.types';
 
+const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
+
 /**
- * Cuerpo de la petición `POST /content/generate`. Todos los campos son opcionales:
- * los valores omitidos toman las preferencias guardadas del usuario (`/settings/categories`)
- * y, en última instancia, los valores predeterminados del sistema.
+ * Cuerpo de la petición `POST /content/generate`. `language` es obligatorio y debe coincidir
+ * con un idioma activo en la selección del usuario; el resto de parámetros son opcionales.
  */
 export class GenerateContentDto {
+  @ApiProperty({
+    description:
+      'Target language for the generated reading (es, en, fr, it). Required; must be active in your configured languages and allowed by your subscription plan.',
+    enum: LANGUAGE_IDS,
+    example: 'es',
+  })
+  @IsString()
+  @IsIn(LANGUAGE_IDS)
+  language!: LanguageId;
   @ApiPropertyOptional({
     description:
       'Categoría temática de la lectura generada. Si se omite, se utiliza una de las ' +

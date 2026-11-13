@@ -95,18 +95,20 @@ describe('OpenAPI schema documentation', () => {
   });
 
   describe('readings DTOs', () => {
-    it('documents GenerateReadingDto with category (required), difficulty, and size', () => {
+    it('documents GenerateReadingDto with category (required), language (required), difficulty, and size', () => {
       const schema = schemas()['GenerateReadingDto'];
       expect(schema).toBeDefined();
       const props = (schema.properties ?? {}) as Record<string, unknown>;
       expect(props['category']).toBeDefined();
+      expect(props['language']).toBeDefined();
       expect(props['difficulty']).toBeDefined();
       expect(props['size']).toBeDefined();
+      expect(schema.required).toEqual(expect.arrayContaining(['category', 'language']));
       // The previous version of this DTO had a `seed` field that was a
       // no-op; this regression test pins its removal.
       expect(props['seed']).toBeUndefined();
       // And a `cefrLevel` field that the service now derives internally —
-      // it must NOT leak into the public spec, only `category`+`difficulty`+`size`.
+      // it must NOT leak into the public spec, only `category`+`language`+`difficulty`+`size`.
       expect(props['cefrLevel']).toBeUndefined();
     });
 

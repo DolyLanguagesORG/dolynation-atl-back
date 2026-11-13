@@ -33,6 +33,7 @@ export class ContentService {
       userId,
       options: {
         category,
+        language: dto.language,
         ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
         ...(dto.size !== undefined ? { size: dto.size } : {}),
       },

@@ -65,9 +65,14 @@ export class ReadingsService {
     await this.subscriptions.assertSubscriptionActive(input.userId);
     await this.subscriptions.assertCanGenerateReading(input.userId);
 
-    // Validación del idioma objetivo frente al plan de suscripción activo
+    // Validación estricta del idioma objetivo obligatorio frente a la selección activa del plan
     const targetLanguage =
-      input.options.language ?? (await this.settings.getLanguage(input.userId));
+      typeof input.options.language === 'string' ? input.options.language.trim().toLowerCase() : '';
+    if (!targetLanguage) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        message: 'Target reading language is required (es, en, fr, or it).',
+      });
+    }
     await this.subscriptions.assertLanguageAllowed(input.userId, targetLanguage);
 
     const pendingCount = await this.getPendingCount(input.userId);
