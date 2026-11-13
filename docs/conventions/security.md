@@ -99,12 +99,61 @@ garantiza:
 
 Ver [api-contracts.md](./api-contracts.md) para el detalle.
 
+## Correo transaccional
+
+Servicio: [`src/modules/mail/`](https://github.com/DolyLanguagesORG/dolynation-atl-back/blob/develop/src/modules/mail/).
+Transporte SMTP genérico (`nodemailer`): el proveedor es solo configuración.
+
+### Tokens de correo
+
+- Los tokens de confirmación y de restablecimiento se generan con **32 bytes
+  aleatorios** (`base64url`) y se persisten **solo como hash SHA-256** en
+  `auth_email_tokens`. El valor en claro únicamente viaja dentro del enlace del
+  correo: no se puede recuperar de la base de datos.
+- SHA-256 es adecuado aquí porque el token tiene 256 bits de entropía. Para las
+  contraseñas, de baja entropía, el proyecto usa **Argon2id**.
+- Caducidad: **24 h** el token de confirmación, **60 min** el de restablecimiento.
+- El consumo es **atómico** (`UPDATE … WHERE consumed_at IS NULL RETURNING`): un
+  token no se puede usar dos veces, ni con peticiones concurrentes.
+- Emitir un token nuevo **revoca** el pendiente del mismo tipo: como máximo hay
+  un token vigente por tipo y usuario.
+
+### Anti-enumeración
+
+`POST /auth/forgot-password` y `POST /auth/resend-verification` devuelven
+siempre la misma respuesta, exista o no la cuenta. Solo se envía correo a
+cuentas existentes.
+
+### Límite de solicitudes
+
+Cada dirección puede pedir como máximo **3 correos en 15 minutos**. El límite
+vive **en memoria del proceso**: es *best effort*, no sobrevive a un reinicio
+ni se comparte entre instancias. Cierra parcialmente el vector de *email
+bombing*; la solución definitiva (rate limiting distribuido) sigue pendiente.
+
+### Nunca filtrar credenciales
+
+- El log de error del envío registra **solo el tipo y el código** del error
+  (`EAUTH`, `ECONNECTION`…), nunca el mensaje crudo del proveedor.
+- El destinatario se registra **enmascarado** (`e****@ejemplo.com`).
+- El token del enlace **nunca** se loguea.
+- Un fallo de SMTP **no rompe** el flujo que lo Originó: el registro y la
+  solicitud de reset responden con normalidad y el error queda en el log.
+
+### Verificación de correo
+
+Con `EMAIL_VERIFICATION_REQUIRED=true`, `login`, `refresh` y la validación del
+JWT rechazan las cuentas sin `users.email_verified_at` con
+`AUTH_EMAIL_NOT_VERIFIED` (403). Con el flag apagado (por defecto) el
+comportamiento es el de siempre.
+
 ## Brechas conocidas
 
 | Brecha                                         | Estado            |
 | ---------------------------------------------- | ----------------- |
 | Rate limiting (express-rate-limit ausente)     | Pendiente         |
-| CORS con `origin: true` (permite cualquiera) | Pendiente         |
+| Límite de envío de correo solo en memoria      | Pendiente         |
+| CORS con `origin: true` (permite cualquiera)   | Pendiente         |
 | Audit log de acciones sensibles                | Pendiente         |
 | HTTPS forzado en prod (depende del proxy)      | Depende del infra |
 

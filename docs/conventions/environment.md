@@ -43,9 +43,40 @@ Política de configuración por variables de entorno. La fuente de verdad es
 | `OPENAI_MODERATION_ENDPOINT` | No | url | `https://api.openai.com/v1/moderations`      | URL de OpenAI Moderation API                                |
 | `OPENAI_MODERATION_MODEL` | No    | string  | `omni-moderation-latest`                     | Modelo de OpenAI Moderation API                             |
 | `PERSPECTIVE_API_KEY` | No        | string  | -                                            | Clave opcional para Google Perspective API (cuota gratuita) |
+| `SMTP_HOST`         | No        | string  | -                                            | Host del servidor SMTP (Mailtrap Sandbox en dev, Brevo en staging/prod) |
+| `SMTP_PORT`         | No        | int     | `587`                                       | Puerto del servidor SMTP (587 STARTTLS, 465 TLS implícito, 2525 Mailtrap) |
+| `SMTP_USER`         | No        | string  | -                                            | Usuario de autenticación SMTP. En Brevo es el login de la cuenta o `<id>@smtp-brevo.com` |
+| `SMTP_PASSWORD`     | No        | string  | -                                            | Contraseña SMTP. En Brevo es la **SMTP key**, no la API key |
+| `SMTP_FROM`         | No        | string  | -                                            | Dirección de origen de los correos transaccionales |
+| `SMTP_FROM_NAME`    | No        | string  | -                                            | Nombre mostrado en el origen (ej. `DolyNation Editorial`) |
+| `SMTP_SECURE`       | No        | boolean | `false`                                     | `true` solo para TLS implícito (puerto 465). En el resto de puertos se usa STARTTLS |
+| `FRONTEND_BASE_URL` | No        | url     | `http://localhost:3000`                    | Base pública del frontend. Se usa para construir los enlaces de los correos |
+| `EMAIL_VERIFICATION_REQUIRED` | No | boolean | `false`                            | Cuando es `true`, iniciar sesión exige que el usuario haya confirmado su correo |
 
 Las variables de TTS se definirán en `back#11`; no agregues nombres nuevos
 hasta que el proveedor esté decidido.
+
+### Correo (SMTP)
+
+El proveedor de correo es **solo configuración**: el cliente SMTP es el mismo
+en todos los ambientes, así que pasar de Mailtrap a Brevo (o a Mailpit en local)
+es cambiar valores, no código.
+
+| Ambiente     | Host                            | Puerto | Notas                                        |
+| ------------ | ------------------------------- | ------ | -------------------------------------------- |
+| local        | `localhost` (Mailpit)           | `1025` | Sin credenciales; se ve en `http://localhost:8025` |
+| desarrollo   | `sandbox.smtp.mailtrap.io`      | `2525` | Mailtrap Sandbox: captura el correo, no llega a buzones reales |
+| staging      | `smtp-relay.brevo.com`          | `587`  | Brevo. La contraseña es la **SMTP key**      |
+| produccion   | `smtp-relay.brevo.com`          | `587`  | Brevo. La contraseña es la **SMTP key**      |
+
+Los valores de cada ambiente llegan como **secrets** del GitHub Environment
+correspondiente (`desarrollo`, `staging`, `prod`) y los escribe el workflow de
+despliegue. **Nunca** se comitean credenciales: ni en el repo, ni en un `.env`
+versionado, ni en el historial de git.
+
+Las variables `SMTP_*` son opcionales a propósito: sin ellas la aplicación
+arranca igual y solo falla el envío, con un mensaje claro en el log del
+servidor (`falta SMTP_HOST` / `falta SMTP_FROM`).
 
 ## Política de secretos
 

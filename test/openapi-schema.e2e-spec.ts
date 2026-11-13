@@ -199,6 +199,14 @@ describe('OpenAPI schema documentation', () => {
       requiresBodySchema('post', '/api/v1/readings/{id}/explanations', 'CreateExplanationDto');
     });
 
+    it('PATCH /readings/explanations/{explanationId}/glossary references ToggleGlossarySaveDto', () => {
+      requiresBodySchema(
+        'patch',
+        '/api/v1/readings/explanations/{explanationId}/glossary',
+        'ToggleGlossarySaveDto',
+      );
+    });
+
     it('POST /ia/chat references ChatRequestDto', () => {
       requiresBodySchema('post', '/api/v1/ia/chat', 'ChatRequestDto');
     });
@@ -229,6 +237,24 @@ describe('OpenAPI schema documentation', () => {
       const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
       const items = props['categories']?.['items'] as Record<string, unknown> | undefined;
       expect(items?.['enum']).toBeUndefined();
+    });
+
+    it('ExplanationResultDto and GlossaryEntryDto expose structured breakdown, alternatives and contexts', () => {
+      const explanationSchema = schemas()['ExplanationResultDto'];
+      const glossarySchema = schemas()['GlossaryEntryDto'];
+      expect(explanationSchema).toBeDefined();
+      expect(glossarySchema).toBeDefined();
+      expect(schemas()['WordBreakdownItemDto']).toBeDefined();
+      expect(schemas()['AlternativeExpressionDto']).toBeDefined();
+      expect(schemas()['UsageContextDto']).toBeDefined();
+
+      const expProps = (explanationSchema.properties ?? {}) as Record<string, unknown>;
+      expect(expProps['wordBreakdown']).toBeDefined();
+      expect(expProps['otherWaysToSay']).toBeDefined();
+      expect(expProps['otherContexts']).toBeDefined();
+      expect(expProps['literalMeaning']).toBeDefined();
+      expect(expProps['isSaved']).toBeDefined();
+      expect(expProps['cached']).toBeDefined();
     });
   });
 });

@@ -80,6 +80,8 @@ verifica exhaustividad.
 | `AUTH_EMAIL_ALREADY_EXISTS`         | 409  | Email ya registrado en signup                                |
 | `AUTH_PASSWORD_TOO_WEAK`            | 400  | Password no cumple requisitos mínimos                        |
 | `AUTH_UNAUTHORIZED`                 | 401  | Ruta protegida sin token válido                              |
+| `AUTH_EMAIL_NOT_VERIFIED`           | 403  | La cuenta existe pero su correo no está confirmado           |
+| `AUTH_EMAIL_TOKEN_INVALID`          | 400  | Token de correo inválido, expirado o ya usado                |
 | `RESOURCE_NOT_FOUND`                | 404  | Recurso no existe                                            |
 | `RESOURCE_FORBIDDEN`                | 403  | Usuario autenticado pero sin permiso                         |
 | `READING_PENDING_LIMIT_REACHED`     | 400  | Demasiadas lecturas pendientes, completar antes de generar    |
@@ -142,6 +144,7 @@ cliente solo recibe un código estable + mensaje seguro.
 | Método y ruta | Estado | Issue |
 | --- | --- | --- |
 | `POST /api/v1/auth/register`, `/login`, `/refresh`, `/logout`, `/logout-all`; `GET /auth/me` | Implementado | `back#4` |
+| `POST /api/v1/auth/verify-email`, `/forgot-password`, `/reset-password`, `/resend-verification` | Implementado | — |
 | `GET/PATCH /api/v1/user/profile` | En PR S1 | `back#5` |
 | `GET /api/v1/user/streak` | Implementado (stub inicial) | `back#15` |
 | `GET /api/v1/user/points` | Planificado S4 | `back#15` |
@@ -207,3 +210,45 @@ Los helpers envelope están en
 
 Guía paso a paso para añadir un endpoint en
 [onboarding/adding-endpoint.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/onboarding/adding-endpoint.md).
+
+## Flujos de correo de cuenta
+
+Endpoints públicos que usan el servicio de correo (`src/modules/mail/`). El
+cliente no necesita conocer el proveedor: es siempre SMTP.
+
+| Endpoint                      | Qué hace                                                                   | Respuesta |
+| ----------------------------- | -------------------------------------------------------------------------- | --------- |
+| `POST /auth/register`         | Crea la cuenta y **envía el correo de confirmación**                        | 201 `RegisterResponseDto` |
+| `POST /auth/verify-email`     | Consume el token de confirmación y marca `users.email_verified_at`          | 200 `EmailVerifiedDto` |
+| `POST /auth/forgot-password`  | Envía el correo de restablecimiento de contraseña                           | 200 `EmailSentDto` |
+| `POST /auth/reset-password`   | Consume el token, actualiza la contraseña (Argon2id) y revoca las sesiones  | 200 `PasswordUpdatedDto` |
+| `POST /auth/resend-verification` | Reenvía el correo de confirmación si la cuenta sigue sin verificar       | 200 `EmailSentDto` |
+
+### Reglas del contrato
+
+1. **Anti-enumeración**: `forgot-password` y `resend-verification` devuelven
+   **siempre lo mismo** (`{ "emailSent": true }`), exista o no la cuenta. El
+   cliente nunca puede deducir qué correos están registrados.
+2. **Tokens de un solo uso**: se guardan hasheados (SHA-256) en
+   `auth_email_tokens`. Un token invalidado, expirado o ya usado devuelve
+   `AUTH_EMAIL_TOKEN_INVALID` — el mismo error para los tres casos, para no
+   filtrar información.
+3. **Cambio de contraseña**: `reset-password` revoca **todas** las sesiones
+   activas de la cuenta (los refresh tokens).
+4. **Verificación obligatoria**: con `EMAIL_VERIFICATION_REQUIRED=true`,
+   `register` devuelve `tokens: null` y `emailVerificationRequired: true`, y
+   `login` / `refresh` responden `AUTH_EMAIL_NOT_VERIFIED` (403) hasta que el
+   usuario confirma su correo. Con el flag apagado (por defecto) el
+   comportamiento de `register` es el de siempre.
+5. **El fallo del proveedor de correo nunca rompe el flujo**: si el SMTP está
+   caído, el registro y la solicitud de reset responden con normalidad y el
+   error queda solo en el log del servidor.
+
+### Rutas del frontend que enlazan los correos
+
+El backend construye los enlaces con `FRONTEND_BASE_URL`:
+
+- `${FRONTEND_BASE_URL}/verify-email?token=…`
+- `${FRONTEND_BASE_URL}/reset-password?token=…`
+
+Las páginas que consumen esos tokens viven en `dolynation-tonatiuh-front`.
