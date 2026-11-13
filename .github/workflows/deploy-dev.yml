@@ -133,6 +133,8 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
           SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
+          FRONTEND_BASE_URL: https://devweb.yacaterkos.tech
+          EMAIL_VERIFICATION_REQUIRED: "false"
         run: |
           set -euo pipefail
           # El agente SSH se creo en el paso anterior, en otro shell: hay que
@@ -170,20 +172,8 @@ jobs:
             printf 'SMTP_FROM=%s\n'       "$SMTP_FROM"
             printf 'SMTP_FROM_NAME=%s\n'  "$SMTP_FROM_NAME"
             printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
-            printf 'SMTP_HOST=%s\n'       "$SMTP_HOST"
-            printf 'SMTP_PORT=%s\n'       "$SMTP_PORT"
-            printf 'SMTP_USER=%s\n'       "$SMTP_USER"
-            printf 'SMTP_PASSWORD=%s\n'   "$SMTP_PASSWORD"
-            printf 'SMTP_FROM=%s\n'       "$SMTP_FROM"
-            printf 'SMTP_FROM_NAME=%s\n'  "$SMTP_FROM_NAME"
-            printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
-            printf 'SMTP_HOST=%s\n'       "$SMTP_HOST"
-            printf 'SMTP_PORT=%s\n'       "$SMTP_PORT"
-            printf 'SMTP_USER=%s\n'       "$SMTP_USER"
-            printf 'SMTP_PASSWORD=%s\n'   "$SMTP_PASSWORD"
-            printf 'SMTP_FROM=%s\n'       "$SMTP_FROM"
-            printf 'SMTP_FROM_NAME=%s\n'  "$SMTP_FROM_NAME"
-            printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
+            printf 'FRONTEND_BASE_URL=%s\n' "$FRONTEND_BASE_URL"
+            printf 'EMAIL_VERIFICATION_REQUIRED=%s\n' "$EMAIL_VERIFICATION_REQUIRED"
           } > /tmp/backend.env
           base64 -w0 /tmp/backend.env | ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \
