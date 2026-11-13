@@ -40,4 +40,12 @@ export class ProfileResponseDto {
     description: 'Marca temporal de creación de la cuenta',
   })
   createdAt!: Date;
+
+  @ApiProperty({
+    type: [String],
+    example: ['es', 'en'],
+    description:
+      'Idiomas activos seleccionados del usuario (ordenados por prioridad y acotados a su suscripción actual) utilizables al generar lecturas',
+  })
+  selectedLanguages!: string[];
 }

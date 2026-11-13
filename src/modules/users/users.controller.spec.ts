@@ -1,13 +1,13 @@
 import { Test } from '@nestjs/testing';
 import { UsersController } from './users.controller';
-import { UsersService, type PublicUser } from './users.service';
+import { UsersService, type UserProfile } from './users.service';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 
 describe('UsersController', () => {
   let controller: UsersController;
   let users: jest.Mocked<Pick<UsersService, 'activeStreakFor' | 'getProfile' | 'updateProfile'>>;
   const user: AuthUser = { id: 42, email: 'a@b.c', fullName: 'A B' };
-  const profile: PublicUser = {
+  const profile: UserProfile = {
     id: 42,
     email: 'a@b.c',
     fullName: 'A B',
@@ -15,6 +15,7 @@ describe('UsersController', () => {
     currentStreak: 3,
     lastStreakDate: '2026-10-17',
     createdAt: new Date('2026-10-01T00:00:00Z'),
+    selectedLanguages: ['fr'],
   };
 
   beforeEach(async () => {

@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Put } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put } from '@nestjs/common';
 import {
-  ApiBearerAuth,
   ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -12,7 +13,6 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import { READING_CATEGORIES } from '../readings/prompt-generation/catalog.constants';
 import { getCategoryConfig } from '../readings/prompt-generation/catalog.helpers';
-import { SUPPORTED_LANGUAGES, type LanguageId } from './settings.constants';
 import { CategoriesSettingsDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import { UpdateCategoriesDto } from './dto/update-categories.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
@@ -80,45 +80,112 @@ export class SettingsController {
   }
 
   /**
-   * Obtiene el catálogo de idiomas soportados y el idioma configurado por el usuario.
+   * Obtiene el catálogo de idiomas soportados, la lista ordenada elegida, los activos y el estado del bloqueo anual.
    */
   @Get('languages')
   @ApiOperation({
-    summary: 'Obtener el catálogo de idiomas y la selección actual del usuario',
+    summary: 'Obtener el catálogo de idiomas y la selección priorizada del usuario',
   })
   @ApiOkResponseOf(LanguagesSettingsDto)
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
   @ApiUnauthorizedResponse({
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
   })
   async getLanguages(@CurrentUser() current: AuthUser): Promise<ApiResponse<LanguagesSettingsDto>> {
-    await this.subscriptions.assertSubscriptionActive(current.id);
-    const catalog = SUPPORTED_LANGUAGES.map((l) => ({ id: l.id, name: l.name }));
-    const selected = await this.settings.getLanguage(current.id);
-    return apiOk('Languages settings', { catalog, selected });
+    const state = await this.settings.getLanguagesSettings(current.id);
+    return apiOk('Languages settings', state);
   }
 
   /**
-   * Guarda el idioma seleccionado tras comprobar que el plan de suscripción lo permite.
+   * Guarda la selección priorizada de idiomas validando cupo del plan y candado anual / crédito pagado.
    */
   @Put('languages')
-  @ApiOperation({ summary: 'Guardar la selección de idioma del usuario' })
+  @ApiOperation({
+    summary: 'Guardar la selección priorizada de idiomas del usuario',
+    description:
+      'El límite depende del plan (1 en dolly, 2 en dolly_plus, 4 en dolly_pro). Reemplazar un idioma ya elegido solo se permite una vez cada 365 días o consumiendo un crédito pagado en POST /settings/languages/unlock-change.',
+  })
   @ApiOkResponseOf(LanguagesSettingsDto)
   @ApiBadRequestResponse({
-    description: 'ID de idioma inválido o no permitido para el plan actual',
+    description: 'Lista vacía, idioma inválido o límite de idiomas del plan excedido',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Suscripción requerida o cambio de idioma bloqueado hasta cumplir 1 año o pagar desbloqueo (LANGUAGE_CHANGE_LOCKED)',
     type: ApiErrorDto,
   })
   @ApiUnauthorizedResponse({
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
   })
-  async updateLanguage(
+  async updateLanguages(
     @CurrentUser() current: AuthUser,
     @Body() dto: UpdateLanguageDto,
   ): Promise<ApiResponse<LanguagesSettingsDto>> {
-    await this.subscriptions.assertLanguageAllowed(current.id, dto.language);
-    const selected = await this.settings.setLanguage(current.id, dto.language as LanguageId);
-    const catalog = SUPPORTED_LANGUAGES.map((l) => ({ id: l.id, name: l.name }));
-    return apiOk('Language updated', { catalog, selected });
+    const state = await this.settings.setLanguages(current.id, dto.languages);
+    return apiOk('Languages updated', state);
+  }
+
+  /**
+   * Reordena la prioridad de los idiomas ya guardados por el usuario (índice 0 = más importante)
+   * sin agregar ni eliminar idiomas, protegiendo el orden preferido ante un downgrade de suscripción.
+   */
+  @Put('languages/reorder')
+  @ApiOperation({
+    summary: 'Reordenar la prioridad de los idiomas seleccionados',
+    description:
+      'Permite editar el orden de importancia de los idiomas guardados (posición 0 = más importante) sin agregar ni quitar elementos.',
+  })
+  @ApiOkResponseOf(LanguagesSettingsDto)
+  @ApiBadRequestResponse({
+    description: 'Los idiomas enviados no coinciden con la lista actual del usuario',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Suscripción requerida, sin idiomas seleccionados o intento de promover un idioma inactivo tras downgrade sin desbloqueo (LANGUAGE_CHANGE_LOCKED)',
+    type: ApiErrorDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  async reorderLanguages(
+    @CurrentUser() current: AuthUser,
+    @Body() dto: UpdateLanguageDto,
+  ): Promise<ApiResponse<LanguagesSettingsDto>> {
+    const state = await this.settings.reorderLanguages(current.id, dto.languages);
+    return apiOk('Languages reordered', state);
+  }
+
+  /**
+   * Registra el pago manual que acredita 1 cambio de idioma inmediato antes de cumplir 365 días.
+   */
+  @Post('languages/unlock-change')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Desbloquear cambio de idioma mediante pago manual',
+    description:
+      'Otorga 1 crédito consumible en PUT /settings/languages (o promoción tras downgrade) para cambiar idioma antes del plazo anual sin aumentar el cupo del plan.',
+  })
+  @ApiOkResponseOf(LanguagesSettingsDto)
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  async unlockLanguageChange(
+    @CurrentUser() current: AuthUser,
+  ): Promise<ApiResponse<LanguagesSettingsDto>> {
+    const state = await this.settings.unlockLanguageChange(current.id);
+    return apiOk('Language change unlocked', state);
   }
 }

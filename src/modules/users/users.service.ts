@@ -2,12 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { Inject } from '@nestjs/common';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { users } from '../../database/drizzle/schema';
+import { users, userSettings } from '../../database/drizzle/schema';
 import { eq } from 'drizzle-orm';
 import { type NewUser, type User } from '../../database/drizzle/types';
 import * as argon2 from 'argon2';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import type { LanguageId } from '../settings/settings.constants';
+import {
+  resolveActiveLanguages,
+  sanitizeSelectedLanguages,
+} from '../settings/language-selection.helpers';
+import { getMaxLanguagesForTier } from '../subscriptions/subscriptions.constants';
 
 /** Campos permitidos al actualizar el perfil de usuario. */
 export interface UpdateProfileInput {
@@ -23,6 +29,11 @@ export interface PublicUser {
   currentStreak: number;
   lastStreakDate: string | null;
   createdAt: Date;
+}
+
+/** Perfil completo devuelto en `/user/profile` con los idiomas activos permitidos para generar lecturas. */
+export interface UserProfile extends PublicUser {
+  selectedLanguages: LanguageId[];
 }
 
 /**
@@ -104,13 +115,13 @@ export class UsersService {
   }
 
   /**
-   * Devuelve el perfil del usuario autenticado. Lanza `RESOURCE_NOT_FOUND` si el
-   * registro fue eliminado entre la emisión del token y la petición.
+   * Devuelve el perfil del usuario autenticado incluyendo sus idiomas activos para lecturas.
+   * Lanza `RESOURCE_NOT_FOUND` si el registro fue eliminado entre la emisión del token y la petición.
    */
-  async getProfile(userId: number): Promise<PublicUser> {
+  async getProfile(userId: number): Promise<UserProfile> {
     const user = await this.findById(userId);
     if (!user) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
-    return this.toPublic(user);
+    return this.toProfile(user);
   }
 
   /**
@@ -118,7 +129,7 @@ export class UsersService {
    * contraseña se modifican mediante flujos dedicados (no implementados aquí).
    * Se permiten peticiones PATCH sin cambios y devuelven el registro actual.
    */
-  async updateProfile(userId: number, input: UpdateProfileInput): Promise<PublicUser> {
+  async updateProfile(userId: number, input: UpdateProfileInput): Promise<UserProfile> {
     const user = await this.findById(userId);
     if (!user) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
 
@@ -128,7 +139,7 @@ export class UsersService {
     }
 
     if (patch.fullName === undefined) {
-      return this.toPublic(user);
+      return this.toProfile(user);
     }
 
     const [updated] = await this.db
@@ -137,7 +148,36 @@ export class UsersService {
       .where(eq(users.id, userId))
       .returning();
     if (!updated) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
-    return this.toPublic(updated);
+    return this.toProfile(updated);
+  }
+
+  private async toProfile(user: User): Promise<UserProfile> {
+    const selectedLanguages = await this.getActiveSelectedLanguages(
+      user.id,
+      user.subscriptionTier ?? null,
+    );
+    return {
+      ...this.toPublic(user),
+      selectedLanguages,
+    };
+  }
+
+  private async getActiveSelectedLanguages(
+    userId: number,
+    subscriptionTier: string | null,
+  ): Promise<LanguageId[]> {
+    const maxLanguages = getMaxLanguagesForTier(subscriptionTier);
+    if (maxLanguages <= 0) {
+      return [];
+    }
+
+    const rows = await this.db
+      .select({ selectedLanguages: userSettings.selectedLanguages })
+      .from(userSettings)
+      .where(eq(userSettings.userId, userId))
+      .limit(1);
+    const saved = sanitizeSelectedLanguages(rows[0]?.selectedLanguages);
+    return resolveActiveLanguages(saved, maxLanguages);
   }
 
   /**
