@@ -29,11 +29,14 @@ export enum ErrorCode {
   READING_DAILY_LIMIT_REACHED = 'READING_DAILY_LIMIT_REACHED',
   EXPLANATION_DAILY_LIMIT_REACHED = 'EXPLANATION_DAILY_LIMIT_REACHED',
 
-  // === Suscripciones (4xx) ===
+  // === Suscripciones e idiomas (4xx) ===
   SUBSCRIPTION_REQUIRED = 'SUBSCRIPTION_REQUIRED',
   SUBSCRIPTION_INVALID_TIER = 'SUBSCRIPTION_INVALID_TIER',
   SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED = 'SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED',
+  SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED = 'SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED',
   SUBSCRIPTION_LANGUAGE_NOT_ALLOWED = 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED',
+  LANGUAGE_NOT_SELECTED = 'LANGUAGE_NOT_SELECTED',
+  LANGUAGE_CHANGE_LOCKED = 'LANGUAGE_CHANGE_LOCKED',
 
   // === Categorías y moderación (4xx) ===
   CATEGORY_MODERATION_REJECTED = 'CATEGORY_MODERATION_REJECTED',
@@ -149,10 +152,25 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     400,
     'You have exceeded the category limit for your subscription plan',
   ),
+  [ErrorCode.SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED]: entry(
+    ErrorCode.SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED,
+    400,
+    'You have exceeded the maximum number of languages allowed by your subscription plan',
+  ),
   [ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED]: entry(
     ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED,
     403,
-    'Your subscription plan only allows English readings. Upgrade your plan to unlock more languages',
+    'The requested language is not enabled in your active subscription language selection',
+  ),
+  [ErrorCode.LANGUAGE_NOT_SELECTED]: entry(
+    ErrorCode.LANGUAGE_NOT_SELECTED,
+    403,
+    'You must select your learning languages in settings before generating readings',
+  ),
+  [ErrorCode.LANGUAGE_CHANGE_LOCKED]: entry(
+    ErrorCode.LANGUAGE_CHANGE_LOCKED,
+    403,
+    'Your selected languages are locked. You can change them once per year or unlock an immediate change with a payment',
   ),
   [ErrorCode.CATEGORY_MODERATION_REJECTED]: entry(
     ErrorCode.CATEGORY_MODERATION_REJECTED,

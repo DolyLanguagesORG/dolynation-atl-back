@@ -20,6 +20,19 @@ export class SubscriptionUsageDto {
   categoriesLimit!: number | null;
 
   @ApiProperty({
+    example: 1,
+    description: 'Cantidad de idiomas activos accesibles actualmente según el plan del usuario',
+  })
+  languagesCount!: number;
+
+  @ApiProperty({
+    example: 1,
+    nullable: true,
+    description: 'Máximo de idiomas simultáneos permitidos por el plan (`null` si no tiene plan)',
+  })
+  languagesLimit!: number | null;
+
+  @ApiProperty({
     example: 2,
     description: 'Lecturas generadas en el día actual por el usuario',
   })

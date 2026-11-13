@@ -34,7 +34,8 @@ describe('SubscriptionsService', () => {
       expect(dolly).toBeDefined();
       expect(dolly.name).toBe('Dolly');
       expect(dolly.maxCategories).toBe(5);
-      expect(dolly.allowedLanguages).toEqual(['en']);
+      expect(dolly.maxLanguages).toBe(1);
+      expect(dolly.allowedLanguages).toEqual(['es', 'en', 'fr', 'it']);
       expect(dolly.dailyReadingsLimit).toBe(10);
       expect(dolly.dailyQuestionsLimit).toBe(15);
 
@@ -42,14 +43,17 @@ describe('SubscriptionsService', () => {
       expect(plus).toBeDefined();
       expect(plus.name).toBe('Dolly Plus');
       expect(plus.maxCategories).toBe(15);
+      expect(plus.maxLanguages).toBe(2);
       expect(plus.dailyReadingsLimit).toBe(20);
       expect(plus.dailyQuestionsLimit).toBe(30);
-      expect(plus.allowedLanguages).toContain('es');
+      expect(plus.allowedLanguages).toEqual(['es', 'en', 'fr', 'it']);
 
       const pro = plans.find((p) => p.id === 'dolly_pro')!;
       expect(pro).toBeDefined();
       expect(pro.name).toBe('Dolly Pro');
       expect(pro.maxCategories).toBeNull();
+      expect(pro.maxLanguages).toBe(4);
+      expect(pro.allowedLanguages).toEqual(['es', 'en', 'fr', 'it']);
       expect(pro.dailyReadingsLimit).toBeNull();
       expect(pro.dailyQuestionsLimit).toBeNull();
     });
@@ -112,7 +116,11 @@ describe('SubscriptionsService', () => {
         .mockReturnValueOnce({
           from: jest.fn().mockReturnValue({
             where: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue([{ categories: ['tech', 'history'] }]),
+              limit: jest
+                .fn()
+                .mockResolvedValue([
+                  { categories: ['tech', 'history'], selectedLanguages: ['fr', 'es'] },
+                ]),
             }),
           }),
         })
@@ -131,6 +139,8 @@ describe('SubscriptionsService', () => {
       expect(result.hasSubscription).toBe(true);
       expect(result.tier).toBe('dolly');
       expect(result.plan?.name).toBe('Dolly');
+      expect(result.usage.languagesCount).toBe(1);
+      expect(result.usage.languagesLimit).toBe(1);
       expect(result.usage.readingsCreatedToday).toBe(3);
       expect(result.usage.readingsLimit).toBe(10);
       expect(result.usage.readingsRemainingToday).toBe(7);
@@ -270,14 +280,22 @@ describe('SubscriptionsService', () => {
   });
 
   describe('assertLanguageAllowed', () => {
-    it('throws SUBSCRIPTION_LANGUAGE_NOT_ALLOWED if basic plan requests non-English language', async () => {
-      dbMock.select.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly' }]),
+    it('throws 403 LANGUAGE_NOT_SELECTED when user has not chosen any language yet', async () => {
+      dbMock.select
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly' }]),
+            }),
           }),
-        }),
-      });
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ selectedLanguages: [] }]),
+            }),
+          }),
+        });
 
       let error: AppHttpException | null = null;
       try {
@@ -287,30 +305,101 @@ describe('SubscriptionsService', () => {
       }
       expect(error).toBeInstanceOf(AppHttpException);
       expect(error?.getStatus()).toBe(403);
+      expect(error?.getResponse()).toMatchObject({ code: 'LANGUAGE_NOT_SELECTED' });
     });
 
-    it('allows English on basic plan', async () => {
-      dbMock.select.mockReturnValue({
+    it('rejects unsupported legacy language codes such as de or pt', async () => {
+      dbMock.select.mockReturnValueOnce({
         from: jest.fn().mockReturnValue({
           where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly' }]),
+            limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly_pro' }]),
           }),
         }),
       });
 
-      await expect(service.assertLanguageAllowed(1, 'en')).resolves.toBeUndefined();
+      await expect(service.assertLanguageAllowed(1, 'de')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED' }),
+      });
     });
 
-    it('allows all system languages on Plus and Pro tiers', async () => {
-      dbMock.select.mockReturnValue({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly_plus' }]),
+    it('allows generating in the 1 active selected language on basic Dolly tier (e.g. it)', async () => {
+      dbMock.select
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly' }]),
+            }),
           }),
-        }),
-      });
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['it'] }]),
+            }),
+          }),
+        });
 
-      await expect(service.assertLanguageAllowed(1, 'fr')).resolves.toBeUndefined();
+      await expect(service.assertLanguageAllowed(1, 'it')).resolves.toBeUndefined();
+    });
+
+    it('blocks a downgraded inactive language beyond the current plan limit while allowing #1 priority language', async () => {
+      dbMock.select
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly' }]),
+            }),
+          }),
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['fr', 'es'] }]),
+            }),
+          }),
+        });
+
+      await expect(service.assertLanguageAllowed(1, 'es')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED' }),
+      });
+    });
+
+    it('allows up to 2 selected languages on Dolly Plus and all 4 on Dolly Pro', async () => {
+      dbMock.select
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly_plus' }]),
+            }),
+          }),
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['fr', 'it'] }]),
+            }),
+          }),
+        });
+
+      await expect(service.assertLanguageAllowed(1, 'it')).resolves.toBeUndefined();
+
+      dbMock.select
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly_pro' }]),
+            }),
+          }),
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['es', 'en', 'fr', 'it'] }]),
+            }),
+          }),
+        });
+
+      await expect(service.assertLanguageAllowed(1, 'es')).resolves.toBeUndefined();
     });
   });
 

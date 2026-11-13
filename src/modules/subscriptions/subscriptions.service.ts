@@ -5,6 +5,11 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readingExplanations, readings, users, userSettings } from '../../database/drizzle/schema';
+import { isSupportedLanguageId } from '../settings/settings.constants';
+import {
+  resolveActiveLanguages,
+  sanitizeSelectedLanguages,
+} from '../settings/language-selection.helpers';
 import {
   getStartOfDayInTimeZone,
   isValidSubscriptionTier,
@@ -23,22 +28,24 @@ import type { UserSubscriptionResponseDto } from './dto/user-subscription-respon
 export class SubscriptionsService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  private toPlanDto(plan: SubscriptionPlanConfig): SubscriptionPlanItemDto {
+    return {
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      maxCategories: plan.maxCategories,
+      maxLanguages: plan.maxLanguages,
+      allowedLanguages: [...plan.allowedLanguages],
+      dailyReadingsLimit: plan.dailyReadingsLimit,
+      dailyQuestionsLimit: plan.dailyQuestionsLimit,
+    };
+  }
+
   /**
    * Devuelve todos los planes de suscripción disponibles y sus límites por nivel.
    */
   getPlans(): SubscriptionPlanItemDto[] {
-    return SUBSCRIPTION_TIERS.map((tier) => {
-      const plan = SUBSCRIPTION_PLANS[tier];
-      return {
-        id: plan.id,
-        name: plan.name,
-        description: plan.description,
-        maxCategories: plan.maxCategories,
-        allowedLanguages: [...plan.allowedLanguages],
-        dailyReadingsLimit: plan.dailyReadingsLimit,
-        dailyQuestionsLimit: plan.dailyQuestionsLimit,
-      };
-    });
+    return SUBSCRIPTION_TIERS.map((tier) => this.toPlanDto(SUBSCRIPTION_PLANS[tier]));
   }
 
   /**
@@ -67,13 +74,20 @@ export class SubscriptionsService {
     const tier: SubscriptionTier | null = isValidSubscriptionTier(rawTier) ? rawTier : null;
     const planConfig = tier ? SUBSCRIPTION_PLANS[tier] : null;
 
-    // Cantidad de categorías activas configuradas en user_settings
+    // Cantidad de categorías e idiomas activos configurados en user_settings
     const settingsRows = await this.db
-      .select({ categories: userSettings.preferredCategories })
+      .select({
+        categories: userSettings.preferredCategories,
+        selectedLanguages: userSettings.selectedLanguages,
+      })
       .from(userSettings)
       .where(eq(userSettings.userId, userId))
       .limit(1);
     const categoriesCount = settingsRows[0]?.categories?.length ?? 0;
+    const savedLanguages = sanitizeSelectedLanguages(settingsRows[0]?.selectedLanguages);
+    const activeLanguages = planConfig
+      ? resolveActiveLanguages(savedLanguages, planConfig.maxLanguages)
+      : [];
 
     // Inicio del día actual en la zona horaria America/Mexico_City
     const startOfDay = getStartOfDayInTimeZone();
@@ -111,20 +125,12 @@ export class SubscriptionsService {
     return {
       hasSubscription: tier !== null,
       tier,
-      plan: planConfig
-        ? {
-            id: planConfig.id,
-            name: planConfig.name,
-            description: planConfig.description,
-            maxCategories: planConfig.maxCategories,
-            allowedLanguages: [...planConfig.allowedLanguages],
-            dailyReadingsLimit: planConfig.dailyReadingsLimit,
-            dailyQuestionsLimit: planConfig.dailyQuestionsLimit,
-          }
-        : null,
+      plan: planConfig ? this.toPlanDto(planConfig) : null,
       usage: {
         categoriesCount,
         categoriesLimit: planConfig?.maxCategories ?? null,
+        languagesCount: activeLanguages.length,
+        languagesLimit: planConfig?.maxLanguages ?? null,
         readingsCreatedToday,
         readingsLimit,
         readingsRemainingToday,
@@ -204,17 +210,49 @@ export class SubscriptionsService {
   }
 
   /**
-   * Valida si el idioma solicitado está permitido para el plan del usuario.
+   * Valida que el idioma solicitado sea válido para el sistema, haya sido elegido por el usuario
+   * en su perfil/configuración y pertenezca a los cupos activos de su suscripción.
    */
   async assertLanguageAllowed(userId: number, language: string): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     const lang = language.trim().toLowerCase();
-    if (!plan.allowedLanguages.includes(lang)) {
+
+    if (!isSupportedLanguageId(lang) || !plan.allowedLanguages.includes(lang)) {
       throw new AppHttpException(ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED, {
-        message: `Your current plan '${plan.name}' only allows texts in: ${plan.allowedLanguages.join(', ')}. Upgrade your subscription to access all languages.`,
+        message: `Language '${language}' is not supported. Supported languages: ${plan.allowedLanguages.join(', ')}.`,
         plan: plan.id,
         allowedLanguages: plan.allowedLanguages,
+        maxLanguages: plan.maxLanguages,
         requestedLanguage: language,
+      });
+    }
+
+    const settingsRows = await this.db
+      .select({ selectedLanguages: userSettings.selectedLanguages })
+      .from(userSettings)
+      .where(eq(userSettings.userId, userId))
+      .limit(1);
+
+    const savedLanguages = sanitizeSelectedLanguages(settingsRows[0]?.selectedLanguages);
+    if (savedLanguages.length === 0) {
+      throw new AppHttpException(ErrorCode.LANGUAGE_NOT_SELECTED, {
+        message: `You must select up to ${plan.maxLanguages} study language(s) in settings before generating readings.`,
+        plan: plan.id,
+        maxLanguages: plan.maxLanguages,
+        allowedLanguages: plan.allowedLanguages,
+        requestedLanguage: lang,
+      });
+    }
+
+    const activeLanguages = resolveActiveLanguages(savedLanguages, plan.maxLanguages);
+    if (!activeLanguages.includes(lang)) {
+      throw new AppHttpException(ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED, {
+        message: `Language '${lang}' is not among your active selected languages (${activeLanguages.join(', ')}) allowed by plan '${plan.name}' (limit: ${plan.maxLanguages}).`,
+        plan: plan.id,
+        maxLanguages: plan.maxLanguages,
+        activeLanguages,
+        configuredLanguages: savedLanguages,
+        requestedLanguage: lang,
       });
     }
   }

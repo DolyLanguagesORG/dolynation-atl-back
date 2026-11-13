@@ -17,7 +17,7 @@ export class SubscriptionPlanItemDto {
 
   @ApiProperty({
     example:
-      'Suscripción básica: hasta 5 categorías, lecturas en inglés, 10 lecturas y 15 preguntas al día.',
+      'Suscripción básica: hasta 5 categorías, 1 idioma elegible (ES, EN, FR, IT), 10 lecturas y 15 preguntas al día.',
     description: 'Descripción legible de los beneficios incluidos en el plan',
   })
   description!: string;
@@ -30,9 +30,15 @@ export class SubscriptionPlanItemDto {
   maxCategories!: number | null;
 
   @ApiProperty({
-    example: ['en'],
+    example: 1,
+    description: 'Máximo de idiomas simultáneos que el usuario puede seleccionar con este plan',
+  })
+  maxLanguages!: number;
+
+  @ApiProperty({
+    example: ['es', 'en', 'fr', 'it'],
     type: [String],
-    description: 'Códigos de idiomas habilitados para la generación de lecturas',
+    description: 'Catálogo de códigos de idiomas elegibles dentro del plan',
   })
   allowedLanguages!: string[];
 

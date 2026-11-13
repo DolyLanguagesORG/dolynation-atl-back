@@ -44,16 +44,20 @@ export const users = pgTable(
 );
 
 /**
- * Preferencias de estudio por usuario (categorías seleccionadas e idioma objetivo).
+ * Preferencias de estudio por usuario (idiomas ordenados por prioridad, bloqueo
+ * de cambio anual, créditos de cambio de idioma y categorías seleccionadas).
  *
- * NOTA: Esta tabla requiere su `CREATE TABLE` correspondiente en
- * `dolynation-tlalli-infra/postgres/01-init.sql` antes de poder leerse/escribirse en BD.
+ * NOTA: Esta tabla requiere su `CREATE TABLE` / `ALTER TABLE` correspondiente en
+ * `dolynation-tlalli-infra/database/postgres/01-init.sql` y `updates/08-language-plans.sql`.
  */
 export const userSettings = pgTable('user_settings', {
   userId: integer('user_id')
     .primaryKey()
     .references(() => users.id, { onDelete: 'cascade' }),
-  preferredLanguage: varchar('preferred_language', { length: 10 }).notNull().default('en'),
+  preferredLanguage: varchar('preferred_language', { length: 10 }),
+  selectedLanguages: jsonb('selected_languages').$type<string[]>().notNull().default([]),
+  lastLanguageChangeAt: timestamp('last_language_change_at', { withTimezone: false }),
+  languageChangeCredits: integer('language_change_credits').notNull().default(0),
   preferredCategories: jsonb('preferred_categories').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: false }),

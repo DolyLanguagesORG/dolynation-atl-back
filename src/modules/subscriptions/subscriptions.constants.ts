@@ -1,3 +1,5 @@
+import { SUPPORTED_LANGUAGE_IDS } from '../settings/settings.constants';
+
 /** Niveles de suscripción válidos soportados por la plataforma. */
 export const SUBSCRIPTION_TIERS = ['dolly', 'dolly_plus', 'dolly_pro'] as const;
 
@@ -10,7 +12,8 @@ export interface SubscriptionPlanConfig {
   name: string;
   description: string;
   maxCategories: number | null; // `null` equivale a categorías ilimitadas
-  allowedLanguages: readonly string[]; // Códigos de idioma ISO permitidos
+  maxLanguages: number; // Cupos simultáneos de idiomas elegibles por el usuario
+  allowedLanguages: readonly string[]; // Catálogo de códigos de idioma elegibles
   dailyReadingsLimit: number | null; // `null` equivale a lecturas diarias ilimitadas
   dailyQuestionsLimit: number | null; // `null` equivale a preguntas diarias ilimitadas
 }
@@ -20,9 +23,10 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlanConfig
     id: 'dolly',
     name: 'Dolly',
     description:
-      'Suscripción básica: hasta 5 categorías, lecturas exclusivamente en inglés, 10 lecturas nuevas al día y 15 preguntas de comprensión/vocabulario al día.',
+      'Suscripción básica: hasta 5 categorías, 1 idioma elegible (entre ES, EN, FR e IT), 10 lecturas nuevas y 15 preguntas al día.',
     maxCategories: 5,
-    allowedLanguages: ['en'],
+    maxLanguages: 1,
+    allowedLanguages: [...SUPPORTED_LANGUAGE_IDS],
     dailyReadingsLimit: 10,
     dailyQuestionsLimit: 15,
   },
@@ -30,9 +34,10 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlanConfig
     id: 'dolly_plus',
     name: 'Dolly Plus',
     description:
-      'Suscripción intermedia: hasta 15 categorías, todos los idiomas disponibles habilitados, 20 lecturas nuevas al día y 30 preguntas de comprensión/vocabulario al día.',
+      'Suscripción intermedia: hasta 15 categorías, hasta 2 idiomas simultáneos elegibles (entre ES, EN, FR e IT), 20 lecturas nuevas y 30 preguntas al día.',
     maxCategories: 15,
-    allowedLanguages: ['en', 'es', 'fr', 'pt', 'de'],
+    maxLanguages: 2,
+    allowedLanguages: [...SUPPORTED_LANGUAGE_IDS],
     dailyReadingsLimit: 20,
     dailyQuestionsLimit: 30,
   },
@@ -40,13 +45,19 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlanConfig
     id: 'dolly_pro',
     name: 'Dolly Pro',
     description:
-      'Suscripción avanzada: categorías ilimitadas, todos los idiomas disponibles habilitados, lecturas y preguntas de comprensión/vocabulario ilimitadas.',
+      'Suscripción avanzada: categorías ilimitadas, los 4 idiomas disponibles (ES, EN, FR e IT) elegibles simultáneamente, lecturas y preguntas ilimitadas.',
     maxCategories: null,
-    allowedLanguages: ['en', 'es', 'fr', 'pt', 'de'],
+    maxLanguages: 4,
+    allowedLanguages: [...SUPPORTED_LANGUAGE_IDS],
     dailyReadingsLimit: null,
     dailyQuestionsLimit: null,
   },
 };
+
+/** Devuelve el límite máximo de idiomas simultáneos permitidos para un tier o `0` si no tiene plan válido. */
+export function getMaxLanguagesForTier(tier: string | null | undefined): number {
+  return isValidSubscriptionTier(tier) ? SUBSCRIPTION_PLANS[tier].maxLanguages : 0;
+}
 
 /** Zona horaria de negocio usada para reiniciar los límites diarios a medianoche. */
 export const TIMEZONE_RESET = 'America/Mexico_City';

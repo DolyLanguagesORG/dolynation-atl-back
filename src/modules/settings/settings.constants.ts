@@ -1,14 +1,12 @@
 /**
  * Idiomas de estudio soportados por la aplicación Dolynglish.
- * Representan los idiomas de interfaz/estudio entre los que puede cambiar el usuario en la UI,
- * no los niveles CEFR (que pertenecen al flujo de generación de lecturas).
+ * Los usuarios pueden seleccionar 1, 2 o 4 idiomas según su plan de suscripción.
  */
 export const SUPPORTED_LANGUAGES = [
-  { id: 'en', name: 'English' },
   { id: 'es', name: 'Español' },
+  { id: 'en', name: 'English' },
   { id: 'fr', name: 'Français' },
-  { id: 'pt', name: 'Português' },
-  { id: 'de', name: 'Deutsch' },
+  { id: 'it', name: 'Italiano' },
 ] as const;
 
 /** Unión de identificadores de idiomas soportados. */
@@ -17,5 +15,13 @@ export type LanguageId = (typeof SUPPORTED_LANGUAGES)[number]['id'];
 /** Lista inmutable de códigos de idioma válidos. */
 export const SUPPORTED_LANGUAGE_IDS: readonly LanguageId[] = SUPPORTED_LANGUAGES.map((l) => l.id);
 
-/** Idioma predeterminado cuando el usuario aún no ha elegido preferencia. */
-export const DEFAULT_LANGUAGE: LanguageId = 'en';
+/** Días de espera entre cambios gratuitos de idioma seleccionado. */
+export const LANGUAGE_CHANGE_COOLDOWN_DAYS = 365;
+
+/** Duración en milisegundos del bloqueo anual para cambiar idioma sin pago. */
+export const LANGUAGE_CHANGE_COOLDOWN_MS = LANGUAGE_CHANGE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
+/** Verifica si un valor corresponde a un identificador de idioma soportado. */
+export function isSupportedLanguageId(value: unknown): value is LanguageId {
+  return typeof value === 'string' && (SUPPORTED_LANGUAGE_IDS as readonly string[]).includes(value);
+}
