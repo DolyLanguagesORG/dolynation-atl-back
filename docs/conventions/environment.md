@@ -31,6 +31,15 @@ Política de configuración por variables de entorno. La fuente de verdad es
 | `GROQ_API_KEY`        | Cond.*    | string  | -                                              | API key de Groq (*legacy; si provider es groq)              |
 | `GROQ_MODEL`          | No        | string  | `qwen/qwen3-32b`                             | Modelo legacy                                               |
 | `LOG_LEVEL`           | No        | enum    | `info`                                       | `trace` \| `debug` \| `info` \| `warn` \| `error` |
+| `CATEGORY_MODERATION_ENABLED` | No | boolean | `true`                                    | Activa/desactiva moderación de categorías dinámicas         |
+| `CATEGORY_MODERATION_AI_ENABLED` | No | boolean | `true`                                 | Activa validación semántica batch con IA del sistema        |
+| `CATEGORY_MODERATION_SCORE_THRESHOLD` | No | float | `0.45`                              | Umbral (0.05-1) para APIs gratuitas de moderación           |
+| `CATEGORY_MODERATION_TIMEOUT_MS` | No | int | `5000`                                     | Timeout HTTP/IA para moderación de categorías en ms         |
+| `CATEGORY_MODERATION_CACHE_TTL_MS` | No | int | `86400000`                               | TTL del caché en memoria para categorías moderadas          |
+| `OPENAI_API_KEY`      | No        | string  | -                                            | Clave opcional para OpenAI Moderation API (gratuita)        |
+| `OPENAI_MODERATION_ENDPOINT` | No | url | `https://api.openai.com/v1/moderations`      | URL de OpenAI Moderation API                                |
+| `OPENAI_MODERATION_MODEL` | No    | string  | `omni-moderation-latest`                     | Modelo de OpenAI Moderation API                             |
+| `PERSPECTIVE_API_KEY` | No        | string  | -                                            | Clave opcional para Google Perspective API (cuota gratuita) |
 
 Las variables de TTS se definirán en `back#11`; no agregues nombres nuevos
 hasta que el proveedor esté decidido.

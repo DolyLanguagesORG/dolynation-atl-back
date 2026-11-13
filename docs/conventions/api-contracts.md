@@ -84,6 +84,7 @@ verifica exhaustividad.
 | `RESOURCE_FORBIDDEN`                | 403  | Usuario autenticado pero sin permiso                         |
 | `READING_PENDING_LIMIT_REACHED`     | 400  | Demasiadas lecturas pendientes, completar antes de generar    |
 | `READING_ALREADY_EVALUATED`         | 400  | La lectura ya fue evaluada, no se puede re-evaluar           |
+| `CATEGORY_MODERATION_REJECTED`      | 400  | Una o más categorías dinámicas rechazadas por moderación     |
 | `VALIDATION_ERROR`                  | 400  | Falló class-validator; `details.fields[]` con cada campo    |
 | `INTERNAL_ERROR`                    | 500  | Error no controlado; el cliente no recibe detalles internos  |
 | `SERVICE_UNAVAILABLE`               | 503  | Dependencia externa (DB, AI provider) caída                  |
