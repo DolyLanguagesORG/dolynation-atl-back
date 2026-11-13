@@ -35,6 +35,17 @@ export const users = pgTable(
     subscriptionTier: varchar('subscription_tier', { length: 30 }),
     currentStreak: integer('current_streak').notNull().default(0),
     lastStreakDate: date('last_streak_date'),
+    /**
+     * Marca de verificación del correo. `null` = la cuenta todavía no confirmó
+     * su correo. Solo es obligatorio cuando `EMAIL_VERIFICATION_REQUIRED` está activo.
+     */
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: false }),
+    /**
+     * Locale de interfaz del usuario (`es` | `en`) usado para elegir el idioma
+     * de los correos transaccionales. **No** es el idioma de estudio, que vive
+     * en `user_settings.selected_languages`.
+     */
+    locale: varchar('locale', { length: 10 }).notNull().default('es'),
     createdAt: timestamp('created_at', { withTimezone: false }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: false }),
     deletedAt: timestamp('deleted_at', { withTimezone: false }),
@@ -92,6 +103,30 @@ export const authAccessTokens = pgTable('auth_access_tokens', {
   expiresAt: timestamp('expires_at', { withTimezone: false }),
   deletedAt: timestamp('deleted_at', { withTimezone: false }),
 });
+
+/**
+ * Tokens de un solo uso para confirmar el correo de la cuenta y para restablecer
+ * la contraseña. Se persiste únicamente el hash SHA-256 del token: el valor en
+ * claro solo viaja dentro del enlace del correo y nunca se almacena.
+ */
+export const authEmailTokens = pgTable(
+  'auth_email_tokens',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    type: varchar('type', { length: 30 }).notNull(),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: false }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: false }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull(),
+  },
+  (table) => ({
+    hashUnique: uniqueIndex('uq_auth_email_tokens_hash').on(table.tokenHash),
+    userTypeIndex: index('idx_auth_email_tokens_user_type').on(table.userId, table.type),
+  }),
+);
 
 /** Lecturas generadas por IA junto con su estado, contenido y resultado de evaluación. */
 export const readings = pgTable(
@@ -151,6 +186,32 @@ export const promptLogs = pgTable(
   }),
 );
 
+/** Clasificación del término o expresión consultada en una lectura. */
+export type ExplanationEntryType = 'word' | 'phrase';
+
+/** Elemento del desglose palabra por palabra de una consulta contextual. */
+export interface WordBreakdownItem {
+  token: string;
+  lemma: string;
+  partOfSpeech: string;
+  literalDefinition: string;
+  roleInPhrase?: string;
+}
+
+/** Forma alternativa o sinónimo contextual en el idioma objetivo. */
+export interface AlternativeExpressionItem {
+  expression: string;
+  register?: string;
+  note: string;
+}
+
+/** Otro contexto real donde se emplea la misma palabra o expresión. */
+export interface UsageContextItem {
+  contextLabel: string;
+  explanation: string;
+  example: string;
+}
+
 /** Preguntas y explicaciones de vocabulario solicitadas sobre una lectura específica. */
 export const readingExplanations = pgTable(
   'reading_explanations',
@@ -162,10 +223,27 @@ export const readingExplanations = pgTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    word: varchar('word', { length: 255 }).notNull(),
+    word: text('word').notNull(),
+    normalizedWord: text('normalized_word').notNull().default(''),
+    entryType: varchar('entry_type', { length: 20 })
+      .$type<ExplanationEntryType>()
+      .notNull()
+      .default('word'),
+    language: varchar('language', { length: 10 }).notNull().default('en'),
+    difficulty: varchar('difficulty', { length: 20 }).notNull().default('medium'),
     context: text('context'),
+    literalMeaning: text('literal_meaning'),
     explanation: text('explanation').notNull(),
+    wordBreakdown: jsonb('word_breakdown').$type<WordBreakdownItem[]>().notNull().default([]),
+    otherWaysToSay: jsonb('other_ways_to_say')
+      .$type<AlternativeExpressionItem[]>()
+      .notNull()
+      .default([]),
+    otherContexts: jsonb('other_contexts').$type<UsageContextItem[]>().notNull().default([]),
+    isSaved: boolean('is_saved').notNull().default(false),
+    savedAt: timestamp('saved_at', { withTimezone: false }),
     createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
   },
   (table) => ({
     readingIdIdx: index('idx_reading_explanations_reading_id').on(table.readingId),
@@ -174,6 +252,18 @@ export const readingExplanations = pgTable(
       table.createdAt,
     ),
     createdAtIdx: index('idx_reading_explanations_created_at').on(table.createdAt),
+    lookupIdx: index('idx_reading_explanations_lookup').on(
+      table.userId,
+      table.readingId,
+      table.normalizedWord,
+    ),
+    glossaryIdx: index('idx_reading_explanations_glossary').on(
+      table.userId,
+      table.isSaved,
+      table.language,
+      table.entryType,
+      table.createdAt,
+    ),
   }),
 );
 
@@ -223,6 +313,7 @@ export const schema = {
   userSettings,
   admins,
   authAccessTokens,
+  authEmailTokens,
   readings,
   readingExplanations,
   promptLogs,

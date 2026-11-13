@@ -1,11 +1,19 @@
 import { relations } from 'drizzle-orm';
-import { users, authAccessTokens, readings, readingExplanations, promptLogs } from './schema';
+import {
+  users,
+  authAccessTokens,
+  authEmailTokens,
+  readings,
+  readingExplanations,
+  promptLogs,
+} from './schema';
 
 /** Relaciones salientes de la tabla `users`. */
 export const usersRelations = relations(users, ({ many }) => ({
   readings: many(readings),
   explanations: many(readingExplanations),
   accessTokens: many(authAccessTokens),
+  emailTokens: many(authEmailTokens),
   promptLogs: many(promptLogs),
 }));
 
@@ -25,6 +33,11 @@ export const readingExplanationsRelations = relations(readingExplanations, ({ on
 /** Relación entre tokens de sesión persistidos y el usuario propietario. */
 export const authAccessTokensRelations = relations(authAccessTokens, ({ one }) => ({
   user: one(users, { fields: [authAccessTokens.tokenableId], references: [users.id] }),
+}));
+
+/** Relación entre tokens de correo (verificación / restablecimiento) y su usuario propietario. */
+export const authEmailTokensRelations = relations(authEmailTokens, ({ one }) => ({
+  user: one(users, { fields: [authEmailTokens.userId], references: [users.id] }),
 }));
 
 /** Relaciones opcionales de los registros de `prompt_logs` con usuario y lectura. */
