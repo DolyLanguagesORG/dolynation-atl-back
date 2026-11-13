@@ -35,6 +35,9 @@ export enum ErrorCode {
   SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED = 'SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED',
   SUBSCRIPTION_LANGUAGE_NOT_ALLOWED = 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED',
 
+  // === Categorías y moderación (4xx) ===
+  CATEGORY_MODERATION_REJECTED = 'CATEGORY_MODERATION_REJECTED',
+
   // === Validación (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
 
@@ -150,6 +153,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED,
     403,
     'Your subscription plan only allows English readings. Upgrade your plan to unlock more languages',
+  ),
+  [ErrorCode.CATEGORY_MODERATION_REJECTED]: entry(
+    ErrorCode.CATEGORY_MODERATION_REJECTED,
+    400,
+    'One or more categories were rejected by content moderation',
   ),
   [ErrorCode.VALIDATION_ERROR]: entry(
     ErrorCode.VALIDATION_ERROR,

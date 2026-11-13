@@ -23,6 +23,8 @@ describe('ErrorCode catalogue', () => {
       'RESOURCE_FORBIDDEN',
       'READING_PENDING_LIMIT_REACHED',
       'READING_ALREADY_EVALUATED',
+      // Moderation
+      'CATEGORY_MODERATION_REJECTED',
       // Validation
       'VALIDATION_ERROR',
       // Server
