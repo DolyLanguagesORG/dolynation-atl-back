@@ -31,7 +31,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "categories": ["gastronomia"]
+  "categories": ["gastronomia", "technology", "history"]
 }
 
 ### 3.2 Intentar seleccionar 2 idiomas en plan básico -> 400 SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED

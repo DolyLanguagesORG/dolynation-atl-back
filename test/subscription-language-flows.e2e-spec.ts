@@ -13,6 +13,7 @@ import { AIProviderFactory } from '../src/modules/ia/providers/ai-provider.facto
 import type { ChatMessage } from '../src/modules/ia/providers/ai-provider.interface';
 import { CategoryAiModeratorService } from '../src/modules/moderation/category-ai-moderator.service';
 import { canonicalCategoryKey } from '../src/modules/moderation/category-normalizer';
+import { MailService } from '../src/modules/mail/mail.service';
 
 jest.setTimeout(30_000);
 
@@ -95,8 +96,25 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
   const recordedCalls: RecordedAiCall[] = [];
   let stripAccentsInNextReadingCategory = false;
 
+  let tagSequence = 0;
+
   const uniqueEmail = (tag: string): string =>
     `qa-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
+
+  // Categoría dinámica única sin dígitos ni repeticiones que disparen heurísticas regex de gibberish.
+  const uniquePronounceableTag = (prefix: string): string => {
+    const consonants = 'bcdfghjklmnrtv';
+    const vowels = 'aeiou';
+    const digits = `${String(Date.now()).slice(-7)}${String(++tagSequence).padStart(2, '0')}`;
+    const body = digits
+      .split('')
+      .map(
+        (ch, idx) =>
+          `${consonants[(Number(ch) + idx * 3) % consonants.length]}${vowels[Number(ch) % vowels.length]}`,
+      )
+      .join('');
+    return `${prefix}${body}`;
+  };
 
   const extractCategoryFromPrompt = (userPrompt: string): string => {
     const requestedMatch = userPrompt.match(/\((?:requested )?category:\s*"([^"]+)"\)/);
@@ -156,6 +174,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     process.env.JWT_ACCESS_TTL = '5m';
     process.env.JWT_REFRESH_TTL = '30d';
     process.env.LOG_LEVEL = 'silent';
+    process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
 
     const aiStub = {
       getFullResponse: jest.fn((messages: ChatMessage[]): Promise<string> => {
@@ -255,6 +274,11 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     })
       .overrideProvider(AIProviderFactory)
       .useValue(aiStub)
+      .overrideProvider(MailService)
+      .useValue({
+        sendAccountConfirmation: () => Promise.resolve(),
+        sendPasswordReset: () => Promise.resolve(),
+      })
       .compile();
 
     app = moduleRef.createNestApplication({ logger: false });
@@ -418,10 +442,27 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       .set('Authorization', auth)
       .send({ languages: ['en'] })
       .expect(200);
+
+    // Con 0 categorías (usuario que pulsó Cancelar) NO puede generar lecturas
+    const blockedWithoutCategories = await supertest(app.getHttpServer())
+      .post('/api/v1/readings')
+      .set('Authorization', auth)
+      .send({ category: 'ciencia de datos', language: 'en', difficulty: 'medium', size: 'short' })
+      .expect(403);
+    expect(blockedWithoutCategories.body.error.code).toBe('RESOURCE_FORBIDDEN');
+
+    // Menos de 3 categorías se rechaza con VALIDATION_ERROR
+    const tooFewCategories = await supertest(app.getHttpServer())
+      .put('/api/v1/settings/categories')
+      .set('Authorization', auth)
+      .send({ categories: ['ciencia de datos', 'history'] })
+      .expect(400);
+    expect(tooFewCategories.body.error.code).toBe('VALIDATION_ERROR');
+
     await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', auth)
-      .send({ categories: ['ciencia de datos'] })
+      .send({ categories: ['technology', 'history', 'ciencia de datos'] })
       .expect(200);
 
     const createdIds: number[] = [];
@@ -470,7 +511,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', auth)
-      .send({ categories: ['cuisine française'] })
+      .send({ categories: ['technology', 'history', 'cuisine française'] })
       .expect(200);
 
     // No puede elegir más de 1 idioma simultáneo en dolly
@@ -616,7 +657,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', auth)
-      .send({ categories: ['arquitectura'] })
+      .send({ categories: ['technology', 'history', 'arquitectura'] })
       .expect(200);
 
     const generateAndClear = async (
@@ -760,7 +801,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', auth)
-      .send({ categories: ['Música Clásica', 'Gastronomía Molecular'] })
+      .send({ categories: ['technology', 'Música Clásica', 'Gastronomía Molecular'] })
       .expect(200);
 
     // Prueba que un acento devuelto sin tildes por la IA ('Musica Clasica') pasa el parser contra 'Música Clásica'
@@ -820,7 +861,9 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
         .expect(201);
       expect(generated.body.data.language).toBe(lang);
       expect(generated.body.data.difficulty).toBe(difficulty);
-      expect(['Música Clásica', 'Gastronomía Molecular']).toContain(generated.body.data.category);
+      expect(['technology', 'Música Clásica', 'Gastronomía Molecular']).toContain(
+        generated.body.data.category,
+      );
 
       // Evaluamos para no saturar límite de 3 pendientes durante el recorrido completo
       await supertest(app.getHttpServer())
@@ -889,7 +932,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authProEmpty)
-      .send({ categories: ['history'] })
+      .send({ categories: ['history', 'technology', 'science'] })
       .expect(200);
     await supertest(app.getHttpServer())
       .post('/api/v1/readings')
@@ -937,23 +980,21 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       const rejected = await supertest(app.getHttpServer())
         .put('/api/v1/settings/categories')
         .set('Authorization', authA)
-        .send({ categories: [badCategory] })
+        .send({ categories: ['technology', 'history', badCategory] })
         .expect(400);
       expect(rejected.body.error.code).toBe('CATEGORY_MODERATION_REJECTED');
     }
     expect(countModAiCalls()).toBe(modCallsBeforeLocal);
 
     // 2. Categoría sutil evaluada por Capa 3 (IA): falla en User A (1 llamada) -> se guarda en Postgres -> 0 llamadas para User B incluso tras limpiar memoria L1
-    const alphaTag = `qa${Date.now()
-      .toString(36)
-      .replace(/[^a-z]/g, 'x')}`;
+    const alphaTag = uniquePronounceableTag('qa');
     const subtleBad = `Tema subtleharmful ${alphaTag}`;
     const callsBeforeAiReject = countModAiCalls();
 
     const firstReject = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authA)
-      .send({ categories: [subtleBad] })
+      .send({ categories: ['technology', 'history', subtleBad] })
       .expect(400);
     expect(firstReject.body.error.code).toBe('CATEGORY_MODERATION_REJECTED');
     expect(firstReject.body.error.details.rejected[0]).toMatchObject({
@@ -969,7 +1010,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const secondReject = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authB)
-      .send({ categories: [subtleBad] })
+      .send({ categories: ['technology', 'history', subtleBad] })
       .expect(400);
     expect(secondReject.body.error.code).toBe('CATEGORY_MODERATION_REJECTED');
     // Resuelto desde caché persistente `moderated_categories` sin consumir tokens extra
@@ -1015,7 +1056,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
 
     await db
       .update(userSettings)
-      .set({ preferredCategories: ['Pornografía'] })
+      .set({ preferredCategories: ['technology', 'history', 'Pornografía'] })
       .where(eq(userSettings.userId, userB.user.id));
 
     const blockedOnReading = await supertest(app.getHttpServer())
@@ -1034,9 +1075,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const countModAiCalls = (): number =>
       recordedCalls.filter((c) => c.kind === 'moderation').length;
 
-    const alphaTag = `cap${Date.now()
-      .toString(36)
-      .replace(/[^a-z]/g, 'z')}`;
+    const alphaTag = uniquePronounceableTag('cap');
 
     // 1. Enviar 21 categorías nuevas distintas en un solo PUT bloquea de inmediato con 429 sin gastar IA
     const callsBeforeBulk = countModAiCalls();
@@ -1058,7 +1097,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       await supertest(app.getHttpServer())
         .put('/api/v1/settings/categories')
         .set('Authorization', authSpammer)
-        .send({ categories: [`Especialidad ${alphaTag} ${i}`] })
+        .send({ categories: ['technology', 'history', `Especialidad ${alphaTag} ${i}`] })
         .expect(200);
     }
 
@@ -1086,7 +1125,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const hitCap = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authSpammer)
-      .send({ categories: [`Especialidad ${alphaTag} 21`] })
+      .send({ categories: ['technology', 'history', `Especialidad ${alphaTag} 21`] })
       .expect(429);
     expect(hitCap.body.error.code).toBe('CATEGORY_DAILY_LIMIT_REACHED');
     expect(hitCap.body.error.details).toMatchObject({ limit: 20, used: 20, remaining: 0 });

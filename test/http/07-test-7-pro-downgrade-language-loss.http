@@ -31,7 +31,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "categories": ["neurociencia"]
+  "categories": ["neurociencia", "technology", "history"]
 }
 
 ### Configurar prioridad explícita para futuro downgrade: 1º Italiano, 2º Francés, 3º Español, 4º Inglés

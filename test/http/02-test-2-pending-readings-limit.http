@@ -40,7 +40,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "categories": ["astronomia observacional"]
+  "categories": ["astronomia observacional", "technology", "history"]
 }
 
 ### 2.2 Generar lectura pendiente #1 -> 201 Created

@@ -41,7 +41,7 @@ Authorization: Bearer {{token}}
 Content-Type: application/json
 
 {
-  "categories": ["historia del arte"]
+  "categories": ["historia del arte", "technology", "history"]
 }
 
 ### 5.2 Consultar estado inicial (0 usadas / 10 disponibles hoy)

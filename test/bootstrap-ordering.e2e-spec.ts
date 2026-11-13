@@ -32,6 +32,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppConfigService } from '../src/config/env.config';
+import { MailService } from '../src/modules/mail/mail.service';
 
 describe('main.ts bootstrap order produces a consistent OpenAPI document', () => {
   let app: INestApplication;
@@ -46,9 +47,16 @@ describe('main.ts bootstrap order produces a consistent OpenAPI document', () =>
     process.env.JWT_ACCESS_TTL = '5m';
     process.env.JWT_REFRESH_TTL = '30d';
     process.env.LOG_LEVEL = 'silent';
+    process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
 
     const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(MailService)
+      .useValue({
+        sendAccountConfirmation: () => Promise.resolve(),
+        sendPasswordReset: () => Promise.resolve(),
+      })
+      .compile();
 
     app = moduleRef.createNestApplication({ logger: false });
     app.useLogger({

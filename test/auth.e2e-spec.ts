@@ -3,6 +3,7 @@ const supertest: typeof import('supertest') = require('supertest');
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { MailService } from '../src/modules/mail/mail.service';
 
 jest.setTimeout(15_000);
 
@@ -15,11 +16,18 @@ describe('Auth endpoints (e2e)', () => {
     process.env.JWT_ACCESS_TTL = '5m';
     process.env.JWT_REFRESH_TTL = '30d';
     process.env.LOG_LEVEL = 'silent';
+    process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
 
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(MailService)
+      .useValue({
+        sendAccountConfirmation: () => Promise.resolve(),
+        sendPasswordReset: () => Promise.resolve(),
+      })
+      .compile();
 
     app = moduleRef.createNestApplication({ logger: false });
     app.setGlobalPrefix('api/v1');
