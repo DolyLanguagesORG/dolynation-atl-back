@@ -13,16 +13,17 @@ import {
 } from 'drizzle-orm/pg-core';
 
 /**
- * Schema for the dolynglish database.
+ * Esquema Drizzle para la base de datos de Dolynglish.
  *
- * IMPORTANT: This file MUST mirror the schema applied by
- * `infrastructure/database/postgres/01-init.sql`. The backend does NOT run migrations
- * — infrastructure owns the schema lifecycle. Drizzle here is used as a typed
- * query builder and for runtime introspection, not for DDL.
+ * IMPORTANTE: Este archivo DEBE reflejar exactamente el esquema aplicado por
+ * `infrastructure/database/postgres/01-init.sql`. El backend NO ejecuta
+ * migraciones; el repositorio de infraestructura administra el ciclo de vida DDL.
+ * Drizzle se usa aquí como constructor tipado de consultas.
  *
- * If you add a column here, also add it to the init.sql migration in infrastructure/.
+ * Si agregas una columna aquí, agrégala también a la migración SQL en infraestructura.
  */
 
+/** Tabla principal de cuentas de usuario, plan de suscripción y racha de actividad. */
 export const users = pgTable(
   'users',
   {
@@ -43,11 +44,10 @@ export const users = pgTable(
 );
 
 /**
- * Per-user study preferences (selected categories and surface language).
+ * Preferencias de estudio por usuario (categorías seleccionadas e idioma objetivo).
  *
- * NOTE: this table requires a matching CREATE TABLE in
- * `dolynation-tlalli-infra/postgres/01-init.sql` before the backend can
- * read/write it. See the PR body of #8 for the SQL draft.
+ * NOTA: Esta tabla requiere su `CREATE TABLE` correspondiente en
+ * `dolynation-tlalli-infra/postgres/01-init.sql` antes de poder leerse/escribirse en BD.
  */
 export const userSettings = pgTable('user_settings', {
   userId: integer('user_id')
@@ -60,12 +60,9 @@ export const userSettings = pgTable('user_settings', {
 });
 
 /**
- * Admin membership — one row per user with administrator privileges.
- * Kept as a separate table (not a column on `users`) so existing SELECTs on
- * users are unaffected until the infra migration lands.
- *
- * Requires a matching CREATE TABLE in
- * `dolynation-tlalli-infra/postgres/01-init.sql`.
+ * Membresía de administradores — una fila por usuario con privilegios de administrador.
+ * Se mantiene como tabla separada (y no como columna en `users`) para no afectar
+ * las consultas `SELECT` existentes sobre `users` hasta que aterrice la migración en infra.
  */
 export const admins = pgTable('admins', {
   userId: integer('user_id')
@@ -74,6 +71,7 @@ export const admins = pgTable('admins', {
   grantedAt: timestamp('granted_at', { withTimezone: false }).notNull().defaultNow(),
 });
 
+/** Tokens de sesión persistidos (actualmente usado para el hash de refresh tokens y su revocación). */
 export const authAccessTokens = pgTable('auth_access_tokens', {
   id: serial('id').primaryKey(),
   tokenableId: integer('tokenable_id')
@@ -90,6 +88,7 @@ export const authAccessTokens = pgTable('auth_access_tokens', {
   deletedAt: timestamp('deleted_at', { withTimezone: false }),
 });
 
+/** Lecturas generadas por IA junto con su estado, contenido y resultado de evaluación. */
 export const readings = pgTable(
   'readings',
   {
@@ -118,6 +117,7 @@ export const readings = pgTable(
   }),
 );
 
+/** Bitácora de auditoría para eventos de generación de prompts, errores de IA y eventos de auth. */
 export const promptLogs = pgTable(
   'prompt_logs',
   {
@@ -145,6 +145,7 @@ export const promptLogs = pgTable(
   }),
 );
 
+/** Preguntas y explicaciones de vocabulario solicitadas sobre una lectura específica. */
 export const readingExplanations = pgTable(
   'reading_explanations',
   {
@@ -169,6 +170,8 @@ export const readingExplanations = pgTable(
     createdAtIdx: index('idx_reading_explanations_created_at').on(table.createdAt),
   }),
 );
+
+/** Mapa completo de tablas exportadas para consultas relacionales de Drizzle. */
 
 export const schema = {
   users,

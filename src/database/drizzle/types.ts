@@ -8,6 +8,7 @@ import type {
   promptLogs,
 } from './schema';
 
+/** Modelos inferidos de lectura (`Select`) e inserción (`Insert`) a partir del esquema Drizzle. */
 export type User = InferSelectModel<typeof users>;
 export type NewUser = InferInsertModel<typeof users>;
 
