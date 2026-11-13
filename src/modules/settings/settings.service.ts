@@ -6,10 +6,16 @@ import { userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
 import { DEFAULT_LANGUAGE, type LanguageId } from './settings.constants';
 
+/**
+ * Servicio que consulta y persiste las preferencias de categorías e idioma por usuario.
+ */
 @Injectable()
 export class SettingsService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  /**
+   * Busca la fila de preferencias del usuario o devuelve `null` si aún no existe.
+   */
   async findByUserId(userId: number): Promise<UserSettings | null> {
     const rows = await this.db
       .select()
@@ -19,26 +25,41 @@ export class SettingsService {
     return rows[0] ?? null;
   }
 
+  /**
+   * Devuelve las categorías preferidas del usuario (arreglo vacío si no configuró ninguna).
+   */
   async getCategories(userId: number): Promise<string[]> {
     const row = await this.findByUserId(userId);
     return row?.preferredCategories ?? [];
   }
 
+  /**
+   * Devuelve el idioma configurado del usuario o `DEFAULT_LANGUAGE` como valor por defecto.
+   */
   async getLanguage(userId: number): Promise<LanguageId> {
     const row = await this.findByUserId(userId);
     return (row?.preferredLanguage as LanguageId | undefined) ?? DEFAULT_LANGUAGE;
   }
 
+  /**
+   * Actualiza o crea las categorías preferidas del usuario.
+   */
   async setCategories(userId: number, categories: string[]): Promise<string[]> {
     await this.upsert(userId, { preferredCategories: categories });
     return categories;
   }
 
+  /**
+   * Actualiza o crea el idioma preferido del usuario.
+   */
   async setLanguage(userId: number, language: LanguageId): Promise<LanguageId> {
     await this.upsert(userId, { preferredLanguage: language });
     return language;
   }
 
+  /**
+   * Inserta o actualiza (`upsert`) el registro de configuración en `user_settings`.
+   */
   private async upsert(
     userId: number,
     patch: { preferredCategories?: string[]; preferredLanguage?: string },

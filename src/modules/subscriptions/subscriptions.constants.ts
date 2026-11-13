@@ -1,15 +1,18 @@
+/** Niveles de suscripción válidos soportados por la plataforma. */
 export const SUBSCRIPTION_TIERS = ['dolly', 'dolly_plus', 'dolly_pro'] as const;
 
+/** Identificador tipado de nivel de suscripción. */
 export type SubscriptionTier = (typeof SUBSCRIPTION_TIERS)[number];
 
+/** Configuración y límites de cuotas de un plan de suscripción. */
 export interface SubscriptionPlanConfig {
   id: SubscriptionTier;
   name: string;
   description: string;
-  maxCategories: number | null; // null = unlimited
-  allowedLanguages: readonly string[]; // ISO language codes
-  dailyReadingsLimit: number | null; // null = unlimited
-  dailyQuestionsLimit: number | null; // null = unlimited
+  maxCategories: number | null; // `null` equivale a categorías ilimitadas
+  allowedLanguages: readonly string[]; // Códigos de idioma ISO permitidos
+  dailyReadingsLimit: number | null; // `null` equivale a lecturas diarias ilimitadas
+  dailyQuestionsLimit: number | null; // `null` equivale a preguntas diarias ilimitadas
 }
 
 export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlanConfig> = {
@@ -45,11 +48,12 @@ export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlanConfig
   },
 };
 
+/** Zona horaria de negocio usada para reiniciar los límites diarios a medianoche. */
 export const TIMEZONE_RESET = 'America/Mexico_City';
 
 /**
- * Calculates the start of the current calendar day (00:00:00 local time)
- * in the configured business timezone (America/Mexico_City) as a UTC Date instance.
+ * Calcula el inicio del día calendario actual (00:00:00 hora local)
+ * en la zona horaria de negocio configurada (`America/Mexico_City`) como instancia `Date` en UTC.
  */
 export function getStartOfDayInTimeZone(
   timeZone: string = TIMEZONE_RESET,
@@ -68,6 +72,7 @@ export function getStartOfDayInTimeZone(
   return new Date(temp.getTime() + diff);
 }
 
+/** Verifica si un valor desconocido corresponde a un `SubscriptionTier` válido. */
 export function isValidSubscriptionTier(tier: unknown): tier is SubscriptionTier {
   return typeof tier === 'string' && (SUBSCRIPTION_TIERS as readonly string[]).includes(tier);
 }

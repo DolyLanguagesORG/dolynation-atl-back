@@ -12,15 +12,15 @@ import type {
 } from '../../readings/prompt-generation/catalog.types';
 
 /**
- * Request body for POST /content/generate. All fields are optional:
- * missing values fall back to the user's saved preferences (from
- * /settings/categories), and ultimately to the system defaults.
+ * Cuerpo de la petición `POST /content/generate`. Todos los campos son opcionales:
+ * los valores omitidos toman las preferencias guardadas del usuario (`/settings/categories`)
+ * y, en última instancia, los valores predeterminados del sistema.
  */
 export class GenerateContentDto {
   @ApiPropertyOptional({
     description:
-      'Topic category for the generated reading. If omitted, a category from the ' +
-      'user’s saved preferences is used (or picked at random when none is saved).',
+      'Categoría temática de la lectura generada. Si se omite, se utiliza una de las ' +
+      'preferencias guardadas del usuario (o una aleatoria si no tiene preferencias).',
     enum: READING_CATEGORIES,
     example: 'technology',
   })
@@ -30,7 +30,7 @@ export class GenerateContentDto {
   category?: CategoryId;
 
   @ApiPropertyOptional({
-    description: 'Target English level. Defaults to `medium` (B1-B2).',
+    description: 'Nivel objetivo de inglés. Por defecto `medium` (B1-B2).',
     enum: READING_DIFFICULTIES,
     example: 'medium',
   })
@@ -39,7 +39,7 @@ export class GenerateContentDto {
   difficulty?: DifficultyLevel;
 
   @ApiPropertyOptional({
-    description: 'Reading length. Defaults to `medium`.',
+    description: 'Longitud de la lectura. Por defecto `medium`.',
     enum: READING_TEXT_SIZES,
     example: 'medium',
   })

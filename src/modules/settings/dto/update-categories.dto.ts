@@ -11,12 +11,15 @@ import { READING_CATEGORIES } from '../../readings/prompt-generation/catalog.con
 
 const CATEGORY_IDS = [...READING_CATEGORIES];
 
+/**
+ * DTO de entrada para actualizar las categorías preferidas del usuario.
+ */
 export class UpdateCategoriesDto {
   @ApiProperty({
     type: [String],
     example: ['technology', 'history', 'quantum physics'],
     description:
-      'Category names or IDs to persist as the user’s selection; must be unique and non-empty (2-50 chars each)',
+      'Nombres o IDs de categorías a guardar como selección del usuario; deben ser únicos y no vacíos (2-50 caracteres cada uno)',
     enum: CATEGORY_IDS,
   })
   @IsArray()

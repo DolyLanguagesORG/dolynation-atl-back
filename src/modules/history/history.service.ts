@@ -9,12 +9,19 @@ import type {
   HistorySummaryDto,
 } from './dto/history-summary.dto';
 
+/** Límite predeterminado de calificaciones recientes devueltas por consulta. */
 const RECENT_LIMIT = 10;
 
+/**
+ * Servicio encargado de calcular el historial agregado y las calificaciones recientes del usuario.
+ */
 @Injectable()
 export class HistoryService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  /**
+   * Obtiene el resumen completo de actividad del usuario en paralelo.
+   */
   async getSummary(userId: number): Promise<HistorySummaryDto> {
     const [readingsSummary, recentScores] = await Promise.all([
       this.readingsSummaryFor(userId),
@@ -24,12 +31,15 @@ export class HistoryService {
     return {
       readings: readingsSummary,
       recentScores,
-      // Word lookups are not persisted yet; keep the field so the frontend can
-      // bind to it without a schema change once the lookup table is added.
+      // Las consultas de palabras aún no se persisten; se mantiene el campo en 0 para que el
+      // frontend pueda enlazarlo sin cambiar de contrato cuando se añada la tabla de búsquedas.
       wordsLookedUp: 0,
     };
   }
 
+  /**
+   * Calcula totales de lecturas (pendientes, completadas, aprobadas y promedio) del usuario.
+   */
   private async readingsSummaryFor(userId: number): Promise<HistoryReadingsSummaryDto> {
     const rows = await this.db
       .select({
@@ -56,6 +66,9 @@ export class HistoryService {
     return { total, pending, completed, passed, averageScore };
   }
 
+  /**
+   * Consulta las lecturas completadas más recientes junto con su puntaje y fecha de evaluación.
+   */
   async recentScoresFor(userId: number, limit = RECENT_LIMIT): Promise<HistoryScoreEntryDto[]> {
     const rows = await this.db
       .select({

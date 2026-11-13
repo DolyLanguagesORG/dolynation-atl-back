@@ -4,10 +4,13 @@ import { SUPPORTED_LANGUAGE_IDS } from '../settings.constants';
 
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
+/**
+ * DTO de entrada para actualizar el idioma seleccionado por el usuario.
+ */
 export class UpdateLanguageDto {
   @ApiProperty({
     example: 'en',
-    description: 'Language id to persist as the user’s selection',
+    description: 'Identificador del idioma a guardar como selección del usuario',
     enum: LANGUAGE_IDS,
   })
   @IsString()

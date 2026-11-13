@@ -19,6 +19,9 @@ import { UpdateLanguageDto } from './dto/update-language.dto';
 import { SettingsService } from './settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 
+/**
+ * Controlador de preferencias de aprendizaje y configuración del usuario (`/settings`).
+ */
 @ApiTags('settings')
 @ApiBearerAuth('access-token')
 @Controller('settings')
@@ -28,12 +31,18 @@ export class SettingsController {
     private readonly subscriptions: SubscriptionsService,
   ) {}
 
+  /**
+   * Obtiene el catálogo completo de categorías disponibles y las seleccionadas por el usuario.
+   */
   @Get('categories')
   @ApiOperation({
-    summary: 'Get the category catalog and the user’s current selection',
+    summary: 'Obtener el catálogo de categorías y la selección actual del usuario',
   })
   @ApiOkResponseOf(CategoriesSettingsDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async getCategories(
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<CategoriesSettingsDto>> {
@@ -43,14 +52,20 @@ export class SettingsController {
     return apiOk('Categories settings', { catalog, selected });
   }
 
+  /**
+   * Guarda la selección de categorías preferidas validando el límite del plan activo.
+   */
   @Put('categories')
-  @ApiOperation({ summary: 'Persist the user’s category selection' })
+  @ApiOperation({ summary: 'Guardar la selección de categorías del usuario' })
   @ApiOkResponseOf(CategoriesSettingsDto)
   @ApiBadRequestResponse({
-    description: 'Invalid category id or limit exceeded',
+    description: 'ID de categoría inválido o límite del plan excedido',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async updateCategories(
     @CurrentUser() current: AuthUser,
     @Body() dto: UpdateCategoriesDto,
@@ -61,12 +76,18 @@ export class SettingsController {
     return apiOk('Categories updated', { catalog, selected });
   }
 
+  /**
+   * Obtiene el catálogo de idiomas soportados y el idioma configurado por el usuario.
+   */
   @Get('languages')
   @ApiOperation({
-    summary: 'Get the language catalog and the user’s current selection',
+    summary: 'Obtener el catálogo de idiomas y la selección actual del usuario',
   })
   @ApiOkResponseOf(LanguagesSettingsDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async getLanguages(@CurrentUser() current: AuthUser): Promise<ApiResponse<LanguagesSettingsDto>> {
     await this.subscriptions.assertSubscriptionActive(current.id);
     const catalog = SUPPORTED_LANGUAGES.map((l) => ({ id: l.id, name: l.name }));
@@ -74,14 +95,20 @@ export class SettingsController {
     return apiOk('Languages settings', { catalog, selected });
   }
 
+  /**
+   * Guarda el idioma seleccionado tras comprobar que el plan de suscripción lo permite.
+   */
   @Put('languages')
-  @ApiOperation({ summary: 'Persist the user’s language selection' })
+  @ApiOperation({ summary: 'Guardar la selección de idioma del usuario' })
   @ApiOkResponseOf(LanguagesSettingsDto)
   @ApiBadRequestResponse({
-    description: 'Invalid language id or not allowed for plan',
+    description: 'ID de idioma inválido o no permitido para el plan actual',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async updateLanguage(
     @CurrentUser() current: AuthUser,
     @Body() dto: UpdateLanguageDto,

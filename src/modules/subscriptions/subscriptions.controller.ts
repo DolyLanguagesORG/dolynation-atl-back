@@ -18,28 +18,40 @@ import { SubscriptionPlanItemDto } from './dto/subscription-plan-response.dto';
 import { UserSubscriptionResponseDto } from './dto/user-subscription-response.dto';
 import { SubscriptionsService } from './subscriptions.service';
 
+/**
+ * Controlador de planes de suscripción y estado/selección del plan del usuario.
+ */
 @ApiTags('subscriptions')
 @Controller()
 export class SubscriptionsController {
   constructor(private readonly subscriptions: SubscriptionsService) {}
 
+  /**
+   * Lista públicamente todos los planes de suscripción disponibles y sus límites.
+   */
   @Public()
   @Get('subscriptions/plans')
-  @ApiOperation({ summary: 'Get all available subscription plans and their tier limits' })
+  @ApiOperation({ summary: 'Obtener todos los planes de suscripción disponibles y sus límites' })
   @ApiOkResponseOfArray(SubscriptionPlanItemDto)
   getPlans(): ApiResponse<SubscriptionPlanItemDto[]> {
     const plans = this.subscriptions.getPlans();
     return apiOk('Subscription plans', plans);
   }
 
+  /**
+   * Devuelve el plan contratado actual y los contadores de consumo diario del usuario autenticado.
+   */
   @ApiBearerAuth('access-token')
   @Get('user/subscription')
   @ApiOperation({
-    summary: 'Get the authenticated user’s current subscription plan and daily usage',
+    summary: 'Obtener el plan de suscripción actual del usuario autenticado y su consumo diario',
   })
   @ApiOkResponseOf(UserSubscriptionResponseDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  @ApiNotFoundResponse({ description: 'User not found', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiNotFoundResponse({ description: 'Usuario no encontrado', type: ApiErrorDto })
   async getCurrentSubscription(
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<UserSubscriptionResponseDto>> {
@@ -47,17 +59,24 @@ export class SubscriptionsController {
     return apiOk('User subscription status', result);
   }
 
+  /**
+   * Permite seleccionar o cambiar manualmente el plan de suscripción del usuario autenticado.
+   */
   @ApiBearerAuth('access-token')
   @Post('user/subscription')
   @ApiOperation({
-    summary: 'Select or update the user’s subscription plan manually',
-    description: 'Available plans: dolly (basic), dolly_plus (intermediate), dolly_pro (advanced).',
+    summary: 'Seleccionar o actualizar manualmente el plan de suscripción del usuario',
+    description:
+      'Planes disponibles: dolly (básico), dolly_plus (intermedio), dolly_pro (avanzado).',
   })
   @ApiOkResponseOf(UserSubscriptionResponseDto)
-  @ApiBadRequestResponse({ description: 'Invalid subscription tier', type: ApiErrorDto })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  @ApiForbiddenResponse({ description: 'Access forbidden', type: ApiErrorDto })
-  @ApiNotFoundResponse({ description: 'User not found', type: ApiErrorDto })
+  @ApiBadRequestResponse({ description: 'Nivel de suscripción inválido', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({ description: 'Acceso denegado', type: ApiErrorDto })
+  @ApiNotFoundResponse({ description: 'Usuario no encontrado', type: ApiErrorDto })
   async selectSubscription(
     @CurrentUser() current: AuthUser,
     @Body() dto: SelectSubscriptionDto,

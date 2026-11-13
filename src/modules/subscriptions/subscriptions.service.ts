@@ -16,12 +16,15 @@ import {
 import type { SubscriptionPlanItemDto } from './dto/subscription-plan-response.dto';
 import type { UserSubscriptionResponseDto } from './dto/user-subscription-response.dto';
 
+/**
+ * Servicio encargado de consultar planes, medir consumo diario y hacer cumplir las cuotas de suscripción.
+ */
 @Injectable()
 export class SubscriptionsService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
   /**
-   * Return all subscription plans and their feature limits.
+   * Devuelve todos los planes de suscripción disponibles y sus límites por nivel.
    */
   getPlans(): SubscriptionPlanItemDto[] {
     return SUBSCRIPTION_TIERS.map((tier) => {
@@ -39,14 +42,14 @@ export class SubscriptionsService {
   }
 
   /**
-   * Get the plan configuration for a given tier.
+   * Obtiene la configuración de un plan para un nivel determinado.
    */
   getPlan(tier: SubscriptionTier): SubscriptionPlanConfig {
     return SUBSCRIPTION_PLANS[tier];
   }
 
   /**
-   * Fetch user subscription status, current plan details, and today's usage counters.
+   * Obtiene el estado de suscripción del usuario, el detalle del plan actual y sus contadores de uso diario.
    */
   async getUserSubscription(userId: number): Promise<UserSubscriptionResponseDto> {
     const userRows = await this.db
@@ -64,7 +67,7 @@ export class SubscriptionsService {
     const tier: SubscriptionTier | null = isValidSubscriptionTier(rawTier) ? rawTier : null;
     const planConfig = tier ? SUBSCRIPTION_PLANS[tier] : null;
 
-    // Active categories count from user_settings
+    // Cantidad de categorías activas configuradas en user_settings
     const settingsRows = await this.db
       .select({ categories: userSettings.preferredCategories })
       .from(userSettings)
@@ -72,10 +75,10 @@ export class SubscriptionsService {
       .limit(1);
     const categoriesCount = settingsRows[0]?.categories?.length ?? 0;
 
-    // Start of the current day in America/Mexico_City
+    // Inicio del día actual en la zona horaria America/Mexico_City
     const startOfDay = getStartOfDayInTimeZone();
 
-    // Readings created today
+    // Lecturas creadas hoy
     const readingsCountResult = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
@@ -88,7 +91,7 @@ export class SubscriptionsService {
       );
     const readingsCreatedToday = readingsCountResult[0]?.count ?? 0;
 
-    // Questions/explanations asked today
+    // Preguntas o explicaciones solicitadas hoy
     const questionsCountResult = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readingExplanations)
@@ -133,7 +136,7 @@ export class SubscriptionsService {
   }
 
   /**
-   * Allow user to select or change their subscription tier manually.
+   * Permite al usuario seleccionar o cambiar manualmente su nivel de suscripción.
    */
   async selectSubscription(
     userId: number,
@@ -160,8 +163,8 @@ export class SubscriptionsService {
   }
 
   /**
-   * Enforces that the user has an active subscription plan selected.
-   * Throws 403 SUBSCRIPTION_REQUIRED if the user has no subscription.
+   * Exige que el usuario tenga un plan de suscripción activo seleccionado.
+   * Lanza `403 SUBSCRIPTION_REQUIRED` si el usuario no cuenta con suscripción.
    */
   async assertSubscriptionActive(userId: number): Promise<SubscriptionPlanConfig> {
     const userRows = await this.db
@@ -186,7 +189,7 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether candidate categories count respects the plan's limit.
+   * Valida si la cantidad de categorías candidatas respeta el límite del plan del usuario.
    */
   async assertCategoryLimit(userId: number, candidateCount: number): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
@@ -201,7 +204,7 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether a requested language is permitted for the user's plan.
+   * Valida si el idioma solicitado está permitido para el plan del usuario.
    */
   async assertLanguageAllowed(userId: number, language: string): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
@@ -217,12 +220,12 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether the user has remaining daily reading quota today.
+   * Valida si el usuario aún dispone de cuota diaria para generar una nueva lectura hoy.
    */
   async assertCanGenerateReading(userId: number): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     if (plan.dailyReadingsLimit === null) {
-      return; // Unlimited
+      return; // Sin límite diario en el plan actual
     }
 
     const startOfDay = getStartOfDayInTimeZone();
@@ -249,12 +252,12 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether the user has remaining daily reading explanation quota today.
+   * Valida si el usuario aún dispone de cuota diaria para solicitar explicaciones hoy.
    */
   async assertCanAskQuestion(userId: number): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     if (plan.dailyQuestionsLimit === null) {
-      return; // Unlimited
+      return; // Sin límite diario en el plan actual
     }
 
     const startOfDay = getStartOfDayInTimeZone();
@@ -277,7 +280,7 @@ export class SubscriptionsService {
   }
 
   /**
-   * Records a reading explanation question in reading_explanations.
+   * Registra una consulta de explicación sobre una lectura en `reading_explanations`.
    */
   async recordExplanation(input: {
     readingId: number;

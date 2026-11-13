@@ -15,28 +15,37 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { ReadingsService } from '../readings/readings.service';
 import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
 
+/**
+ * Controlador de evaluación de lecturas (`/evaluation`).
+ */
 @ApiTags('evaluation')
 @ApiBearerAuth('access-token')
 @Controller('evaluation')
 export class EvaluationController {
   constructor(private readonly readings: ReadingsService) {}
 
+  /**
+   * Evalúa el resumen escrito por el usuario frente a la lectura original.
+   */
   @Post('submit')
   @ApiOperation({
-    summary: 'Submit the user’s summary for evaluation',
+    summary: 'Enviar el resumen del usuario para su evaluación',
     description:
-      'Scores the summary against the original reading, persists the result, and marks the reading as completed. Delegates to the readings module.',
+      'Califica el resumen frente a la lectura original, guarda el resultado y marca la lectura como completada. Delega la operación al módulo de lecturas.',
   })
   @ApiOkResponseOf(EvaluationResultDto)
   @ApiBadRequestResponse({
-    description: 'Validation error, reading already evaluated, or AI provider failure',
+    description: 'Error de validación, lectura ya evaluada o fallo del proveedor de IA',
     type: ApiErrorDto,
   })
   @ApiNotFoundResponse({
-    description: 'Reading not found or not owned by this user',
+    description: 'Lectura no encontrada o no pertenece a este usuario',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async submit(
     @CurrentUser() current: AuthUser,
     @Body() dto: SubmitEvaluationDto,

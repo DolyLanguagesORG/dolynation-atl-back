@@ -14,26 +14,37 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { ContentService } from './content.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
 
+/**
+ * Controlador de generación de contenido (`/content`).
+ */
 @ApiTags('content')
 @ApiBearerAuth('access-token')
 @Controller('content')
 export class ContentController {
   constructor(private readonly content: ContentService) {}
 
+  /**
+   * Genera una nueva lectura usando las preferencias del usuario y el proveedor de IA activo.
+   */
   @Post('generate')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Generate a reading using the user’s saved preferences and the active AI provider',
+    summary:
+      'Generar una lectura usando las preferencias guardadas del usuario y el proveedor de IA activo',
     description:
-      'Omitted fields fall back to the user’s saved settings (/settings/categories), ' +
-      'then to a random pick from the catalog. Delegates generation and persistence to the readings module.',
+      'Los campos omitidos toman las preferencias guardadas del usuario (/settings/categories) ' +
+      'y, en su defecto, una selección aleatoria del catálogo. Delega la generación y persistencia al módulo de lecturas.',
   })
   @ApiCreatedResponseOf(ReadingDto)
   @ApiBadRequestResponse({
-    description: 'Pending limit reached, AI provider failed, or validation error',
+    description:
+      'Se alcanzó el límite de lecturas pendientes, falló el proveedor de IA o hubo un error de validación',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async generate(
     @CurrentUser() current: AuthUser,
     @Body() dto: GenerateContentDto,

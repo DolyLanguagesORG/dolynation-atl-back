@@ -2,10 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsIn, IsString } from 'class-validator';
 import { SUBSCRIPTION_TIERS, type SubscriptionTier } from '../subscriptions.constants';
 
+/**
+ * DTO de entrada para seleccionar o cambiar el plan de suscripción del usuario.
+ */
 export class SelectSubscriptionDto {
   @ApiProperty({
     example: 'dolly',
-    description: 'Identifier of the chosen subscription plan',
+    description: 'Identificador del plan de suscripción elegido',
     enum: SUBSCRIPTION_TIERS,
   })
   @IsString()
