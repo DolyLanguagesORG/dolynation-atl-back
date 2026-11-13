@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 
+/** Categoría textual normalizada de una lectura. */
 export type TextCategory = string;
+/** Niveles de dificultad válidos para una lectura generada. */
 export type TextDifficulty = 'easy' | 'medium' | 'hard';
 
+/** Estructura validada de una lectura generada por el modelo de IA. */
 export interface GeneratedText {
   title: string;
   description: string;
@@ -11,16 +14,17 @@ export interface GeneratedText {
   difficulty: TextDifficulty;
 }
 
+/** Resultado estructurado tras evaluar el resumen escrito por el usuario. */
 export interface EvaluationResult {
   score: number;
   passed: boolean;
   feedback: string;
   /**
-   * The user response that was evaluated. Populated by readings.service
-   * before persisting — the AI parser does not return it (it only sees
-   * the input as part of the prompt, not as a structured output field).
-   * Surfacing it on the interface lets the controller echo it back to the
-   * client in the same EvaluationResultDto response.
+   * Respuesta del usuario que fue evaluada. La asigna `readings.service`
+   * antes de persistir — el parser de IA no la devuelve (solo ve la entrada
+   * como parte del prompt, no como campo de salida estructurado).
+   * Exponerla en la interfaz permite al controlador devolverla al cliente
+   * dentro del mismo `EvaluationResultDto`.
    */
   userResponse?: string;
 }
@@ -36,10 +40,9 @@ const ALLOWED_CATEGORIES: TextCategory[] = [
 const ALLOWED_DIFFICULTIES: TextDifficulty[] = ['easy', 'medium', 'hard'];
 
 /**
- * Coerces an unknown JSON value to string, throwing if it's not a primitive.
- * Prevents `String(obj)` from silently producing '[object Object]' when the
- * LLM returns a nested object instead of a string for a field we expect to
- * be text.
+ * Convierte un valor JSON desconocido en `string`, lanzando error si no es primitivo.
+ * Evita que `String(obj)` produzca silenciosamente `'[object Object]'` cuando el
+ * LLM devuelve un objeto anidado en lugar de una cadena para un campo textual.
  */
 function asString(value: unknown, field: string): string {
   if (typeof value === 'string') return value;
@@ -47,8 +50,14 @@ function asString(value: unknown, field: string): string {
   throw new Error(`Field '${field}' must be a string, got ${typeof value}`);
 }
 
+/**
+ * Servicio encargado de extraer y validar las respuestas JSON emitidas por el proveedor de IA.
+ */
 @Injectable()
 export class AiResponseParserService {
+  /**
+   * Parsea la respuesta JSON cruda de generación de lectura y valida categoría y dificultad.
+   */
   parseGeneratedText(rawResponse: string, allowedCategories?: string[]): GeneratedText {
     const parsed = this.extractJson(rawResponse) as Record<string, unknown>;
 
@@ -90,6 +99,9 @@ export class AiResponseParserService {
     };
   }
 
+  /**
+   * Parsea la calificación y retroalimentación devueltas por la IA al evaluar un resumen.
+   */
   parseEvaluation(rawResponse: string): EvaluationResult {
     const parsed = this.extractJson(rawResponse) as Record<string, unknown>;
     const rawScore = Number(parsed.score);
@@ -103,8 +115,8 @@ export class AiResponseParserService {
   }
 
   /**
-   * Extracts the first JSON object from a string. Handles ```json``` fences.
-   * Brace-matching so we don't truncate early on a string that contains `}`.
+   * Extrae el primer objeto JSON presente en una cadena. Soporta bloques ````json`.
+   * Balancea llaves respetando cadenas para evitar cortes prematuros cuando un texto incluye `}`.
    */
   private extractJson(text: string): unknown {
     const cleaned = text

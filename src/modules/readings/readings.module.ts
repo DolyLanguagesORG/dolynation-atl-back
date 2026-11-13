@@ -9,6 +9,10 @@ import { IaModule } from '../ia/ia.module';
 import { SettingsModule } from '../settings/settings.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
+/**
+ * Módulo principal de lecturas (`/readings`).
+ * Orquesta generación de textos con IA, evaluación de resúmenes, explicaciones de vocabulario y bitácoras de prompts.
+ */
 @Module({
   imports: [UsersModule, IaModule, SettingsModule, SubscriptionsModule],
   controllers: [ReadingsController],

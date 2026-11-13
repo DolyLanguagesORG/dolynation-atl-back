@@ -29,8 +29,13 @@ import {
   type EvaluateReadingDto,
 } from './dto/readings.dto';
 
+/** Límite máximo de lecturas pendientes que un usuario puede acumular simultáneamente. */
 const MAX_PENDING = 3;
 
+/**
+ * Servicio principal de lecturas: coordina la generación en dos pasos con IA,
+ * persistencia en PostgreSQL, validación de cuotas/suscripción, evaluación y vocabulario.
+ */
 @Injectable()
 export class ReadingsService {
   constructor(
@@ -44,17 +49,20 @@ export class ReadingsService {
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
   ) {}
 
+  /**
+   * Genera una nueva lectura adaptada a las preferencias, idioma y plan de suscripción del usuario.
+   */
   async generate(input: { userId: number; options: GenerateReadingDto }): Promise<Reading> {
     const user = await this.users.findById(input.userId);
     if (!user) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
     }
 
-    // Subscription & Daily Limits check
+    // Validación de suscripción activa y límites diarios del plan
     await this.subscriptions.assertSubscriptionActive(input.userId);
     await this.subscriptions.assertCanGenerateReading(input.userId);
 
-    // Target language validation against active subscription plan
+    // Validación del idioma objetivo frente al plan de suscripción activo
     const targetLanguage =
       input.options.language ?? (await this.settings.getLanguage(input.userId));
     await this.subscriptions.assertLanguageAllowed(input.userId, targetLanguage);
@@ -64,8 +72,8 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.READING_PENDING_LIMIT_REACHED, { max: MAX_PENDING });
     }
 
-    // Dynamic Category Validation:
-    // The requested category MUST be among the user's preferred categories configured in their profile.
+    // Validación dinámica de categoría:
+    // La categoría solicitada DEBE estar dentro de las preferencias configuradas por el usuario.
     const userCategories = await this.settings.getCategories(input.userId);
     const requestedCategory = input.options.category.trim();
     const isAllowed = userCategories.some(
@@ -80,7 +88,7 @@ export class ReadingsService {
       });
     }
 
-    // Retrieve recent reading titles in this category to prevent duplicate or repetitive content
+    // Recuperamos títulos recientes en esta categoría para evitar contenido duplicado o repetitivo
     const recentReadings = await this.db
       .select({ title: readings.title })
       .from(readings)
@@ -97,9 +105,9 @@ export class ReadingsService {
 
     const requestedDifficulty: DifficultyLevel = input.options.difficulty ?? 'medium';
 
-    // Step 1: Intermediate Prompt — Brainstorming & Topic Enrichment
-    // Asks the AI for a novel, specific subtopic, perspective angle, and key concepts,
-    // explicitly providing the last up to 20 titles to forbid repetition.
+    // Paso 1: Prompt intermedio — Lluvia de ideas y enriquecimiento temático.
+    // Solicita a la IA un subtema específico novedoso, un ángulo de perspectiva y conceptos clave,
+    // enviando hasta los últimos 20 títulos para prohibir repeticiones.
     const fallbackTopic = this.promptGen.buildFallbackEnrichedTopic(
       input.options.category,
       requestedDifficulty,
@@ -122,9 +130,9 @@ export class ReadingsService {
       enrichedTopic = fallbackTopic;
     }
 
-    // Step 2: Final Text Generation Prompt
-    // Builds the full generation prompt with pedagogical constraints (CEFR, vocabulary, grammar)
-    // and feeds the enriched subtopic and key concepts.
+    // Paso 2: Prompt final de generación de lectura.
+    // Construye el prompt completo con restricciones pedagógicas (CEFR, vocabulario, gramática)
+    // e inyecta el subtema enriquecido junto con los conceptos clave.
     const params: RandomPromptParams = this.promptGen.generateRandomParams({
       category: input.options.category,
       difficulty: requestedDifficulty,
@@ -163,7 +171,7 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_parse' });
     }
 
-    // Enforce the requested difficulty and category so database state stays consistent
+    // Forzamos la dificultad y categoría solicitadas para mantener consistencia en la base de datos
     if (parsed.difficulty !== requestedDifficulty) {
       const previousDifficulty = parsed.difficulty;
       parsed = { ...parsed, difficulty: requestedDifficulty };
@@ -215,6 +223,9 @@ export class ReadingsService {
     return inserted;
   }
 
+  /**
+   * Busca una lectura activa por identificador verificando pertenencia al usuario y suscripción vigente.
+   */
   async findById(id: number, userId: number): Promise<Reading> {
     await this.subscriptions.assertSubscriptionActive(userId);
     const rows = await this.db
@@ -229,6 +240,7 @@ export class ReadingsService {
     return reading;
   }
 
+  /** Lista las lecturas pendientes del usuario ordenadas de la más reciente a la más antigua. */
   async listPending(userId: number): Promise<Reading[]> {
     await this.subscriptions.assertSubscriptionActive(userId);
     return this.db
@@ -244,6 +256,7 @@ export class ReadingsService {
       .orderBy(desc(readings.createdAt));
   }
 
+  /** Lista las lecturas ya evaluadas y completadas por el usuario. */
   async listCompleted(userId: number): Promise<Reading[]> {
     await this.subscriptions.assertSubscriptionActive(userId);
     return this.db
@@ -260,10 +273,9 @@ export class ReadingsService {
   }
 
   /**
-   * Returns the static configuration the UI needs to populate its
-   * category/difficulty/size pickers. Backed by the prompt-generator's
-   * service-side catalogue so the UI can never offer a value that the
-   * backend can't render.
+   * Devuelve la configuración estática que necesita la UI para poblar los selectores de
+   * categoría, dificultad y tamaño. Está respaldada por el catálogo del servidor en el
+   * generador de prompts para que el frontend nunca ofrezca un valor no soportado.
    */
   getOptions(): {
     categories: { id: string; name: string; subcategories: { id: string; name: string }[] }[];
@@ -290,6 +302,9 @@ export class ReadingsService {
     };
   }
 
+  /**
+   * Evalúa con IA el resumen enviado por el usuario frente al texto original y marca la lectura como completada.
+   */
   async evaluate(
     id: number,
     userId: number,
@@ -344,8 +359,8 @@ Evaluate how well the user understood the main idea of the text.`;
     if (!updated) {
       throw new Error('Update returned no rows');
     }
-    // Spread the DB row last so anything the column write pinned (userResponse,
-    // feedback, updatedAt, status='completed') overrides matching keys.
+    // Se conservan explícitamente los valores recién escritos (userResponse, feedback, status='completed')
+    // junto con la fila actualizada devuelta por PostgreSQL.
     return {
       score: result.score,
       passed: result.passed,
@@ -355,6 +370,9 @@ Evaluate how well the user understood the main idea of the text.`;
     };
   }
 
+  /**
+   * Explica el significado de una palabra dentro del contexto de la lectura y descuenta la cuota diaria.
+   */
   async explain(
     id: number,
     userId: number,
@@ -403,6 +421,9 @@ The explanation should be 1-2 sentences, simple enough for a B1-B2 learner.`;
     return { explanation, reading };
   }
 
+  /**
+   * Marca una lectura como eliminada lógicamente (`deletedAt`) tras validar propiedad y vigencia.
+   */
   async remove(id: number, userId: number): Promise<void> {
     await this.findById(id, userId);
     await this.db
@@ -411,6 +432,7 @@ The explanation should be 1-2 sentences, simple enough for a B1-B2 learner.`;
       .where(and(eq(readings.id, id), eq(readings.userId, userId)));
   }
 
+  /** Cuenta cuántas lecturas pendientes tiene actualmente el usuario. */
   private async getPendingCount(userId: number): Promise<number> {
     const pending = await this.listPending(userId);
     return pending.length;

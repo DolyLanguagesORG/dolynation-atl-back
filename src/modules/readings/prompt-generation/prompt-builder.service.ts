@@ -27,6 +27,7 @@ import type {
   TextSizeConfig,
 } from './catalog.types';
 
+/** Nombres de idioma legibles inyectados en las instrucciones de los prompts al LLM. */
 const LANGUAGE_NAMES: Record<string, string> = {
   en: 'English',
   es: 'Spanish',
@@ -35,12 +36,16 @@ const LANGUAGE_NAMES: Record<string, string> = {
   de: 'German',
 };
 
+/**
+ * Servicio constructor de prompts en dos pasos (enriquecimiento temático + generación final)
+ * y proveedor de opciones estáticas del catálogo de lecturas.
+ */
 @Injectable()
 export class PromptBuilderService {
   /**
-   * Step 1 (Intermediate Prompt): Builds the enrichment prompt sent to the LLM
-   * to brainstorm a specific, novel, non-cliché subtopic, unique lens, and key
-   * concepts, while strictly forbidding repetition of the user's recent readings.
+   * Paso 1 (Prompt intermedio): Construye el prompt de enriquecimiento enviado al LLM
+   * para proponer un subtema específico, original y sin clichés, junto con una perspectiva
+   * única y conceptos clave, prohibiendo repetir las lecturas recientes del usuario.
    */
   buildEnrichmentPrompt(params: EnrichmentPromptParams): {
     systemPrompt: string;
@@ -96,8 +101,8 @@ CREATIVE INSPIRATION:
   }
 
   /**
-   * Safely parses the output from the intermediate enrichment prompt into an EnrichedTopic.
-   * If parsing fails or fields are missing, returns the provided fallback without crashing.
+   * Parsea de forma segura la salida del prompt intermedio de enriquecimiento en un `EnrichedTopic`.
+   * Si falla el análisis JSON o faltan campos, devuelve el respaldo sin interrumpir el flujo.
    */
   parseEnrichmentResponse(raw: string, fallback: EnrichedTopic): EnrichedTopic {
     try {
@@ -145,7 +150,7 @@ CREATIVE INSPIRATION:
   }
 
   /**
-   * Generates a procedural fallback EnrichedTopic from catalog constants or dynamic presets.
+   * Genera un `EnrichedTopic` procedimental de respaldo a partir de las constantes del catálogo o ajustes dinámicos.
    */
   buildFallbackEnrichedTopic(category: string, _difficulty?: DifficultyLevel): EnrichedTopic {
     const categoryConfig = getCategoryConfig(category);
@@ -163,10 +168,10 @@ CREATIVE INSPIRATION:
   }
 
   /**
-   * Step 2: Builds the full prompt that goes to the LLM to write the final reading.
+   * Paso 2: Construye el prompt completo que recibe el LLM para redactar la lectura final.
    *
-   * Injects the enriched subtopic and key concepts from the intermediate step,
-   * while enforcing per-difficulty CEFR vocabulary and grammar guidelines.
+   * Inyecta el subtema enriquecido y los conceptos clave del paso intermedio,
+   * aplicando las guías de vocabulario y gramática CEFR según la dificultad.
    */
   buildPrompt(params: RandomPromptParams): GeneratedPrompt {
     return {
@@ -178,8 +183,8 @@ CREATIVE INSPIRATION:
   }
 
   /**
-   * Generates a random-but-valid params object. Used as a fallback when
-   * the request body is missing one or more categorical fields.
+   * Genera un objeto de parámetros aleatorio pero válido. Se usa como respaldo cuando
+   * faltan campos categóricos en el cuerpo de la petición.
    */
   generateRandomParams(partial?: Partial<RandomPromptParams>): RandomPromptParams {
     const category = partial?.category ?? pickRandom(READING_CATEGORIES);
@@ -209,26 +214,26 @@ CREATIVE INSPIRATION:
   }
 
   /**
-   * Returns the cefrLevel that should be persisted alongside the reading.
+   * Devuelve el nivel CEFR que corresponde persistir junto con la lectura.
    */
   resolveCefrLevelFor(difficulty: DifficultyLevel): CefrLevel {
     return resolveCefrLevel(difficulty);
   }
 
-  /** Returns the static categories config (used by /readings/options). */
+  /** Devuelve la configuración estática de categorías (usada por `/readings/options`). */
   getAvailableCategories(): CategoryConfig[] {
     return Array.from(CATEGORIES);
   }
 
-  /** Returns the static sizes config (used by /readings/options). */
+  /** Devuelve la configuración estática de longitudes (usada por `/readings/options`). */
   getAvailableSizes(): TextSizeConfig[] {
     return Object.values(TEXT_SIZES);
   }
 
   /**
-   * Builds the JSON-only system prompt that locks down the output format
-   * and tells the LLM what kind of content is unacceptable (stories,
-   * characters, first-person voice).
+   * Construye el prompt de sistema exclusivo en JSON que fija el formato de salida
+   * e indica al LLM qué tipo de contenido no es aceptable (historias,
+   * personajes o narración en primera persona).
    */
   private buildSystemPrompt(category?: string, language?: string): string {
     const categoryInstruction = category ? `"${category}"` : READING_CATEGORIES.join(' | ');
@@ -256,7 +261,7 @@ No additional text, no markdown, no explanations. ONLY the JSON object.
   }
 
   /**
-   * The user prompt that drives the LLM's writing style.
+   * Prompt de usuario que define tema, longitud, nivel y estilo de redacción para el LLM.
    */
   private buildUserPrompt(params: RandomPromptParams): string {
     const categoryConfig = getCategoryConfig(params.category);
@@ -300,6 +305,7 @@ STRICT RULES:
     `.trim();
   }
 
+  /** Genera una semilla única trazable para identificar cada ejecución en bitácoras. */
   private generateSeed(params: RandomPromptParams): string {
     const parts: string[] = [];
     parts.push(params.category.slice(0, 4));

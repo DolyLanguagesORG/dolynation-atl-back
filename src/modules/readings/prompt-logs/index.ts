@@ -1,3 +1,4 @@
+/** Reexportaciones públicas del submódulo de bitácoras de prompts y eventos. */
 export { PromptLogService } from './prompt-log.service';
 export { AuthEventLogService } from './auth-event-log.service';
 export type { PromptEvent } from './prompt-log.types';

@@ -6,6 +6,7 @@ import {
   GENERIC_UNIQUE_FOCUS,
 } from './catalog.constants';
 
+/** Selecciona aleatoriamente un elemento de un arreglo no vacío. */
 export function pickRandom<T>(arr: readonly T[]): T {
   if (arr.length === 0) {
     throw new Error('pickRandom called with empty array');
@@ -18,6 +19,7 @@ export function pickRandom<T>(arr: readonly T[]): T {
   return value;
 }
 
+/** Resuelve el nivel CEFR principal asociado a la dificultad indicada. */
 export function resolveCefrLevel(difficulty: DifficultyLevel): CefrLevel {
   const choices = CEFR_BY_DIFFICULTY[difficulty];
   const first = choices[0];
@@ -27,6 +29,7 @@ export function resolveCefrLevel(difficulty: DifficultyLevel): CefrLevel {
   return first;
 }
 
+/** Da formato legible en Title Case al identificador crudo de una categoría. */
 export function formatCategoryName(raw: string): string {
   return raw
     .trim()
@@ -36,6 +39,7 @@ export function formatCategoryName(raw: string): string {
     .join(' ');
 }
 
+/** Obtiene la configuración de una categoría del catálogo o construye una dinámica si es personalizada. */
 export function getCategoryConfig(id: string): CategoryConfig {
   const normalized = id.trim().toLowerCase();
   const cfg = CATEGORIES.find((c) => c.id.toLowerCase() === normalized);
@@ -50,6 +54,7 @@ export function getCategoryConfig(id: string): CategoryConfig {
   };
 }
 
+/** Devuelve la lista de enfoques narrativos únicos asociados a una categoría. */
 export function getUniqueFocusForCategory(category: string): readonly string[] {
   const normalized = category.trim().toLowerCase() as CategoryId;
   const list = UNIQUE_FOCUS_BY_CATEGORY[normalized];

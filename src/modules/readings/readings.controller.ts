@@ -35,32 +35,48 @@ import { CreateExplanationDto, EvaluateReadingDto, GenerateReadingDto } from './
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 
+/**
+ * Controlador de gestión, generación, evaluación y explicación de lecturas (`/readings`).
+ */
 @ApiTags('readings')
 @ApiBearerAuth('access-token')
 @Controller('readings')
 export class ReadingsController {
   constructor(private readonly readings: ReadingsService) {}
 
+  /**
+   * Devuelve las opciones válidas del catálogo para generar lecturas (categorías, dificultades y niveles CEFR).
+   */
   @Get('options')
-  @ApiOperation({ summary: 'Get generation options (categories, difficulties, cefr)' })
+  @ApiOperation({ summary: 'Obtener opciones de generación (categorías, dificultades, CEFR)' })
   @ApiOkResponseOf(ReadingOptionsDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   getOptions(): ApiResponse<ReadingOptionsDto> {
-    // The service returns a structurally similar but type-loose shape (id: string
-    // vs the DTO's literal union). Cast to ReadingOptionsDto since this is the
-    // canonical response type for the /readings/options endpoint.
+    // El servicio devuelve una estructura equivalente pero con tipado abierto (`id: string`
+    // frente a las uniones literales del DTO). Se convierte a `ReadingOptionsDto` porque es
+    // el contrato canónico de respuesta del endpoint `/readings/options`.
     return apiOk('Generation options', this.readings.getOptions() as unknown as ReadingOptionsDto);
   }
 
+  /**
+   * Genera y almacena una nueva lectura utilizando el proveedor de IA activo.
+   */
   @Post()
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Generate a new reading using the active AI provider' })
+  @ApiOperation({ summary: 'Generar una nueva lectura usando el proveedor de IA activo' })
   @ApiCreatedResponseOf(ReadingDto)
   @ApiBadRequestResponse({
-    description: 'Pending limit reached, AI provider failed, or validation error',
+    description:
+      'Se alcanzó el límite de lecturas pendientes, falló el proveedor de IA o hubo error de validación',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async generate(
     @CurrentUser() current: AuthUser,
     @Body() dto: GenerateReadingDto,
@@ -69,32 +85,50 @@ export class ReadingsController {
     return apiOk<ReadingDto>('Reading generated successfully', reading);
   }
 
+  /**
+   * Lista las lecturas pendientes de evaluación del usuario autenticado.
+   */
   @Get('pending')
-  @ApiOperation({ summary: 'List the user’s pending readings' })
+  @ApiOperation({ summary: 'Listar las lecturas pendientes del usuario' })
   @ApiOkResponseOfArray(ReadingDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async listPending(@CurrentUser() current: AuthUser): Promise<ApiResponse<ReadingDto[]>> {
     const list = await this.readings.listPending(current.id);
     return apiOk<ReadingDto[]>('Pending readings', list);
   }
 
+  /**
+   * Lista las lecturas ya evaluadas y completadas del usuario autenticado.
+   */
   @Get('completed')
-  @ApiOperation({ summary: 'List the user’s completed readings' })
+  @ApiOperation({ summary: 'Listar las lecturas completadas del usuario' })
   @ApiOkResponseOfArray(ReadingDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async listCompleted(@CurrentUser() current: AuthUser): Promise<ApiResponse<ReadingDto[]>> {
     const list = await this.readings.listCompleted(current.id);
     return apiOk<ReadingDto[]>('Completed readings', list);
   }
 
+  /**
+   * Obtiene el detalle de una lectura específica perteneciente al usuario.
+   */
   @Get(':id')
-  @ApiOperation({ summary: 'Fetch a single reading by id' })
+  @ApiOperation({ summary: 'Obtener una lectura por su identificador' })
   @ApiOkResponseOf(ReadingDto)
   @ApiNotFoundResponse({
-    description: 'Reading not found or owned by another user',
+    description: 'Lectura no encontrada o pertenece a otro usuario',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async findOne(
     @CurrentUser() current: AuthUser,
     @Param('id', ParseIntPipe) id: number,
@@ -103,15 +137,21 @@ export class ReadingsController {
     return apiOk<ReadingDto>('Reading', reading);
   }
 
+  /**
+   * Evalúa el resumen enviado por el usuario sobre la lectura indicada.
+   */
   @Post(':id/evaluate')
-  @ApiOperation({ summary: 'Evaluate the user’s summary of a reading' })
+  @ApiOperation({ summary: 'Evaluar el resumen del usuario para una lectura' })
   @ApiOkResponseOf(EvaluationResultDto)
   @ApiBadRequestResponse({
-    description: 'Validation error or reading already evaluated',
+    description: 'Error de validación o la lectura ya fue evaluada',
     type: ApiErrorDto,
   })
-  @ApiNotFoundResponse({ description: 'Reading not found', type: ApiErrorDto })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiNotFoundResponse({ description: 'Lectura no encontrada', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async evaluate(
     @CurrentUser() current: AuthUser,
     @Param('id', ParseIntPipe) id: number,
@@ -124,12 +164,18 @@ export class ReadingsController {
     );
   }
 
+  /**
+   * Genera una explicación contextual de una palabra o frase dentro de la lectura.
+   */
   @Post(':id/explanations')
-  @ApiOperation({ summary: 'Explain a word in the context of a reading' })
+  @ApiOperation({ summary: 'Explicar una palabra en el contexto de una lectura' })
   @ApiOkResponseOf(ExplanationResultDto)
-  @ApiBadRequestResponse({ description: 'Validation error', type: ApiErrorDto })
-  @ApiNotFoundResponse({ description: 'Reading not found', type: ApiErrorDto })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
+  @ApiNotFoundResponse({ description: 'Lectura no encontrada', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async explain(
     @CurrentUser() current: AuthUser,
     @Param('id', ParseIntPipe) id: number,
@@ -139,12 +185,18 @@ export class ReadingsController {
     return apiOk<ExplanationResultDto>('Explanation', result);
   }
 
+  /**
+   * Realiza el borrado lógico (soft-delete) de una lectura del usuario.
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Soft-delete a reading' })
+  @ApiOperation({ summary: 'Eliminar lógicamente una lectura' })
   @ApiOkResponseEmpty()
-  @ApiNotFoundResponse({ description: 'Reading not found', type: ApiErrorDto })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiNotFoundResponse({ description: 'Lectura no encontrada', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async remove(
     @CurrentUser() current: AuthUser,
     @Param('id', ParseIntPipe) id: number,

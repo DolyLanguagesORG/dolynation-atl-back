@@ -10,12 +10,14 @@ import type {
   TextSizeConfig,
 } from './catalog.types';
 
+/** Mapeo de niveles de dificultad generales a los niveles CEFR correspondientes. */
 export const CEFR_BY_DIFFICULTY: Record<DifficultyLevel, readonly CefrLevel[]> = {
   easy: ['A2', 'B1'],
   medium: ['B2'],
   hard: ['C1', 'C2'],
 };
 
+/** Lista canónica de identificadores de categorías predefinidas para lecturas. */
 export const READING_CATEGORIES: readonly CategoryId[] = [
   'technology',
   'history',
@@ -25,10 +27,13 @@ export const READING_CATEGORIES: readonly CategoryId[] = [
   'pop_culture',
 ] as const;
 
+/** Niveles de dificultad aceptados al generar una lectura. */
 export const READING_DIFFICULTIES: readonly DifficultyLevel[] = ['easy', 'medium', 'hard'] as const;
 
+/** Tamaños de texto soportados para las lecturas generadas. */
 export const READING_TEXT_SIZES: readonly TextSize[] = ['short', 'medium', 'long'] as const;
 
+/** Niveles CEFR completos expuestos como referencia en las opciones de generación. */
 export const READING_CEFR_LEVELS: readonly CefrLevel[] = [
   'A1',
   'A2',
@@ -38,12 +43,14 @@ export const READING_CEFR_LEVELS: readonly CefrLevel[] = [
   'C2',
 ] as const;
 
+/** Configuración de rango de palabras y tiempo estimado de lectura por tamaño. */
 export const TEXT_SIZES: Record<TextSize, TextSizeConfig> = {
   short: { min: 80, max: 120, label: 'short', readingTime: '~1 min' },
   medium: { min: 150, max: 220, label: 'medium', readingTime: '~2 min' },
   long: { min: 250, max: 350, label: 'long', readingTime: '~3 min' },
 };
 
+/** Lineamientos pedagógicos de vocabulario y gramática enviados al LLM según dificultad. */
 export const DIFFICULTY_LEVELS: Record<DifficultyLevel, DifficultyConfig> = {
   easy: {
     id: 'easy',
@@ -77,6 +84,7 @@ export const DIFFICULTY_LEVELS: Record<DifficultyLevel, DifficultyConfig> = {
   },
 };
 
+/** Catálogo estructurado de categorías temáticas y sus subcategorías. */
 export const CATEGORIES: CategoryConfig[] = [
   {
     id: 'technology',
@@ -160,6 +168,7 @@ export const CATEGORIES: CategoryConfig[] = [
   },
 ];
 
+/** Descripciones textuales en inglés de los tipos de contenido para construir prompts. */
 export const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
   historical_fact: 'a historical fact or event',
   interesting_discovery: 'an interesting discovery or finding',
@@ -170,6 +179,7 @@ export const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
   practical_application: 'a practical application or real-world use case',
 };
 
+/** Descripciones textuales en inglés de las perspectivas analíticas para los prompts. */
 export const PERSPECTIVE_DESCRIPTIONS: Record<ContentPerspective, string> = {
   causes: 'the causes and origins',
   effects: 'the effects and consequences',
@@ -180,6 +190,7 @@ export const PERSPECTIVE_DESCRIPTIONS: Record<ContentPerspective, string> = {
   challenges: 'the challenges and difficulties',
 };
 
+/** Ganchos o enfoques narrativos predefinidos por cada categoría base del catálogo. */
 export const UNIQUE_FOCUS_BY_CATEGORY: Record<CategoryId, string[]> = {
   technology: [
     'its impact on daily life',
@@ -243,6 +254,7 @@ export const UNIQUE_FOCUS_BY_CATEGORY: Record<CategoryId, string[]> = {
   ],
 };
 
+/** Enfoques narrativos genéricos usados como respaldo para categorías personalizadas. */
 export const GENERIC_UNIQUE_FOCUS: readonly string[] = [
   'its unexpected origins and early history',
   'how it quietly impacts daily life and society',
@@ -256,6 +268,7 @@ export const GENERIC_UNIQUE_FOCUS: readonly string[] = [
   'a surprising real-world application in an unexpected field',
 ];
 
+/** Ángulos creativos sugeridos durante la etapa intermedia de enriquecimiento temático. */
 export const CREATIVE_PERSPECTIVE_ANGLES: readonly string[] = [
   'an unexpected accident or mistake that led to a major discovery',
   'how microscopic or hidden details drive the entire system',
