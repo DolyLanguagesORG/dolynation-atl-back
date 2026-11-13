@@ -97,6 +97,31 @@ export class AppConfigService {
     };
   }
 
+  // ===== Correo transaccional =====
+  get mail(): {
+    host: string | undefined;
+    port: number;
+    user: string | undefined;
+    password: string | undefined;
+    from: string | undefined;
+    fromName: string | undefined;
+    secure: boolean;
+    frontendBaseUrl: string;
+    verificationRequired: boolean;
+  } {
+    return {
+      host: this.config.get('SMTP_HOST', { infer: true }),
+      port: this.config.get('SMTP_PORT', { infer: true }),
+      user: this.config.get('SMTP_USER', { infer: true }),
+      password: this.config.get('SMTP_PASSWORD', { infer: true }),
+      from: this.config.get('SMTP_FROM', { infer: true }),
+      fromName: this.config.get('SMTP_FROM_NAME', { infer: true }),
+      secure: this.config.get('SMTP_SECURE', { infer: true }),
+      frontendBaseUrl: this.config.get('FRONTEND_BASE_URL', { infer: true }),
+      verificationRequired: this.config.get('EMAIL_VERIFICATION_REQUIRED', { infer: true }),
+    };
+  }
+
   // ===== Moderación de categorías =====
   get moderation(): {
     enabled: boolean;

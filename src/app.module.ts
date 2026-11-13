@@ -4,6 +4,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { validateEnv, type EnvSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
+import { MailModule } from './modules/mail/mail.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
@@ -52,6 +53,7 @@ import { VersionModule } from './modules/version/version.module';
 
     CommonModule,
     DatabaseModule,
+    MailModule,
     AuthModule,
     UsersModule,
     SubscriptionsModule,

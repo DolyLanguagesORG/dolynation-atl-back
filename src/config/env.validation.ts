@@ -113,6 +113,44 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+
+  // ===== Correo transaccional (SMTP) =====
+  // Opcionales: sin ellas la app arranca igual y el envío falla con un mensaje
+  // claro ("falta SMTP_HOST/SMTP_USER") cuando se intenta enviar un correo.
+  // El proveedor es solo configuración: Mailtrap Sandbox en desarrollo y
+  // Brevo en staging/producción funcionan con el mismo cliente SMTP.
+  SMTP_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(587)),
+  SMTP_USER: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PASSWORD: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_FROM: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_FROM_NAME: z.preprocess(emptyToUndefined, z.string().optional()),
+  // `true` solo para TLS implícito (puerto 465). Con 587/2525 se usa STARTTLS.
+  SMTP_SECURE: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
+  ),
+
+  // Base pública del frontend: se usa para construir los enlaces de los correos
+  // (confirmación de cuenta y restablecimiento de contraseña).
+  FRONTEND_BASE_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('http://localhost:3000'),
+  ),
+
+  // Cuando es `true`, iniciar sesión (y refrescar el token) exige que el
+  // usuario haya confirmado su correo. Desactivado por defecto para no
+  // bloquear las cuentas existentes en desarrollo.
+  EMAIL_VERIFICATION_REQUIRED: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
+  ),
 });
 
 export type EnvSchema = z.infer<typeof envSchema>;
