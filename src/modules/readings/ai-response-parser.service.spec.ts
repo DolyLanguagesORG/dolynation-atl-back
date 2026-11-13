@@ -112,4 +112,81 @@ describe('AiResponseParserService', () => {
       );
     });
   });
+
+  describe('parseStructuredExplanation', () => {
+    it('parses structured breakdown, literal meaning, alternatives and other contexts', () => {
+      const raw = JSON.stringify({
+        literalMeaning: 'Que un rayo me golpee físicamente.',
+        explanation: 'En este pasaje, Juan usa la expresión como un lamento exagerado.',
+        wordBreakdown: [
+          {
+            token: 'que',
+            lemma: 'que',
+            partOfSpeech: 'conjunción',
+            literalDefinition: 'Introduce una exclamación o deseo.',
+            roleInPhrase: 'abre la expresión exclamativa',
+          },
+          {
+            token: 'rayo',
+            lemma: 'rayo',
+            partOfSpeech: 'sustantivo',
+            literalDefinition: 'Descarga eléctrica natural de una tormenta.',
+          },
+        ],
+        otherWaysToSay: [
+          {
+            expression: '¡Qué mala suerte tengo!',
+            register: 'coloquial',
+            note: 'Expresa frustración cotidiana sin sonar brusco.',
+          },
+        ],
+        otherContexts: [
+          {
+            contextLabel: 'Algo muy improbable',
+            explanation: 'Se dice cuando alguien duda muchísimo de que algo vaya a suceder.',
+            example: 'Si ese equipo gana hoy, que me parta un rayo.',
+          },
+        ],
+      });
+
+      const result = parser.parseStructuredExplanation(raw, 'que me parta un rayo', 'phrase');
+      expect(result.literalMeaning).toBe('Que un rayo me golpee físicamente.');
+      expect(result.explanation).toContain('lamento exagerado');
+      expect(result.wordBreakdown).toHaveLength(2);
+      expect(result.wordBreakdown[0]?.roleInPhrase).toBe('abre la expresión exclamativa');
+      expect(result.otherWaysToSay).toEqual([
+        {
+          expression: '¡Qué mala suerte tengo!',
+          register: 'coloquial',
+          note: 'Expresa frustración cotidiana sin sonar brusco.',
+        },
+      ]);
+      expect(result.otherContexts).toHaveLength(1);
+    });
+
+    it('stays backward compatible when only {"explanation": "..."} is returned', () => {
+      const result = parser.parseStructuredExplanation(
+        '{"explanation":"La fermentation transforme les sucres."}',
+        'fermentation',
+        'word',
+      );
+      expect(result).toEqual({
+        literalMeaning: null,
+        explanation: 'La fermentation transforme les sucres.',
+        wordBreakdown: [],
+        otherWaysToSay: [],
+        otherContexts: [],
+      });
+    });
+
+    it('falls back cleanly when plain text is returned', () => {
+      const result = parser.parseStructuredExplanation(
+        '<think>ok</think>Simple contextual help.',
+        'ubiquitous',
+        'word',
+      );
+      expect(result.explanation).toBe('Simple contextual help.');
+      expect(result.wordBreakdown).toEqual([]);
+    });
+  });
 });

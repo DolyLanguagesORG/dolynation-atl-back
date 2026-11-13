@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { readings } from '../../database/drizzle/schema';
+import { readingExplanations, readings } from '../../database/drizzle/schema';
 import type {
   HistoryReadingsSummaryDto,
   HistoryScoreEntryDto,
@@ -23,18 +23,29 @@ export class HistoryService {
    * Obtiene el resumen completo de actividad del usuario en paralelo.
    */
   async getSummary(userId: number): Promise<HistorySummaryDto> {
-    const [readingsSummary, recentScores] = await Promise.all([
+    const [readingsSummary, recentScores, wordsLookedUp] = await Promise.all([
       this.readingsSummaryFor(userId),
       this.recentScoresFor(userId),
+      this.wordsLookedUpFor(userId),
     ]);
 
     return {
       readings: readingsSummary,
       recentScores,
-      // Las consultas de palabras aún no se persisten; se mantiene el campo en 0 para que el
-      // frontend pueda enlazarlo sin cambiar de contrato cuando se añada la tabla de búsquedas.
-      wordsLookedUp: 0,
+      wordsLookedUp,
     };
+  }
+
+  /**
+   * Cuenta el total histórico de explicaciones y consultas de vocabulario realizadas por el usuario.
+   */
+  private async wordsLookedUpFor(userId: number): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(readingExplanations)
+      .where(eq(readingExplanations.userId, userId));
+
+    return rows[0]?.count ?? 0;
   }
 
   /**

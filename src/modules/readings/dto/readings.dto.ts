@@ -1,5 +1,15 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
 import {
   CEFR_BY_DIFFICULTY,
@@ -92,21 +102,106 @@ export class EvaluateReadingDto {
 }
 
 /**
- * DTO de entrada para solicitar la explicación contextual de una palabra dentro de una lectura.
+ * DTO de entrada para solicitar la explicación contextual de una palabra u oración dentro de una lectura.
  */
 export class CreateExplanationDto {
-  @ApiProperty({ description: 'Palabra o expresión a explicar', example: 'ubiquitous' })
+  @ApiProperty({
+    description: 'Word, expression, or sentence selected inside the reading to explain',
+    example: 'que me parta un rayo',
+  })
   @IsString()
+  @Length(1, 500)
   word!: string;
 
   @ApiProperty({
     required: false,
-    description: 'Oración opcional donde aparece la palabra, útil para desambiguar su significado',
-    example: 'Smartphones have become ubiquitous in modern life.',
+    description: 'Optional surrounding excerpt from the reading used to disambiguate meaning',
+    example: 'Juan miró la tormenta y dijo que me parta un rayo si vuelve a olvidar el paraguas.',
   })
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   context?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'When true, bypasses the cached explanation for this reading and regenerates via AI',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
+}
+
+/**
+ * Parámetros de consulta para filtrar las entradas del glosario del usuario.
+ */
+export class GlossaryQueryDto {
+  @ApiProperty({
+    required: false,
+    enum: ['word', 'phrase'],
+    description: 'Filter by entry type (single word vs. sentence/phrase)',
+    example: 'phrase',
+  })
+  @IsOptional()
+  @IsIn(['word', 'phrase'])
+  entryType?: 'word' | 'phrase';
+
+  @ApiProperty({
+    required: false,
+    enum: LANGUAGE_IDS,
+    description: 'Filter entries by target language code',
+    example: 'es',
+  })
+  @IsOptional()
+  @IsIn(LANGUAGE_IDS)
+  language?: LanguageId;
+
+  @ApiProperty({
+    required: false,
+    description: 'When true, returns only entries bookmarked/saved in the user glossary',
+    example: true,
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  savedOnly?: boolean;
+
+  @ApiProperty({
+    required: false,
+    description: 'Filter consultations belonging to a specific reading id',
+    example: 42,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  readingId?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Case-insensitive text filter matched against word, explanation, or context',
+    example: 'rayo',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+}
+
+/**
+ * DTO de entrada para marcar o desmarcar una explicación en el glosario personal.
+ */
+export class ToggleGlossarySaveDto {
+  @ApiProperty({
+    description: 'Target bookmark state in the user personal glossary',
+    example: true,
+  })
+  @IsBoolean()
+  isSaved!: boolean;
 }
 
 export { READING_CATEGORIES, READING_DIFFICULTIES, READING_TEXT_SIZES, READING_CEFR_LEVELS };

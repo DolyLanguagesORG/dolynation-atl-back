@@ -5,6 +5,13 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readingExplanations, readings, users, userSettings } from '../../database/drizzle/schema';
+import type {
+  AlternativeExpressionItem,
+  ExplanationEntryType,
+  ReadingExplanation,
+  UsageContextItem,
+  WordBreakdownItem,
+} from '../../database/drizzle/types';
 import { isSupportedLanguageId, SUPPORTED_LANGUAGE_IDS } from '../settings/settings.constants';
 import {
   resolveActiveLanguages,
@@ -313,21 +320,54 @@ export class SubscriptionsService {
 
   /**
    * Registra una consulta de explicación sobre una lectura en `reading_explanations`.
+   * Acepta metadatos estructurados para la ayuda contextual y el glosario persistente.
    */
   async recordExplanation(input: {
     readingId: number;
     userId: number;
     word: string;
+    normalizedWord?: string;
+    entryType?: ExplanationEntryType;
+    language?: string;
+    difficulty?: string;
     context?: string;
+    literalMeaning?: string | null;
     explanation: string;
-  }): Promise<void> {
-    await this.db.insert(readingExplanations).values({
+    wordBreakdown?: WordBreakdownItem[];
+    otherWaysToSay?: AlternativeExpressionItem[];
+    otherContexts?: UsageContextItem[];
+  }): Promise<ReadingExplanation | undefined> {
+    const normalizedWord =
+      input.normalizedWord ?? input.word.trim().replace(/\s+/g, ' ').toLowerCase();
+    const entryType: ExplanationEntryType =
+      input.entryType ?? (normalizedWord.includes(' ') ? 'phrase' : 'word');
+    const now = new Date();
+    const query = this.db.insert(readingExplanations).values({
       readingId: input.readingId,
       userId: input.userId,
       word: input.word,
+      normalizedWord,
+      entryType,
+      language: input.language ?? 'en',
+      difficulty: input.difficulty ?? 'medium',
       context: input.context ?? null,
+      literalMeaning: input.literalMeaning ?? null,
       explanation: input.explanation,
-      createdAt: new Date(),
-    });
+      wordBreakdown: input.wordBreakdown ?? [],
+      otherWaysToSay: input.otherWaysToSay ?? [],
+      otherContexts: input.otherContexts ?? [],
+      createdAt: now,
+      updatedAt: now,
+    }) as unknown as {
+      returning?: () => Promise<ReadingExplanation[]>;
+    } & Promise<unknown>;
+
+    if (typeof query.returning === 'function') {
+      const rows = await query.returning();
+      return rows[0];
+    }
+
+    await query;
+    return undefined;
   }
 }

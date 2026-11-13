@@ -329,4 +329,33 @@ describe('PromptBuilderService', () => {
       }
     });
   });
+
+  describe('buildExplanationPrompt', () => {
+    it('adapts instructions exclusively to the reading language and learner difficulty', () => {
+      const easyEs = service.buildExplanationPrompt({
+        word: 'que me parta un rayo',
+        entryType: 'phrase',
+        language: 'es',
+        difficulty: 'easy',
+        readingTitle: 'Un día complicado',
+        readingContent: 'Juan perdió su tren y dijo que me parta un rayo.',
+        context: 'dijo que me parta un rayo',
+      });
+      expect(easyEs.systemPrompt).toContain('Spanish vocabulary explainer');
+      expect(easyEs.systemPrompt).toContain('Beginner (A1-A2)');
+      expect(easyEs.systemPrompt).toContain('wordBreakdown');
+      expect(easyEs.systemPrompt).toContain('otherWaysToSay');
+      expect(easyEs.systemPrompt).toContain('otherContexts');
+      expect(easyEs.userPrompt).toContain('Un día complicado');
+
+      const hardIt = service.buildExplanationPrompt({
+        word: 'malgrado',
+        entryType: 'word',
+        language: 'it',
+        difficulty: 'hard',
+      });
+      expect(hardIt.systemPrompt).toContain('Italian vocabulary explainer');
+      expect(hardIt.systemPrompt).toContain('Advanced / Native-like (C1-C2)');
+    });
+  });
 });

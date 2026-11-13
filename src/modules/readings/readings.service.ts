@@ -16,19 +16,27 @@ import {
 import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
+import { MIN_USER_CATEGORIES } from '../settings/settings.constants';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CategoryModerationService } from '../moderation/category-moderation.service';
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { readings } from '../../database/drizzle/schema';
-import type { Reading, NewReading } from '../../database/drizzle/types';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { readingExplanations, readings } from '../../database/drizzle/schema';
+import type {
+  ExplanationEntryType,
+  NewReading,
+  Reading,
+  ReadingExplanation,
+} from '../../database/drizzle/types';
+import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
+import type { ExplanationResultDto, GlossaryEntryDto } from '../../common/types/api-response.dto';
 import {
   GenerateReadingDto,
   READING_CEFR_LEVELS,
   READING_DIFFICULTIES,
   type EvaluateReadingDto,
+  type GlossaryQueryDto,
 } from './dto/readings.dto';
 
 /** Límite máximo de lecturas pendientes que un usuario puede acumular simultáneamente. */
@@ -83,6 +91,15 @@ export class ReadingsService {
     // Validación dinámica de categoría:
     // La categoría solicitada DEBE estar dentro de las preferencias configuradas por el usuario.
     const userCategories = await this.settings.getCategories(input.userId);
+    if (userCategories.length < MIN_USER_CATEGORIES) {
+      throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+        category: input.options.category,
+        minCategories: MIN_USER_CATEGORIES,
+        currentCount: userCategories.length,
+        message: `You must configure at least ${MIN_USER_CATEGORIES} categories in your preferences before generating readings.`,
+        userCategories,
+      });
+    }
     const requestedCategory = input.options.category.trim();
     const requestedKey = canonicalCategoryKey(requestedCategory);
     const isAllowed = userCategories.some(
@@ -377,6 +394,9 @@ Evaluate how well the user understood the main idea of the text.`;
     if (!updated) {
       throw new Error('Update returned no rows');
     }
+
+    await this.users.recordDailyActivity(userId);
+
     // Se conservan explícitamente los valores recién escritos (userResponse, feedback, status='completed')
     // junto con la fila actualizada devuelta por PostgreSQL.
     return {
@@ -389,47 +409,244 @@ Evaluate how well the user understood the main idea of the text.`;
   }
 
   /**
-   * Explica el significado de una palabra dentro del contexto de la lectura y descuenta la cuota diaria.
+   * Explica el significado contextual de una palabra u oración completa dentro de la lectura.
+   * Reutiliza la caché persistida en PostgreSQL por lectura y término normalizado antes de
+   * consumir cuota diaria o tokens de IA, salvo que `forceRefresh` sea verdadero.
    */
   async explain(
     id: number,
     userId: number,
     word: string,
     context?: string,
-  ): Promise<{ explanation: string; reading: Reading }> {
+    forceRefresh = false,
+  ): Promise<ExplanationResultDto> {
     await this.subscriptions.assertSubscriptionActive(userId);
-    await this.subscriptions.assertCanAskQuestion(userId);
     const reading = await this.findById(id, userId);
+
+    const { displayWord, normalizedWord, entryType } = normalizeLookupTerm(word);
+    if (!forceRefresh) {
+      const cached = await this.findCachedExplanation(id, userId, normalizedWord);
+      if (cached) {
+        return {
+          id: cached.id,
+          word: cached.word,
+          entryType: cached.entryType,
+          language: cached.language,
+          difficulty: cached.difficulty,
+          literalMeaning: cached.literalMeaning,
+          explanation: cached.explanation,
+          wordBreakdown: Array.isArray(cached.wordBreakdown) ? cached.wordBreakdown : [],
+          otherWaysToSay: Array.isArray(cached.otherWaysToSay) ? cached.otherWaysToSay : [],
+          otherContexts: Array.isArray(cached.otherContexts) ? cached.otherContexts : [],
+          isSaved: Boolean(cached.isSaved),
+          cached: true,
+          reading,
+        };
+      }
+    }
+
+    await this.subscriptions.assertCanAskQuestion(userId);
+
     const rawLang = reading.language as string | undefined;
     const readingLanguage = (rawLang ?? 'en').toLowerCase();
-    const langLabel = LANGUAGE_NAMES[readingLanguage] ?? 'English';
     const readingLevel = (reading.difficulty as string | undefined) ?? 'medium';
 
-    const systemPrompt = `You are a ${langLabel} vocabulary explainer for language learners (target level: ${readingLevel}).
-Given a word or expression in ${langLabel} (and optionally its context sentence from the reading), respond ONLY with a JSON object:
-{"explanation": "<string>"}
-The explanation must be 1-2 clear sentences written exclusively in natural ${langLabel} (never mix words from English or other languages), suited for a ${readingLevel} learner.`;
-
-    const userPrompt = context
-      ? `Explain the ${langLabel} word/expression "${word}" as used in this context: "${context}".`
-      : `Explain the ${langLabel} word/expression "${word}" in simple terms.`;
+    const { systemPrompt, userPrompt } =
+      typeof this.promptGen.buildExplanationPrompt === 'function'
+        ? this.promptGen.buildExplanationPrompt({
+            word: displayWord,
+            entryType,
+            language: readingLanguage,
+            difficulty: readingLevel,
+            readingTitle: reading.title,
+            readingContent: reading.content,
+            context,
+          })
+        : buildFallbackExplanationPrompt(displayWord, readingLanguage, readingLevel, context);
 
     const raw = await this.factory.getFullResponse([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ]);
 
-    const explanation = this.parser.parseExplanation(raw);
+    const structured =
+      typeof this.parser.parseStructuredExplanation === 'function'
+        ? this.parser.parseStructuredExplanation(raw, displayWord, entryType)
+        : {
+            literalMeaning: null,
+            explanation: this.parser.parseExplanation(raw),
+            wordBreakdown: [],
+            otherWaysToSay: [],
+            otherContexts: [],
+          };
 
-    await this.subscriptions.recordExplanation({
+    const persisted = await this.subscriptions.recordExplanation({
       readingId: id,
       userId,
-      word,
+      word: displayWord,
+      normalizedWord,
+      entryType,
+      language: readingLanguage,
+      difficulty: readingLevel,
       context,
-      explanation,
+      literalMeaning: structured.literalMeaning,
+      explanation: structured.explanation,
+      wordBreakdown: structured.wordBreakdown,
+      otherWaysToSay: structured.otherWaysToSay,
+      otherContexts: structured.otherContexts,
     });
 
-    return { explanation, reading };
+    return {
+      id: persisted?.id ?? null,
+      word: displayWord,
+      entryType,
+      language: readingLanguage,
+      difficulty: readingLevel,
+      literalMeaning: structured.literalMeaning,
+      explanation: structured.explanation,
+      wordBreakdown: structured.wordBreakdown,
+      otherWaysToSay: structured.otherWaysToSay,
+      otherContexts: structured.otherContexts,
+      isSaved: persisted?.isSaved ?? false,
+      cached: false,
+      reading,
+    };
+  }
+
+  /**
+   * Lista las consultas/explicaciones guardadas o generadas sobre una lectura específica del usuario.
+   */
+  async listReadingExplanations(readingId: number, userId: number): Promise<GlossaryEntryDto[]> {
+    const reading = await this.findById(readingId, userId);
+    const rows = await this.db
+      .select()
+      .from(readingExplanations)
+      .where(
+        and(eq(readingExplanations.readingId, readingId), eq(readingExplanations.userId, userId)),
+      )
+      .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id));
+
+    const seen = new Set<string>();
+    const entries: GlossaryEntryDto[] = [];
+    for (const row of rows) {
+      const key = row.normalizedWord || row.word.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push(toGlossaryEntryDto(row, reading.title));
+    }
+    return entries;
+  }
+
+  /**
+   * Consulta el glosario personal y el historial de ayudas contextuales del usuario autenticado.
+   */
+  async listGlossary(userId: number, query: GlossaryQueryDto): Promise<GlossaryEntryDto[]> {
+    const conditions = [eq(readingExplanations.userId, userId)];
+
+    if (query.entryType) {
+      conditions.push(eq(readingExplanations.entryType, query.entryType));
+    }
+    if (query.language) {
+      conditions.push(eq(readingExplanations.language, query.language));
+    }
+    if (query.readingId) {
+      conditions.push(eq(readingExplanations.readingId, query.readingId));
+    }
+    if (query.savedOnly === true) {
+      conditions.push(eq(readingExplanations.isSaved, true));
+    }
+    const trimmedSearch = query.search?.trim();
+    if (trimmedSearch) {
+      const pattern = `%${trimmedSearch}%`;
+      const searchCondition = or(
+        ilike(readingExplanations.word, pattern),
+        ilike(readingExplanations.explanation, pattern),
+        ilike(readingExplanations.context, pattern),
+      );
+      if (searchCondition) {
+        conditions.push(searchCondition);
+      }
+    }
+
+    const rows = await this.db
+      .select({
+        entry: readingExplanations,
+        readingTitle: readings.title,
+      })
+      .from(readingExplanations)
+      .innerJoin(readings, eq(readingExplanations.readingId, readings.id))
+      .where(and(...conditions))
+      .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id));
+
+    return rows.map((row) => toGlossaryEntryDto(row.entry, row.readingTitle));
+  }
+
+  /**
+   * Marca o desmarca una explicación existente en el glosario personal sin eliminar el registro
+   * histórico (necesario para auditar la cuota diaria).
+   */
+  async toggleGlossarySave(
+    explanationId: number,
+    userId: number,
+    isSaved: boolean,
+  ): Promise<GlossaryEntryDto> {
+    const now = new Date();
+    const updatedRows = await this.db
+      .update(readingExplanations)
+      .set({
+        isSaved,
+        savedAt: isSaved ? now : null,
+        updatedAt: now,
+      })
+      .where(and(eq(readingExplanations.id, explanationId), eq(readingExplanations.userId, userId)))
+      .returning();
+
+    const updated = updatedRows[0] as ReadingExplanation | undefined;
+    if (!updated) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+        resource: 'ReadingExplanation',
+      });
+    }
+
+    const readingRows = await this.db
+      .select({ title: readings.title })
+      .from(readings)
+      .where(eq(readings.id, updated.readingId))
+      .limit(1);
+
+    return toGlossaryEntryDto(updated, readingRows[0]?.title ?? '');
+  }
+
+  /** Busca una explicación previamente persistida para evitar llamadas redundantes a la IA. */
+  private async findCachedExplanation(
+    readingId: number,
+    userId: number,
+    normalizedWord: string,
+  ): Promise<ReadingExplanation | null> {
+    const rows = await this.db
+      .select()
+      .from(readingExplanations)
+      .where(
+        and(
+          eq(readingExplanations.userId, userId),
+          eq(readingExplanations.readingId, readingId),
+          eq(readingExplanations.normalizedWord, normalizedWord),
+        ),
+      )
+      .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id))
+      .limit(1);
+
+    const candidate = rows[0] as ReadingExplanation | undefined;
+    if (
+      !candidate ||
+      typeof candidate.explanation !== 'string' ||
+      candidate.readingId !== readingId ||
+      candidate.userId !== userId ||
+      candidate.normalizedWord !== normalizedWord
+    ) {
+      return null;
+    }
+    return candidate;
   }
 
   /**
@@ -448,4 +665,59 @@ The explanation must be 1-2 clear sentences written exclusively in natural ${lan
     const pending = await this.listPending(userId);
     return pending.length;
   }
+}
+
+function normalizeLookupTerm(rawWord: string): {
+  displayWord: string;
+  normalizedWord: string;
+  entryType: ExplanationEntryType;
+} {
+  const displayWord = rawWord.trim().replace(/\s+/g, ' ');
+  if (!displayWord) {
+    throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+      field: 'word',
+      reason: 'Selected word or phrase must not be empty',
+    });
+  }
+  const normalizedWord = displayWord.toLowerCase();
+  const entryType: ExplanationEntryType = normalizedWord.includes(' ') ? 'phrase' : 'word';
+  return { displayWord, normalizedWord, entryType };
+}
+
+function buildFallbackExplanationPrompt(
+  word: string,
+  language: string,
+  difficulty: string,
+  context?: string,
+): { systemPrompt: string; userPrompt: string } {
+  const langLabel = LANGUAGE_NAMES[language.toLowerCase()] ?? 'English';
+  const systemPrompt = `You are a ${langLabel} vocabulary explainer for language learners (target level: ${difficulty}).
+Respond ONLY with a valid JSON object strictly in natural ${langLabel}.`;
+  const userPrompt = context
+    ? `Explain "${word}" in ${langLabel} within context: "${context}".`
+    : `Explain "${word}" in ${langLabel}.`;
+  return { systemPrompt, userPrompt };
+}
+
+function toGlossaryEntryDto(row: ReadingExplanation, readingTitle: string): GlossaryEntryDto {
+  return {
+    id: row.id,
+    readingId: row.readingId,
+    readingTitle,
+    word: row.word,
+    normalizedWord: row.normalizedWord,
+    entryType: row.entryType,
+    language: row.language,
+    difficulty: row.difficulty,
+    context: row.context ?? null,
+    literalMeaning: row.literalMeaning ?? null,
+    explanation: row.explanation,
+    wordBreakdown: Array.isArray(row.wordBreakdown) ? row.wordBreakdown : [],
+    otherWaysToSay: Array.isArray(row.otherWaysToSay) ? row.otherWaysToSay : [],
+    otherContexts: Array.isArray(row.otherContexts) ? row.otherContexts : [],
+    isSaved: Boolean(row.isSaved),
+    savedAt: row.savedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }

@@ -35,6 +35,24 @@ export const LANGUAGE_NAMES: Record<string, string> = {
   it: 'Italian',
 };
 
+/** Parámetros para construir el prompt de ayuda contextual y glosario de palabras/oraciones. */
+export interface ExplanationPromptParams {
+  word: string;
+  entryType: 'word' | 'phrase';
+  language: string;
+  difficulty: string;
+  readingTitle?: string;
+  readingContent?: string;
+  context?: string;
+}
+
+const EXPLANATION_LEVEL_GUIDES: Record<string, string> = {
+  easy: 'Beginner (A1-A2): explain simply using short everyday sentences, concrete comparisons, and accessible grammar labels without technical jargon.',
+  medium:
+    'Intermediate (B1-B2): explain clearly with practical nuance, everyday grammatical categories, and helpful register hints.',
+  hard: 'Advanced / Native-like (C1-C2): explain like an educated native speaker to another fluent reader, covering pragmatic tone, subtle nuance, and register.',
+};
+
 /** Guías lingüísticas y pedagógicas por idioma objetivo para sostener coherencia y registro CEFR. */
 const LANGUAGE_STYLE_GUIDES: Record<string, string> = {
   es:
@@ -311,6 +329,76 @@ LEVEL (${difficulty.label}):
 - GRAMMAR: ${difficulty.grammarGuidelines}
 - Output metadata: JSON "category" MUST be "${params.category}" and JSON "difficulty" MUST be "${difficulty.id}".
     `.trim();
+  }
+
+  /**
+   * Construye el prompt pedagógico de ayuda contextual para una palabra u oración completa,
+   * adaptando la profundidad al nivel de la lectura y exigiendo salida 100% en el idioma objetivo.
+   */
+  buildExplanationPrompt(params: ExplanationPromptParams): {
+    systemPrompt: string;
+    userPrompt: string;
+  } {
+    const normalizedLang = params.language.toLowerCase();
+    const langLabel = LANGUAGE_NAMES[normalizedLang] ?? 'English';
+    const normalizedLevel = params.difficulty.toLowerCase();
+    const levelGuide =
+      EXPLANATION_LEVEL_GUIDES[normalizedLevel] ?? EXPLANATION_LEVEL_GUIDES['medium'];
+    const selectionKind = params.entryType === 'phrase' ? 'expression/sentence' : 'single word';
+
+    const systemPrompt = `You are a ${langLabel} vocabulary explainer and language coach for learners (target level: ${normalizedLevel}).
+IMPORTANT RULES:
+1. This is an explanatory help & glossary system, NOT a bilingual translator. Write 100% of EVERY string value in the JSON exclusively in natural ${langLabel}. Never translate into or mix words from any other language.
+2. Pedagogical depth (${normalizedLevel}): ${levelGuide}
+3. Ground your main explanation directly in what is happening in the provided reading text, while contrasting the literal dictionary sense with its real contextual meaning.
+4. Respond ONLY with a valid JSON object (no markdown fences, no commentary) using this exact structure:
+{
+  "literalMeaning": "<string strictly in ${langLabel}: literal word-for-word or base dictionary meaning>",
+  "explanation": "<string strictly in ${langLabel}: 2-4 clear sentences explaining what this ${selectionKind} means specifically in this reading passage>",
+  "wordBreakdown": [
+    {
+      "token": "<word as it appears in the selection>",
+      "lemma": "<dictionary base form>",
+      "partOfSpeech": "<grammatical category written in ${langLabel}>",
+      "literalDefinition": "<concise dictionary definition of this single word in ${langLabel}>",
+      "roleInPhrase": "<short note in ${langLabel} on its role inside this selection>"
+    }
+  ],
+  "otherWaysToSay": [
+    {
+      "expression": "<natural, everyday, educational alternative in ${langLabel}>",
+      "register": "<register label in ${langLabel}>",
+      "note": "<short note in ${langLabel} on when this alternative fits>"
+    }
+  ],
+  "otherContexts": [
+    {
+      "contextLabel": "<short name of another situation where this same ${selectionKind} is used, in ${langLabel}>",
+      "explanation": "<how it works in that other situation, strictly in ${langLabel}>",
+      "example": "<natural example sentence strictly in ${langLabel}>"
+    }
+  ]
+}
+Guidance for arrays:
+- wordBreakdown: include each meaningful word from the selection in order (even for a single word, include at least 1 entry describing its base form, grammatical category, and dictionary meaning).
+- otherWaysToSay: provide 2 to 3 natural, learner-safe alternatives suited for real-world usage.
+- otherContexts: provide 1 to 3 genuinely distinct situations where this same word or expression is used (for example figurative complaint vs. extreme improbability, or literal vs. idiomatic use).`;
+
+    const readingExcerpt = params.readingContent?.trim()
+      ? params.readingContent.trim().slice(0, 3500)
+      : '';
+    const contextSection = params.context?.trim()
+      ? `\nSURROUNDING EXCERPT:\n"${params.context.trim()}"`
+      : '';
+    const readingSection = readingExcerpt
+      ? `\nFULL READING CONTEXT${params.readingTitle ? ` ("${params.readingTitle.trim()}")` : ''}:\n"""\n${readingExcerpt}\n"""`
+      : '';
+
+    const userPrompt = `Explain the ${langLabel} ${selectionKind} "${params.word}" for a ${normalizedLevel} learner.${contextSection}${readingSection}
+
+Give the word-by-word dictionary breakdown, contrast the literal sense with what it means inside this reading, share natural alternatives in ${langLabel}, and show other distinct contexts with real example sentences.`;
+
+    return { systemPrompt, userPrompt };
   }
 
   /** Genera una semilla única trazable para identificar cada ejecución en bitácoras. */

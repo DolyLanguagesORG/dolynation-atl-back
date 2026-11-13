@@ -464,14 +464,284 @@ export class EvaluationResultDto {
 }
 
 /**
- * Estructura de `data` para `/readings/{id}/explanations` (200).
+ * Elemento individual del desglose palabra por palabra de una consulta contextual.
+ */
+export class WordBreakdownItemDto {
+  @ApiProperty({
+    example: 'parta',
+    description: 'Token exactly as it appears in the selected word or expression',
+  })
+  token!: string;
+
+  @ApiProperty({
+    example: 'partir',
+    description: 'Dictionary base form (lemma) of the token',
+  })
+  lemma!: string;
+
+  @ApiProperty({
+    example: 'verbo',
+    description: 'Grammatical category written in the reading target language',
+  })
+  partOfSpeech!: string;
+
+  @ApiProperty({
+    example: 'Dividir algo en partes o golpear con fuerza.',
+    description: 'Concise dictionary definition of the token in the reading target language',
+  })
+  literalDefinition!: string;
+
+  @ApiProperty({
+    required: false,
+    example: 'verbo principal en presente de subjuntivo dentro de la exclamación',
+    description: 'Optional grammatical or semantic role of the token inside the phrase',
+  })
+  roleInPhrase?: string;
+}
+
+/**
+ * Alternativa natural de expresión en el mismo idioma objetivo.
+ */
+export class AlternativeExpressionDto {
+  @ApiProperty({
+    example: '¡Qué mala suerte tengo!',
+    description: 'Natural alternative expression in the same target language',
+  })
+  expression!: string;
+
+  @ApiProperty({
+    required: false,
+    example: 'coloquial',
+    description: 'Optional register or tone label in the reading target language',
+  })
+  register?: string;
+
+  @ApiProperty({
+    example: 'Expresa frustración cotidiana sin sonar agresivo.',
+    description: 'Short usage note in the reading target language',
+  })
+  note!: string;
+}
+
+/**
+ * Otro contexto real de uso para la palabra o expresión consultada.
+ */
+export class UsageContextDto {
+  @ApiProperty({
+    example: 'Algo muy improbable',
+    description: 'Short label for the alternative situation or context',
+  })
+  contextLabel!: string;
+
+  @ApiProperty({
+    example: 'Se emplea para enfatizar incredulidad o apostar a que algo no ocurrirá.',
+    description: 'Explanation of how the expression shifts meaning in this context',
+  })
+  explanation!: string;
+
+  @ApiProperty({
+    example: 'Si llega puntual hoy, que me parta un rayo.',
+    description: 'Natural example sentence strictly in the reading target language',
+  })
+  example!: string;
+}
+
+/**
+ * Entrada persistida de explicación o elemento del glosario personal del usuario.
+ */
+export class GlossaryEntryDto {
+  @ApiProperty({ example: 15, description: 'Unique explanation identifier' })
+  id!: number;
+
+  @ApiProperty({ example: 42, description: 'Identifier of the source reading' })
+  readingId!: number;
+
+  @ApiProperty({
+    example: 'Una tarde inesperada en el barrio',
+    description: 'Title of the source reading where the term was consulted',
+  })
+  readingTitle!: string;
+
+  @ApiProperty({
+    example: 'que me parta un rayo',
+    description: 'Original selected word, phrase, or sentence',
+  })
+  word!: string;
+
+  @ApiProperty({
+    example: 'que me parta un rayo',
+    description: 'Normalized lookup key used for deduplication and caching',
+  })
+  normalizedWord!: string;
+
+  @ApiProperty({
+    enum: ['word', 'phrase'],
+    example: 'phrase',
+    description: 'Whether the consulted item is a single word or a multi-word phrase/sentence',
+  })
+  entryType!: 'word' | 'phrase';
+
+  @ApiProperty({
+    example: 'es',
+    description: 'ISO target language code of the source reading',
+  })
+  language!: string;
+
+  @ApiProperty({
+    example: 'medium',
+    description: 'Reading difficulty level used to adapt the explanation depth',
+  })
+  difficulty!: string;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    example: 'Juan miró la tormenta y dijo que me parta un rayo.',
+    description: 'Optional surrounding excerpt captured from the reading',
+  })
+  context!: string | null;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    example: 'Literalmente significa recibir el impacto directo de un rayo.',
+    description: 'Literal word-for-word meaning contrasted with the idiomatic sense',
+  })
+  literalMeaning!: string | null;
+
+  @ApiProperty({
+    example: 'En este pasaje expresa enojo o frustración exagerada ante una situación inesperada.',
+    description: 'Contextual explanation grounded in the generated reading',
+  })
+  explanation!: string;
+
+  @ApiProperty({
+    type: () => [WordBreakdownItemDto],
+    description: 'Word-by-word dictionary breakdown of the consulted term',
+  })
+  wordBreakdown!: WordBreakdownItemDto[];
+
+  @ApiProperty({
+    type: () => [AlternativeExpressionDto],
+    description: 'Alternative ways to express the same idea in the target language',
+  })
+  otherWaysToSay!: AlternativeExpressionDto[];
+
+  @ApiProperty({
+    type: () => [UsageContextDto],
+    description: 'Other real-world situations and examples where this expression is used',
+  })
+  otherContexts!: UsageContextDto[];
+
+  @ApiProperty({
+    example: true,
+    description: 'Indicates whether the user bookmarked this entry in their personal glossary',
+  })
+  isSaved!: boolean;
+
+  @ApiProperty({
+    example: '2026-11-13T03:00:00.000Z',
+    nullable: true,
+    format: 'date-time',
+    description: 'Timestamp when the entry was saved to the glossary',
+  })
+  savedAt!: Date | null;
+
+  @ApiProperty({
+    example: '2026-11-13T02:55:00.000Z',
+    format: 'date-time',
+    description: 'Timestamp when the explanation was created',
+  })
+  createdAt!: Date;
+
+  @ApiProperty({
+    example: '2026-11-13T03:00:00.000Z',
+    format: 'date-time',
+    description: 'Timestamp of the last update to this explanation entry',
+  })
+  updatedAt!: Date;
+}
+
+/**
+ * Estructura de `data` para `/readings/{id}/explanations` (201).
  */
 export class ExplanationResultDto {
   @ApiProperty({
+    example: 15,
+    nullable: true,
+    required: false,
+    description: 'Identifier of the persisted explanation record',
+  })
+  id?: number | null;
+
+  @ApiProperty({
+    example: 'que me parta un rayo',
+    description: 'Selected word, expression, or sentence that was explained',
+  })
+  word!: string;
+
+  @ApiProperty({
+    enum: ['word', 'phrase'],
+    example: 'phrase',
+    description: 'Whether the consulted item is a single word or a multi-word phrase/sentence',
+  })
+  entryType!: 'word' | 'phrase';
+
+  @ApiProperty({
+    example: 'es',
+    description: 'Target language code of the explanation',
+  })
+  language!: string;
+
+  @ApiProperty({
+    example: 'medium',
+    description: 'Difficulty level to which the explanation was adapted',
+  })
+  difficulty!: string;
+
+  @ApiProperty({
+    type: 'string',
+    nullable: true,
+    example: 'Literalmente significa recibir el impacto de un rayo.',
+    description: 'Literal meaning before idiomatic or contextual interpretation',
+  })
+  literalMeaning!: string | null;
+
+  @ApiProperty({
     example: 'In this context, "release" means publishing a new version of software.',
-    description: 'Explicación contextual de la palabra o expresión consultada',
+    description: 'Contextual explanation of the consulted word or expression',
   })
   explanation!: string;
+
+  @ApiProperty({
+    type: () => [WordBreakdownItemDto],
+    description: 'Word-by-word dictionary breakdown in the target language',
+  })
+  wordBreakdown!: WordBreakdownItemDto[];
+
+  @ApiProperty({
+    type: () => [AlternativeExpressionDto],
+    description: 'Natural alternative ways to express the same idea in the target language',
+  })
+  otherWaysToSay!: AlternativeExpressionDto[];
+
+  @ApiProperty({
+    type: () => [UsageContextDto],
+    description: 'Other real-world usage contexts and example sentences',
+  })
+  otherContexts!: UsageContextDto[];
+
+  @ApiProperty({
+    example: false,
+    description: 'Indicates whether this entry is currently saved in the user personal glossary',
+  })
+  isSaved!: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: 'Indicates whether the response was served from the cached reading explanation',
+  })
+  cached!: boolean;
 
   @ApiProperty({ type: () => ReadingDto, description: 'Lectura asociada a la consulta' })
   reading!: ReadingDto;

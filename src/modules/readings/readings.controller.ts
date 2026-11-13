@@ -7,7 +7,9 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -22,6 +24,7 @@ import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import {
   EvaluationResultDto,
   ExplanationResultDto,
+  GlossaryEntryDto,
   ReadingDto,
   ReadingOptionsDto,
 } from '../../common/types/api-response.dto';
@@ -32,7 +35,13 @@ import {
   ApiOkResponseOfArray,
 } from '../../common/types/api-envelope.decorators';
 import { ReadingsService } from './readings.service';
-import { CreateExplanationDto, EvaluateReadingDto, GenerateReadingDto } from './dto/readings.dto';
+import {
+  CreateExplanationDto,
+  EvaluateReadingDto,
+  GenerateReadingDto,
+  GlossaryQueryDto,
+  ToggleGlossarySaveDto,
+} from './dto/readings.dto';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 
@@ -123,6 +132,24 @@ export class ReadingsController {
   }
 
   /**
+   * Lista las entradas del glosario personal y consultas contextuales del usuario autenticado.
+   */
+  @Get('glossary')
+  @ApiOperation({ summary: 'List personal glossary and contextual help entries for the user' })
+  @ApiOkResponseOfArray(GlossaryEntryDto)
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid authentication',
+    type: ApiErrorDto,
+  })
+  async listGlossary(
+    @CurrentUser() current: AuthUser,
+    @Query() query: GlossaryQueryDto,
+  ): Promise<ApiResponse<GlossaryEntryDto[]>> {
+    const entries = await this.readings.listGlossary(current.id, query);
+    return apiOk<GlossaryEntryDto[]>('Glossary entries', entries);
+  }
+
+  /**
    * Obtiene el detalle de una lectura específica perteneciente al usuario.
    */
   @Get(':id')
@@ -172,15 +199,34 @@ export class ReadingsController {
   }
 
   /**
+   * Lista las explicaciones contextuales generadas previamente para la lectura indicada.
+   */
+  @Get(':id/explanations')
+  @ApiOperation({ summary: 'List contextual help explanations saved for a reading' })
+  @ApiOkResponseOfArray(GlossaryEntryDto)
+  @ApiNotFoundResponse({ description: 'Reading not found', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid authentication',
+    type: ApiErrorDto,
+  })
+  async listExplanations(
+    @CurrentUser() current: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<ApiResponse<GlossaryEntryDto[]>> {
+    const entries = await this.readings.listReadingExplanations(id, current.id);
+    return apiOk<GlossaryEntryDto[]>('Reading explanations', entries);
+  }
+
+  /**
    * Genera una explicación contextual de una palabra o frase dentro de la lectura.
    */
   @Post(':id/explanations')
-  @ApiOperation({ summary: 'Explicar una palabra en el contexto de una lectura' })
-  @ApiOkResponseOf(ExplanationResultDto)
-  @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
-  @ApiNotFoundResponse({ description: 'Lectura no encontrada', type: ApiErrorDto })
+  @ApiOperation({ summary: 'Explain a word or expression within a reading context' })
+  @ApiCreatedResponseOf(ExplanationResultDto)
+  @ApiBadRequestResponse({ description: 'Validation error', type: ApiErrorDto })
+  @ApiNotFoundResponse({ description: 'Reading not found', type: ApiErrorDto })
   @ApiUnauthorizedResponse({
-    description: 'Autenticación faltante o inválida',
+    description: 'Missing or invalid authentication',
     type: ApiErrorDto,
   })
   async explain(
@@ -188,8 +234,34 @@ export class ReadingsController {
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateExplanationDto,
   ): Promise<ApiResponse<ExplanationResultDto>> {
-    const result = await this.readings.explain(id, current.id, dto.word, dto.context);
+    const result = await this.readings.explain(
+      id,
+      current.id,
+      dto.word,
+      dto.context,
+      dto.forceRefresh ?? false,
+    );
     return apiOk<ExplanationResultDto>('Explanation', result);
+  }
+
+  /**
+   * Guarda o quita una explicación del glosario personal del usuario sin borrar su historial de cuota.
+   */
+  @Patch('explanations/:explanationId/glossary')
+  @ApiOperation({ summary: 'Bookmark or unbookmark an explanation in the user personal glossary' })
+  @ApiOkResponseOf(GlossaryEntryDto)
+  @ApiNotFoundResponse({ description: 'Explanation entry not found', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid authentication',
+    type: ApiErrorDto,
+  })
+  async toggleGlossarySave(
+    @CurrentUser() current: AuthUser,
+    @Param('explanationId', ParseIntPipe) explanationId: number,
+    @Body() dto: ToggleGlossarySaveDto,
+  ): Promise<ApiResponse<GlossaryEntryDto>> {
+    const updated = await this.readings.toggleGlossarySave(explanationId, current.id, dto.isSaved);
+    return apiOk<GlossaryEntryDto>('Glossary entry updated', updated);
   }
 
   /**
