@@ -43,6 +43,8 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   υ: 'y',
   χ: 'x',
   ß: 'ss',
+  œ: 'oe',
+  æ: 'ae',
 };
 
 /** Mapa básico de sustituciones leetspeak para normalización de seguridad. */

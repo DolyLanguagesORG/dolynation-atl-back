@@ -1,8 +1,9 @@
 import { checkCategoryBlacklist } from './category-blacklist';
 
 describe('category-blacklist (Filter 1)', () => {
-  it('blocks explicit death, sexual, profanity, drugs and spam words', () => {
+  it('blocks explicit death, sexual, profanity, drugs and spam words across EN, ES, FR, PT and DE', () => {
     const blockedCases = [
+      // ES + EN
       'Muertos',
       'Muerte violenta',
       'Pornografía',
@@ -15,6 +16,31 @@ describe('category-blacklist (Filter 1)', () => {
       'asdfgh',
       'qwerty',
       'Coño',
+      // FR
+      'Putain',
+      'Salope',
+      'Connard',
+      'Cadavre',
+      'Meurtre',
+      'Fils de pute',
+      'azerty',
+      // PT
+      'Caralho',
+      'Buceta',
+      'Porra',
+      'Estupro',
+      'Maconha',
+      'Filho da puta',
+      // DE
+      'Scheiße',
+      'Arschloch',
+      'Selbstmord',
+      'Leiche',
+      'Vergewaltigung',
+      'Ficken',
+      'Müll',
+      'Möse',
+      'qwertz',
     ];
 
     for (const input of blockedCases) {
@@ -62,6 +88,18 @@ describe('category-blacklist (Filter 1)', () => {
       'Mar Muerto',
       'Astronomía Moderna',
       'Desarrollo Backend',
+      // FR + PT + DE safe cultural/historical phrases and false-positive guards
+      'Seconde Guerre Mondiale',
+      'Nature morte',
+      'Mer Morte',
+      'Dia dos Mortos',
+      'Natureza Morta',
+      'Zweiter Weltkrieg',
+      'Totes Meer',
+      'Menschliche Anatomie',
+      'Literary Heroines',
+      'Creative Mull',
+      'Politische FDP Debatte',
     ];
 
     for (const input of allowedCases) {

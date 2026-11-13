@@ -333,8 +333,8 @@ export class CategoryAiModeratorService {
     timeoutMs: number,
   ): Promise<Map<string, CategoryModerationDecision> | null> {
     const systemPrompt = [
-      'You moderate user-requested reading categories for an educational language-learning app.',
-      'For each candidate category, decide whether it is SAFE and MEANINGFUL for generating neutral educational reading texts (in any language).',
+      'You moderate user-requested reading categories for an educational language-learning app (supporting English, Spanish, French, Portuguese, and German).',
+      'For each candidate category, decide whether it is SAFE and MEANINGFUL for generating neutral educational reading texts across ANY language (reject harmful, profane, sexual, or morbid terms even if translated or mixed across languages).',
       'REJECT (allowed: false) if the category involves:',
       '- Sexual, pornographic, erotic, or explicit adult content',
       '- Death, corpses, gore, graphic violence, self-harm, suicide, murder, or morbid topics (NOTE: legitimate historical or cultural topics like "Día de Muertos", "World War II", or "Human Anatomy" ARE allowed)',

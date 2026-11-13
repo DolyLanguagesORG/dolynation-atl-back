@@ -74,10 +74,10 @@ const SAFE_PROGRAMMING_NOTATION_REGEX = /^(?:c\+\+|c#|f#)$/i;
 const URL_EMAIL_MARKUP_REGEX =
   /(?:https?:\/\/|www\.|<\/?[a-z][^>]*>|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\[[^\]]+\]\([^)]+\))/i;
 
-const ALLOWED_CHARS_REGEX = /^[\p{L}\p{N}\s'&+#\-.,/()]+$/u;
+const ALLOWED_CHARS_REGEX = /^[\p{Script=Latin}\p{N}\s'&+#\-.,/()]+$/u;
 
 const PROMPT_INJECTION_REGEX =
-  /(?:ignore\s+(?:all\s+)?(?:previous|above|prior)\s+instructions?|system\s*prompt|developer\s*prompt|jailbreak|do\s+anything\s+now|\bdan\b\s+mode|forget\s+(?:everything|all|your\s+rules)|act\s+as\s+(?:a|an|my)|you\s+are\s+now|bypass\s+(?:safety|filter|rules)|ignora\s+(?:todas?\s+)?(?:las?\s+)?instrucciones|olvida\s+(?:tus?\s+)?reglas|actua\s+como)/i;
+  /(?:ignore\s+(?:all\s+)?(?:previous|above|prior)\s+instructions?|system\s*prompt|developer\s*prompt|jailbreak|do\s+anything\s+now|\bdan\b\s+mode|forget\s+(?:everything|all|your\s+rules)|act\s+as\s+(?:a|an|my)|you\s+are\s+now|bypass\s+(?:safety|filter|rules)|ignora\s+(?:todas?\s+)?(?:las?\s+)?instrucciones|olvida\s+(?:tus?\s+)?reglas|actua\s+como|ignore[rz]?\s+(?:toutes?\s+)?(?:les?\s+)?instructions?|oublie[rz]?\s+(?:tes?\s+)?regles?|agis\s+comme|ignore\s+(?:todas?\s+)?(?:as?\s+)?instruc(?:oes|ao)|esqueca\s+(?:suas?\s+)?regras|aja\s+como|ignorier(?:e|en)\s+(?:alle\s+)?anweisungen|vergiss\s+(?:deine\s+)?regeln|verhalte\s+dich\s+wie)/i;
 
 const REPEATED_CHAR_SPAM_REGEX = /(.)\1{3,}/u;
 const REPEATED_CHUNK_SPAM_REGEX = /\b([a-z0-9]{2,4})\1{2,}\b/i;
@@ -86,15 +86,15 @@ const REPEATED_WORD_TWO_REGEX = /^([a-z0-9]{2,})\s+\1$/i;
 const REPEATED_WORD_THREE_REGEX = /\b([a-z0-9]{2,})\b(?:\s+\1){2,}/i;
 
 const KEYBOARD_MASH_REGEX =
-  /(?:qwert|werty|ertyu|rtyui|tyuio|yuiop|asdfg|sdfgh|dfghj|fghjk|ghjkl|zxcvb|xcvbn|cvbnm|qazws|wsxed|edcrf|rfvtg|tgbyh|yhnuj|ujmik|ikolp|trewq|gfdsa|nbvcx)/i;
+  /(?:qwertz|qwert|werty|wertz|ertyu|rtyui|tyuio|yuiop|azert|zerty|qsdfg|asdfg|sdfgh|dfghj|fghjk|ghjkl|zxcvb|xcvbn|cvbnm|wxcvb|yxcvb|qazws|wsxed|edcrf|rfvtg|tgbyh|yhnuj|ujmik|ikolp|trewq|gfdsa|nbvcx)/i;
 
-const CONSONANT_RUN_REGEX = /[bcdfghjklmnpqrstvwxz]{7,}/i;
+const CONSONANT_RUN_REGEX = /[bcdfghjklmnpqrstvwxz]{9,}/i;
 const CONSONANT_ONLY_LONG_TOKEN_REGEX = /^[bcdfghjklmnpqrstvwxz]{5,}$/i;
 
 const FRAGMENTED_CHARS_REGEX = /(?:^|\s)(?:[a-z0-9]\s+){3,}[a-z0-9](?:\s|$)/i;
 
 const OBFUSCATED_HARMFUL_REGEX =
-  /\b(?:porn(?:o|ograf\w*)?|hentai|nsfw|xxx|nudes?|sex(?:o|ual\w*)?|suicid\w*|self[\s_-]*harm|auto[\s_-]*lesion\w*|(?:necro|pedo|zoo)fil\w*|decapit\w*|descuartiz\w*|mutila\w*|canibal\w*|cadaver\w*|corpse\w*|masacr\w*|massacr\w*)\b/i;
+  /\b(?:porn(?:o|ograf\w*|ograph\w*)?|hentai|nsfw|xxx|nudes?|sex(?:o|ual\w*|uell\w*)?|suicid\w*|selbstmord\w*|massenmord\w*|kinderporn\w*|vergewaltig\w*|fick\w*|schlamp\w*|arschloch\w*|hurensohn\w*|putain\w*|salop\w*|encul\w*|meurtr(?:e|es|ier\w*)|bucet\w*|caralh\w*|estupr\w*|self[\s_-]*harm|auto[\s_-]*lesion\w*|auto[\s_-]*mutil\w*|(?:necro|pedo|zoo)fil\w*|(?:necro|pedo|zoo)phil\w*|decapit\w*|descuartiz\w*|esquartej\w*|mutila\w*|canibal\w*|cannibal\w*|cadaver\w*|corpse\w*|masacr\w*|massacr\w*)\b/i;
 
 /**
  * Ejecuta el **Filtro 2 (Expresiones Regulares)** sobre una categoría dinámica.
