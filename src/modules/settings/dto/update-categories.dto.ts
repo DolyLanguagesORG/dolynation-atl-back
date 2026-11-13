@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { MIN_USER_CATEGORIES } from '../settings.constants';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -14,12 +15,13 @@ import {
 export class UpdateCategoriesDto {
   @ApiProperty({
     type: [String],
+    minItems: MIN_USER_CATEGORIES,
     example: ['technology', 'history', 'quantum physics'],
     description:
-      'Nombres o IDs de categorías (predefinidas o personalizadas) a guardar como selección del usuario; deben ser únicos y de 2 a 50 caracteres cada uno',
+      'Nombres o IDs de categorías (predefinidas o personalizadas) a guardar como selección del usuario; mínimo 3 únicas y de 2 a 50 caracteres cada una',
   })
   @IsArray()
-  @ArrayMinSize(1)
+  @ArrayMinSize(MIN_USER_CATEGORIES)
   @ArrayMaxSize(50)
   @ArrayUnique()
   @IsString({ each: true })

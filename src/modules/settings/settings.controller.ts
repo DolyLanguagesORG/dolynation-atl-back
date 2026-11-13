@@ -9,6 +9,8 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
+import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
 import { ApiOkResponseOf } from '../../common/types/api-envelope.decorators';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
@@ -17,6 +19,7 @@ import { getCategoryConfig } from '../readings/prompt-generation/catalog.helpers
 import { CategoriesSettingsDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import { UpdateCategoriesDto } from './dto/update-categories.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
+import { MIN_USER_CATEGORIES } from './settings.constants';
 import { SettingsService } from './settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { normalizeCategoryNames } from '../moderation/category-normalizer';
@@ -87,6 +90,13 @@ export class SettingsController {
     @Body() dto: UpdateCategoriesDto,
   ): Promise<ApiResponse<CategoriesSettingsDto>> {
     const normalized = normalizeCategoryNames(dto.categories);
+    if (normalized.length < MIN_USER_CATEGORIES) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        minCategories: MIN_USER_CATEGORIES,
+        received: normalized.length,
+        message: `Debes registrar al menos ${MIN_USER_CATEGORIES} categorías únicas.`,
+      });
+    }
     await this.subscriptions.assertCategoryLimit(current.id, normalized.length);
     const selected = await this.settings.setCategories(current.id, normalized);
     const catalog = READING_CATEGORIES.map((id) => ({ id, name: getCategoryConfig(id).name }));

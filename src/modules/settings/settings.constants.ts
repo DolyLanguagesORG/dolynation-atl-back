@@ -15,6 +15,9 @@ export type LanguageId = (typeof SUPPORTED_LANGUAGES)[number]['id'];
 /** Lista inmutable de códigos de idioma válidos. */
 export const SUPPORTED_LANGUAGE_IDS: readonly LanguageId[] = SUPPORTED_LANGUAGES.map((l) => l.id);
 
+/** Cantidad mínima de categorías temáticas requeridas en el perfil del usuario. */
+export const MIN_USER_CATEGORIES = 3;
+
 /** Días de espera entre cambios gratuitos de idioma seleccionado. */
 export const LANGUAGE_CHANGE_COOLDOWN_DAYS = 365;
 

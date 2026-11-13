@@ -81,22 +81,44 @@ describe('SettingsController', () => {
   });
 
   describe('PUT /settings/categories', () => {
-    it('persists the user’s selection', async () => {
+    it('persists the user’s selection when at least 3 unique categories are provided', async () => {
       const result = await controller.updateCategories(user, {
-        categories: ['technology', 'history'],
+        categories: ['technology', 'history', 'science'],
       });
-      expect(result.data.selected).toEqual(['technology', 'history']);
-      expect(settings.setCategories).toHaveBeenCalledWith(42, ['technology', 'history']);
+      expect(result.data.selected).toEqual(['technology', 'history', 'science']);
+      expect(settings.setCategories).toHaveBeenCalledWith(42, ['technology', 'history', 'science']);
+    });
+
+    it('rejects duplicate-collapsed arrays with fewer than 3 unique categories', async () => {
+      await expect(
+        controller.updateCategories(user, {
+          categories: ['  Technology  ', 'technology', 'TECHNOlogy'],
+        }),
+      ).rejects.toMatchObject({
+        status: 400,
+      });
+      expect(subscriptions.assertCategoryLimit).not.toHaveBeenCalled();
+      expect(settings.setCategories).not.toHaveBeenCalled();
     });
 
     it('normalizes whitespace and deduplicates case/accent variants before enforcing limit and saving', async () => {
       const result = await controller.updateCategories(user, {
-        categories: ['  Technology  ', 'technology', 'Música Clásica', 'musica   clasica'],
+        categories: [
+          '  Technology  ',
+          'technology',
+          'Música Clásica',
+          'musica   clasica',
+          'history',
+        ],
       });
 
-      expect(subscriptions.assertCategoryLimit).toHaveBeenCalledWith(42, 2);
-      expect(settings.setCategories).toHaveBeenCalledWith(42, ['technology', 'Música Clásica']);
-      expect(result.data.selected).toEqual(['technology', 'Música Clásica']);
+      expect(subscriptions.assertCategoryLimit).toHaveBeenCalledWith(42, 3);
+      expect(settings.setCategories).toHaveBeenCalledWith(42, [
+        'technology',
+        'Música Clásica',
+        'history',
+      ]);
+      expect(result.data.selected).toEqual(['technology', 'Música Clásica', 'history']);
     });
   });
 

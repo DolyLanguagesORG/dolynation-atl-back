@@ -19,7 +19,12 @@ import {
   resolveActiveLanguages,
   sanitizeSelectedLanguages,
 } from './language-selection.helpers';
-import { SUPPORTED_LANGUAGE_IDS, SUPPORTED_LANGUAGES, type LanguageId } from './settings.constants';
+import {
+  MIN_USER_CATEGORIES,
+  SUPPORTED_LANGUAGE_IDS,
+  SUPPORTED_LANGUAGES,
+  type LanguageId,
+} from './settings.constants';
 
 interface SettingsUpsertPatch {
   preferredCategories?: string[];
@@ -86,6 +91,13 @@ export class SettingsService {
    * Modera, valida el tope diario anti-abuso, normaliza y actualiza o crea las categorías preferidas del usuario.
    */
   async setCategories(userId: number, categories: string[]): Promise<string[]> {
+    if (categories.length < MIN_USER_CATEGORIES) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        minCategories: MIN_USER_CATEGORIES,
+        received: categories.length,
+        message: `Debes registrar al menos ${MIN_USER_CATEGORIES} categorías únicas.`,
+      });
+    }
     if (this.dailyLimit) {
       const existingCategories = await this.getCategories(userId);
       await this.dailyLimit.assertAndRecordDailyQuota(userId, categories, existingCategories);

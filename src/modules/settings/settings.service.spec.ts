@@ -50,24 +50,41 @@ describe('SettingsService', () => {
   });
 
   describe('categories', () => {
-    it('moderates, normalizes, persists and returns allowed categories', async () => {
-      moderation.assertCategoriesAllowed.mockResolvedValueOnce(['technology', 'Día de Muertos']);
+    it('rejects fewer than 3 categories with VALIDATION_ERROR before moderation or quota', async () => {
+      await expect(service.setCategories(42, ['technology', 'history'])).rejects.toMatchObject({
+        response: expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+      });
+      expect(moderation.assertCategoriesAllowed).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    });
 
-      const result = await service.setCategories(42, ['  Technology ', 'Día de Muertos']);
+    it('moderates, normalizes, persists and returns allowed categories', async () => {
+      moderation.assertCategoriesAllowed.mockResolvedValueOnce([
+        'technology',
+        'history',
+        'Día de Muertos',
+      ]);
+
+      const result = await service.setCategories(42, [
+        '  Technology ',
+        'history',
+        'Día de Muertos',
+      ]);
 
       expect(moderation.assertCategoriesAllowed).toHaveBeenCalledWith([
         '  Technology ',
+        'history',
         'Día de Muertos',
       ]);
       expect(db.insert).toHaveBeenCalledTimes(1);
       expect(values).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: 42,
-          preferredCategories: ['technology', 'Día de Muertos'],
+          preferredCategories: ['technology', 'history', 'Día de Muertos'],
         }),
       );
       expect(onConflictDoUpdate).toHaveBeenCalledTimes(1);
-      expect(result).toEqual(['technology', 'Día de Muertos']);
+      expect(result).toEqual(['technology', 'history', 'Día de Muertos']);
     });
 
     it('aborts persistence and propagates CATEGORY_MODERATION_REJECTED when moderation rejects', async () => {
@@ -84,7 +101,7 @@ describe('SettingsService', () => {
 
       let caught: AppHttpException | null = null;
       try {
-        await service.setCategories(42, ['m u e r t o']);
+        await service.setCategories(42, ['technology', 'history', 'm u e r t o']);
       } catch (err) {
         caught = err as AppHttpException;
       }
@@ -285,14 +302,16 @@ describe('SettingsService', () => {
       );
 
       mockSettingsRow({ preferredCategories: ['Astronomía'] });
-      await expect(serviceWithQuota.setCategories(42, ['Tema 21'])).rejects.toMatchObject({
+      await expect(
+        serviceWithQuota.setCategories(42, ['technology', 'history', 'Tema 21']),
+      ).rejects.toMatchObject({
         status: 429,
         response: expect.objectContaining({ code: ErrorCode.CATEGORY_DAILY_LIMIT_REACHED }),
       });
 
       expect(dailyLimitMock.assertAndRecordDailyQuota).toHaveBeenCalledWith(
         42,
-        ['Tema 21'],
+        ['technology', 'history', 'Tema 21'],
         ['Astronomía'],
       );
       expect(moderation.assertCategoriesAllowed).not.toHaveBeenCalled();
