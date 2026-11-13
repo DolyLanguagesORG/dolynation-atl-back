@@ -17,6 +17,8 @@ import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CategoryModerationService } from '../moderation/category-moderation.service';
+import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readings } from '../../database/drizzle/schema';
@@ -46,6 +48,7 @@ export class ReadingsService {
     private readonly users: UsersService,
     private readonly settings: SettingsService,
     private readonly subscriptions: SubscriptionsService,
+    private readonly moderation: CategoryModerationService,
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
   ) {}
 
@@ -76,8 +79,11 @@ export class ReadingsService {
     // La categoría solicitada DEBE estar dentro de las preferencias configuradas por el usuario.
     const userCategories = await this.settings.getCategories(input.userId);
     const requestedCategory = input.options.category.trim();
+    const requestedKey = canonicalCategoryKey(requestedCategory);
     const isAllowed = userCategories.some(
-      (c) => c.trim().toLowerCase() === requestedCategory.toLowerCase(),
+      (c) =>
+        c.trim().toLowerCase() === requestedCategory.toLowerCase() ||
+        (requestedKey.length > 0 && canonicalCategoryKey(c) === requestedKey),
     );
 
     if (!isAllowed) {
@@ -87,6 +93,8 @@ export class ReadingsService {
         userCategories,
       });
     }
+
+    await this.moderation.assertCategoryAllowedForReading(requestedCategory);
 
     // Recuperamos títulos recientes en esta categoría para evitar contenido duplicado o repetitivo
     const recentReadings = await this.db

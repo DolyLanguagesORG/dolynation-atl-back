@@ -8,13 +8,14 @@ import { UsersModule } from '../users/users.module';
 import { IaModule } from '../ia/ia.module';
 import { SettingsModule } from '../settings/settings.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { ModerationModule } from '../moderation/moderation.module';
 
 /**
  * Módulo principal de lecturas (`/readings`).
  * Orquesta generación de textos con IA, evaluación de resúmenes, explicaciones de vocabulario y bitácoras de prompts.
  */
 @Module({
-  imports: [UsersModule, IaModule, SettingsModule, SubscriptionsModule],
+  imports: [UsersModule, IaModule, SettingsModule, SubscriptionsModule, ModerationModule],
   controllers: [ReadingsController],
   providers: [
     ReadingsService,

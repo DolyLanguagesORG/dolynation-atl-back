@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
 import { ReadingsService } from './readings.service';
 import { AIProviderFactory } from '../ia/providers/ai-provider.factory';
 import { PromptBuilderService } from './prompt-generation';
@@ -9,6 +10,7 @@ import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CategoryModerationService } from '../moderation/category-moderation.service';
 import { DRIZZLE } from '../../database/database.tokens';
 
 describe('ReadingsService', () => {
@@ -35,6 +37,9 @@ describe('ReadingsService', () => {
     assertCanAskQuestion: jest.Mock;
     recordExplanation: jest.Mock;
   };
+  let moderation: {
+    assertCategoryAllowedForReading: jest.Mock;
+  };
   let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock; delete: jest.Mock };
 
   const buildModuleWithDb = async (dbMock: typeof db): Promise<ReadingsService> => {
@@ -48,6 +53,7 @@ describe('ReadingsService', () => {
         { provide: UsersService, useValue: users },
         { provide: SettingsService, useValue: settings },
         { provide: SubscriptionsService, useValue: subscriptions },
+        { provide: CategoryModerationService, useValue: moderation },
         { provide: DRIZZLE, useValue: dbMock },
       ],
     }).compile();
@@ -88,6 +94,9 @@ describe('ReadingsService', () => {
       assertLanguageAllowed: jest.fn().mockResolvedValue(undefined),
       assertCanAskQuestion: jest.fn().mockResolvedValue(undefined),
       recordExplanation: jest.fn().mockResolvedValue(undefined),
+    };
+    moderation = {
+      assertCategoryAllowedForReading: jest.fn().mockResolvedValue(undefined),
     };
     settings = {
       getLanguage: jest.fn().mockResolvedValue('en'),
@@ -725,6 +734,7 @@ describe('ReadingsService', () => {
           { provide: UsersService, useValue: users },
           { provide: SettingsService, useValue: settings },
           { provide: SubscriptionsService, useValue: subscriptions },
+          { provide: CategoryModerationService, useValue: moderation },
           { provide: DRIZZLE, useValue: dbWithCapture },
         ],
       }).compile();
@@ -741,6 +751,59 @@ describe('ReadingsService', () => {
         userResponse: 'My detailed summary.',
         feedback: 'Excellent summary.',
       });
+    });
+  });
+
+  describe('generate — category moderation enforcement', () => {
+    it('calls assertCategoryAllowedForReading and rejects without calling AI generation when moderation fails', async () => {
+      settings.getCategories.mockResolvedValue(['Muertos']);
+      moderation.assertCategoryAllowedForReading.mockRejectedValue(
+        new AppHttpException(ErrorCode.CATEGORY_MODERATION_REJECTED, {
+          rejected: [
+            {
+              category: 'Muertos',
+              layer: 'blacklist',
+              reason: 'sensitive_death_or_violence_term',
+            },
+          ],
+        }),
+      );
+      const localService = await buildModuleWithDb(db);
+
+      let caught: AppHttpException | null = null;
+      try {
+        await localService.generate({ userId: 42, options: { category: 'Muertos' } });
+      } catch (err) {
+        caught = err as AppHttpException;
+      }
+
+      expect(caught).toBeInstanceOf(AppHttpException);
+      expect(caught?.getStatus()).toBe(400);
+      expect(caught?.getResponse()).toMatchObject({
+        code: ErrorCode.CATEGORY_MODERATION_REJECTED,
+      });
+
+      expect(moderation.assertCategoryAllowedForReading).toHaveBeenCalledWith('Muertos');
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('matches user preference by canonical key (case/accent-insensitive) before checking moderation', async () => {
+      settings.getCategories.mockResolvedValue(['Día de Muertos']);
+      moderation.assertCategoryAllowedForReading.mockRejectedValue(
+        new AppHttpException(ErrorCode.CATEGORY_MODERATION_REJECTED),
+      );
+      const localService = await buildModuleWithDb(db);
+
+      await expect(
+        localService.generate({ userId: 42, options: { category: 'dia de muertos' } }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: ErrorCode.CATEGORY_MODERATION_REJECTED,
+        }),
+      });
+
+      expect(moderation.assertCategoryAllowedForReading).toHaveBeenCalledWith('dia de muertos');
     });
   });
 });
