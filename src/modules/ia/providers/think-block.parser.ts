@@ -1,12 +1,11 @@
 /**
- * Parse streamed LLM output that may include a `<think>...</think>` reasoning block.
+ * Parsea la salida en streaming de un LLM cuando incluye un bloque de razonamiento `<think>...</think>`.
  *
- * Models like MiniMax M3, o1, DeepSeek-R1, and Claude with extended thinking all emit
- * their reasoning inside a `<think>` block before the user-visible answer. The
- * downstream parsers (JSON for readings, raw text for chat) need ONLY the answer.
+ * Modelos como MiniMax M3, o1, DeepSeek-R1 y Claude con pensamiento extendido emiten primero su
+ * razonamiento dentro de `<think>` antes de la respuesta visible al usuario. Los parsers posteriores
+ * (JSON para lecturas, texto plano para chat) necesitan únicamente la respuesta final.
  *
- * The parser is stateful across chunks. Always pair every consume() with a flush()
- * after the stream ends.
+ * El parser mantiene estado entre fragmentos; debe llamarse siempre a `flush()` tras terminar el stream.
  */
 export type ParserEvent = { type: 'text'; value: string };
 
@@ -14,10 +13,16 @@ const OPEN_TAG = '<think>';
 const CLOSE_TAG = '</think>';
 const HOLD_LEN = OPEN_TAG.length;
 
+/**
+ * Máquina de estados incremental para descartar etiquetas `<think>...</think>` incluso si llegan partidas entre chunks.
+ */
 export class ThinkBlockParser {
   private buffer = '';
   private inThink = false;
 
+  /**
+   * Consume un fragmento de texto recibido del stream y emite solo texto visible confirmado.
+   */
   consume(chunk: string): ParserEvent[] {
     this.buffer += chunk;
     const events: ParserEvent[] = [];
@@ -57,6 +62,9 @@ export class ThinkBlockParser {
     }
   }
 
+  /**
+   * Vacía el búfer restante al finalizar el stream si no quedó dentro de un bloque `<think>` abierto.
+   */
   flush(): ParserEvent[] {
     if (this.inThink) {
       this.buffer = '';

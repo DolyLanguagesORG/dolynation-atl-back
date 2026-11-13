@@ -4,18 +4,21 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import { AIProviderFactory } from './providers/ai-provider.factory';
 import type { ChatMessage } from './providers/ai-provider.interface';
 
+/**
+ * Opciones de resiliencia (reintentos y circuit breaker) para llamadas al proveedor de IA.
+ */
 export interface DegradedCallOptions {
-  /** Max attempts including the first one. Defaults to 2. */
+  /** Número máximo de intentos incluyendo el primero. Por defecto 2. */
   retries?: number;
-  /** Delay in ms between retries. Defaults to 150. */
+  /** Espera en milisegundos entre reintentos. Por defecto 150. */
   retryDelayMs?: number;
   /**
-   * How many consecutive failures across the service trip the circuit.
-   * While tripped, the service short-circuits and surfaces SERVICE_UNAVAILABLE
-   * instead of hammering the provider. Defaults to 5.
+   * Cantidad de fallos consecutivos en el servicio necesarios para abrir el circuito.
+   * Mientras está abierto, el servicio corta de inmediato y devuelve `SERVICE_UNAVAILABLE`
+   * en lugar de saturar al proveedor. Por defecto 5.
    */
   circuitFailureThreshold?: number;
-  /** How long the circuit stays open before trying again. Defaults to 30s. */
+  /** Tiempo que el circuito permanece abierto antes de volver a intentar. Por defecto 30s. */
   circuitOpenMs?: number;
 }
 
@@ -27,13 +30,13 @@ const DEFAULT_OPTIONS: Required<DegradedCallOptions> = {
 };
 
 /**
- * Thin wrapper around the AI provider factory that applies retries plus a
- * minimal circuit breaker, so a provider outage degrades gracefully instead
- * of hanging the request path. On repeated failure the service surfaces
- * \`SERVICE_UNAVAILABLE\` (503) via the standard envelope.
+ * Envoltorio ligero alrededor de `AIProviderFactory` que aplica reintentos y un
+ * circuit breaker básico para degradar con elegancia ante caídas del proveedor sin
+ * bloquear el ciclo de peticiones. Ante fallos repetidos responde con
+ * `SERVICE_UNAVAILABLE` (503) usando el envoltorio estándar.
  *
- * The breaker is kept in-memory per-process; for a multi-pod deployment the
- * threshold should be sized conservatively or lifted into a shared cache.
+ * El estado del disyuntor reside en memoria por proceso; en despliegues con múltiples
+ * réplicas conviene dimensionar el umbral de forma conservadora o moverlo a caché compartida.
  */
 @Injectable()
 export class AiDegradedService {
@@ -43,6 +46,9 @@ export class AiDegradedService {
 
   constructor(private readonly factory: AIProviderFactory) {}
 
+  /**
+   * Ejecuta la llamada al proveedor aplicando reintentos y protegiendo con el circuit breaker.
+   */
   async getFullResponse(messages: ChatMessage[], options?: DegradedCallOptions): Promise<string> {
     const config = { ...DEFAULT_OPTIONS, ...options };
 
@@ -72,7 +78,7 @@ export class AiDegradedService {
     throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { reason: 'ai-call-failed' });
   }
 
-  /** For diagnostics / health checks. */
+  /** Indica si el circuito se encuentra abierto actualmente (para diagnóstico o health checks). */
   isDegraded(options?: DegradedCallOptions): boolean {
     const config = { ...DEFAULT_OPTIONS, ...options };
     return this.circuitIsOpen(config);
@@ -81,7 +87,7 @@ export class AiDegradedService {
   private circuitIsOpen(config: Required<DegradedCallOptions>): boolean {
     if (this.openedAt === null) return false;
     if (Date.now() - this.openedAt < config.circuitOpenMs) return true;
-    // Window elapsed — allow a probe.
+    // Ventana transcurrida: permitir una petición de prueba para cerrar el circuito si responde bien.
     this.openedAt = null;
     this.consecutiveFailures = 0;
     return false;
@@ -100,11 +106,13 @@ export class AiDegradedService {
   }
 }
 
+/** Extrae un mensaje legible de cualquier error capturado. */
 function describe(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
 
+/** Espera asíncrona simple usada entre reintentos. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);

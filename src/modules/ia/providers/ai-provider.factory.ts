@@ -3,10 +3,11 @@ import { AppConfigService } from '../../../config/env.config';
 import { AIProvider, ChatMessage } from './ai-provider.interface';
 import { MiniMaxProvider } from './MiniMax-M3.provider';
 
+/** Identificadores de proveedores de IA soportados por la configuración. */
 export type ProviderName = 'minimax' | 'groq';
 
 /**
- * Selects and constructs the active AI provider based on config.
+ * Selecciona y expone el proveedor de IA activo según la configuración de la aplicación.
  */
 @Injectable()
 export class AIProviderFactory {
@@ -15,6 +16,9 @@ export class AIProviderFactory {
     private readonly minimaxProvider: MiniMaxProvider,
   ) {}
 
+  /**
+   * Obtiene la instancia de proveedor solicitada o la predeterminada en configuración.
+   */
   get(name?: ProviderName): AIProvider {
     const requested = name ?? this.config.ai.defaultProvider;
     switch (requested) {
@@ -27,10 +31,16 @@ export class AIProviderFactory {
     }
   }
 
+  /**
+   * Solicita una respuesta completa (sin streaming) al proveedor activo.
+   */
   getFullResponse(messages: ChatMessage[]): Promise<string> {
     return this.get().getFullResponse(messages);
   }
 
+  /**
+   * Inicia un flujo de respuesta en streaming usando el proveedor activo.
+   */
   streamChat(messages: ChatMessage[]): AsyncIterable<string> {
     return this.get().streamChat(messages);
   }

@@ -11,6 +11,10 @@ interface MiniMaxChatResponse {
   usage?: { total_tokens: number; prompt_tokens: number; completion_tokens: number };
 }
 
+/**
+ * Proveedor de IA conectado a la API HTTP de MiniMax M3.
+ * Soporta llamadas síncronas y respuestas SSE en streaming filtrando bloques `<think>`.
+ */
 @Injectable()
 export class MiniMaxProvider implements AIProvider {
   private readonly logger = new Logger(MiniMaxProvider.name);
@@ -21,6 +25,7 @@ export class MiniMaxProvider implements AIProvider {
     this.info = { name: 'MiniMax-M3', model: minimax.model };
   }
 
+  /** Obtiene la clave API configurada o falla de forma explícita si falta. */
   private get apiKey(): string {
     const key = this.config.ai.minimax.apiKey;
     if (!key) {
@@ -29,6 +34,7 @@ export class MiniMaxProvider implements AIProvider {
     return key;
   }
 
+  /** Construye el cuerpo JSON base para peticiones de chat al endpoint de MiniMax. */
   private buildRequestBody(messages: ChatMessage[]): Record<string, unknown> {
     const minimax = this.config.ai.minimax;
     return {
@@ -41,6 +47,7 @@ export class MiniMaxProvider implements AIProvider {
     };
   }
 
+  /** Ejecuta una petición POST JSON con control de timeout mediante AbortController. */
   private async postJson(messages: ChatMessage[]): Promise<MiniMaxChatResponse> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.config.ai.minimax.timeoutMs);
@@ -65,6 +72,9 @@ export class MiniMaxProvider implements AIProvider {
     }
   }
 
+  /**
+   * Envía los mensajes al modelo y devuelve el contenido final eliminando bloques `<think>`.
+   */
   async getFullResponse(messages: ChatMessage[]): Promise<string> {
     const data = await this.postJson(messages);
     const content = data.choices[0]?.message.content ?? '';
@@ -79,6 +89,9 @@ export class MiniMaxProvider implements AIProvider {
     return stripThinkBlock(content);
   }
 
+  /**
+   * Abre un flujo SSE contra MiniMax y emite fragmentos de texto ya limpios de razonamiento interno.
+   */
   async *streamChat(messages: ChatMessage[]): AsyncIterable<string> {
     const minimax = this.config.ai.minimax;
     const controller = new AbortController();
@@ -154,6 +167,9 @@ export class MiniMaxProvider implements AIProvider {
   }
 }
 
+/**
+ * Elimina el bloque inicial `<think>...</think>` emitido por el modelo antes de la respuesta final.
+ */
 function stripThinkBlock(text: string): string {
   const openIdx = text.indexOf('<think>');
   if (openIdx === -1) return text;

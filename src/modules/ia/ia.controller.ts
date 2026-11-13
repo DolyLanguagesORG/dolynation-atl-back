@@ -9,20 +9,29 @@ import { ChatRequestDto } from './dto/chat-request.dto';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import type { ChatMessage } from './providers/ai-provider.interface';
 
+/**
+ * Controlador de acceso directo al chat del proveedor de IA (`/ia`).
+ */
 @ApiTags('ia')
 @ApiBearerAuth('access-token')
 @Controller('ia')
 export class IaController {
   constructor(private readonly factory: AIProviderFactory) {}
 
+  /**
+   * Envía una secuencia de mensajes al proveedor de IA activo y devuelve la respuesta completa.
+   */
   @Post('chat')
-  @ApiOperation({ summary: 'Send a chat request to the active AI provider' })
+  @ApiOperation({ summary: 'Enviar una petición de chat al proveedor de IA activo' })
   @ApiOkResponseOf(ChatResponseDto)
   @ApiBadRequestResponse({
-    description: 'Validation error or AI provider failed',
+    description: 'Error de validación o fallo del proveedor de IA',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async chat(@Body() dto: ChatRequestDto): Promise<ApiResponse<ChatResponseDto>> {
     const messages: ChatMessage[] = dto.systemPrompt
       ? [{ role: 'system', content: dto.systemPrompt }, ...dto.messages]

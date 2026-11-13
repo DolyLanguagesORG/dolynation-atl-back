@@ -10,12 +10,15 @@ import {
 } from 'class-validator';
 import { ChatMessageDto } from './chat-message.dto';
 
+/**
+ * DTO de entrada para enviar una conversación al endpoint de chat con IA.
+ */
 export class ChatRequestDto {
   @ApiProperty({
     type: [ChatMessageDto],
     minItems: 1,
     maxItems: 50,
-    description: 'Conversation messages in chronological order',
+    description: 'Mensajes de la conversación en orden cronológico',
   })
   @IsArray()
   @ArrayMinSize(1)
@@ -26,7 +29,7 @@ export class ChatRequestDto {
 
   @ApiProperty({
     required: false,
-    description: 'Optional system prompt prepended to the conversation',
+    description: 'Prompt de sistema opcional que se antepone a la conversación',
   })
   @IsOptional()
   @IsString()
