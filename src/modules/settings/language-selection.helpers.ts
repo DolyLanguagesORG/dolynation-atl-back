@@ -1,6 +1,7 @@
 import {
   isSupportedLanguageId,
   LANGUAGE_CHANGE_COOLDOWN_MS,
+  SUPPORTED_LANGUAGE_IDS,
   type LanguageId,
 } from './settings.constants';
 
@@ -33,6 +34,8 @@ export function sanitizeSelectedLanguages(raw: unknown): LanguageId[] {
 
 /**
  * Devuelve los idiomas activos accesibles según la prioridad guardada y el cupo máximo del plan.
+ * Cuando el plan habilita todos los idiomas soportados (p. ej. `dolly_pro` con cupo 4), expone
+ * los 4 idiomas priorizando primero los configurados por el usuario y luego el resto del catálogo.
  */
 export function resolveActiveLanguages(
   savedLanguages: readonly LanguageId[],
@@ -40,6 +43,10 @@ export function resolveActiveLanguages(
 ): LanguageId[] {
   if (maxLanguages <= 0) {
     return [];
+  }
+  if (maxLanguages >= SUPPORTED_LANGUAGE_IDS.length) {
+    const remaining = SUPPORTED_LANGUAGE_IDS.filter((lang) => !savedLanguages.includes(lang));
+    return [...savedLanguages, ...remaining];
   }
   return savedLanguages.slice(0, maxLanguages);
 }

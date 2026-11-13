@@ -5,10 +5,15 @@ import { ThinkBlockParser } from './think-block.parser';
 
 interface MiniMaxChatResponse {
   choices: Array<{
-    message: { content: string };
+    message: { content?: string | null; reasoning_content?: string };
     finish_reason: string;
   }>;
-  usage?: { total_tokens: number; prompt_tokens: number; completion_tokens: number };
+  usage?: {
+    total_tokens: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    completion_tokens_details?: { reasoning_tokens?: number };
+  };
 }
 
 /**
@@ -35,15 +40,19 @@ export class MiniMaxProvider implements AIProvider {
   }
 
   /** Construye el cuerpo JSON base para peticiones de chat al endpoint de MiniMax. */
-  private buildRequestBody(messages: ChatMessage[]): Record<string, unknown> {
+  private buildRequestBody(messages: ChatMessage[], stream = false): Record<string, unknown> {
     const minimax = this.config.ai.minimax;
+    const expectsJson = !stream && messages.some((m) => /\bjson\b/i.test(m.content));
     return {
       model: minimax.model,
       messages,
       max_completion_tokens: minimax.maxTokens,
       temperature: minimax.temperature,
       top_p: 1,
-      stream: false,
+      stream,
+      reasoning_effort: minimax.reasoningEffort,
+      reasoning_split: true,
+      ...(expectsJson ? { response_format: { type: 'json_object' } } : {}),
     };
   }
 
@@ -77,16 +86,25 @@ export class MiniMaxProvider implements AIProvider {
    */
   async getFullResponse(messages: ChatMessage[]): Promise<string> {
     const data = await this.postJson(messages);
-    const content = data.choices[0]?.message.content ?? '';
+    const choice = data.choices[0];
+    const content = choice?.message.content ?? '';
     if (data.usage) {
       this.logger.log({
         provider: this.info.name,
         model: this.info.model,
         prompt_tokens: data.usage.prompt_tokens,
         completion_tokens: data.usage.completion_tokens,
+        reasoning_tokens: data.usage.completion_tokens_details?.reasoning_tokens,
+        finish_reason: choice?.finish_reason,
       });
     }
-    return stripThinkBlock(content);
+    const cleaned = stripThinkBlock(content);
+    if (!cleaned.trim() && choice?.finish_reason === 'length') {
+      throw new Error(
+        `MiniMax M3 truncated output at max_completion_tokens=${this.config.ai.minimax.maxTokens} before emitting content`,
+      );
+    }
+    return cleaned;
   }
 
   /**
@@ -104,10 +122,7 @@ export class MiniMaxProvider implements AIProvider {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${this.apiKey}`,
         },
-        body: JSON.stringify({
-          ...this.buildRequestBody(messages),
-          stream: true,
-        }),
+        body: JSON.stringify(this.buildRequestBody(messages, true)),
         signal: controller.signal,
       });
 

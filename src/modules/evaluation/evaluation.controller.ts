@@ -2,6 +2,7 @@ import { Body, Controller, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOperation,
   ApiTags,
@@ -20,6 +21,10 @@ import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
  */
 @ApiTags('evaluation')
 @ApiBearerAuth('access-token')
+@ApiForbiddenResponse({
+  description: 'Active subscription plan required (SUBSCRIPTION_REQUIRED)',
+  type: ApiErrorDto,
+})
 @Controller('evaluation')
 export class EvaluationController {
   constructor(private readonly readings: ReadingsService) {}

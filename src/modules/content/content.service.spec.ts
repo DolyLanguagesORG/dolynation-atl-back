@@ -1,23 +1,34 @@
 import { ContentService } from './content.service';
 import type { ReadingsService } from '../readings/readings.service';
+import type { SettingsService } from '../settings/settings.service';
 import { READING_CATEGORIES } from '../readings/prompt-generation';
 
 describe('ContentService', () => {
   let service: ContentService;
   let readings: jest.Mocked<Pick<ReadingsService, 'generate'>>;
+  let settings: jest.Mocked<Pick<SettingsService, 'getCategories'>>;
 
   beforeEach(() => {
     readings = { generate: jest.fn().mockResolvedValue({ id: 1 }) };
-    service = new ContentService(readings as unknown as ReadingsService);
+    settings = { getCategories: jest.fn().mockResolvedValue([]) };
+    service = new ContentService(
+      readings as unknown as ReadingsService,
+      settings as unknown as SettingsService,
+    );
   });
 
   describe('resolveCategory', () => {
-    it('returns the explicit category when provided', () => {
-      expect(service.resolveCategory('history')).toBe('history');
+    it('returns the explicit category when provided', async () => {
+      await expect(service.resolveCategory(42, 'history')).resolves.toBe('history');
     });
 
-    it('falls back to a value from the catalog when none provided', () => {
-      const result = service.resolveCategory();
+    it('prefers user saved dynamic categories before falling back to catalog', async () => {
+      settings.getCategories.mockResolvedValue(['Astronomía Observacional']);
+      await expect(service.resolveCategory(42)).resolves.toBe('Astronomía Observacional');
+    });
+
+    it('falls back to a value from the catalog when user has no saved categories', async () => {
+      const result = await service.resolveCategory(42);
       expect(READING_CATEGORIES).toContain(result);
     });
   });

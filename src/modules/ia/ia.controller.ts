@@ -1,6 +1,12 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { ApiBadRequestResponse, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiForbiddenResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import { ChatResponseDto } from '../../common/types/api-response.dto';
 import { ApiOkResponseOf } from '../../common/types/api-envelope.decorators';
@@ -14,6 +20,10 @@ import type { ChatMessage } from './providers/ai-provider.interface';
  */
 @ApiTags('ia')
 @ApiBearerAuth('access-token')
+@ApiForbiddenResponse({
+  description: 'Active subscription plan required (SUBSCRIPTION_REQUIRED)',
+  type: ApiErrorDto,
+})
 @Controller('ia')
 export class IaController {
   constructor(private readonly factory: AIProviderFactory) {}

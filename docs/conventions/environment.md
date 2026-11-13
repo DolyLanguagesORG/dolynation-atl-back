@@ -25,14 +25,17 @@ Política de configuración por variables de entorno. La fuente de verdad es
 | `MINIMAX_API_KEY`     | Cond.*    | string  | -                                              | API key de MiniMax-M3 (*si provider es minimax)             |
 | `MINIMAX_MODEL`       | No        | string  | `MiniMax-M3`                                 | Modelo a usar                                               |
 | `MINIMAX_ENDPOINT`    | No        | string  | `https://api.minimax.io/v1/chat/completions` | URL del API                                                 |
-| `MINIMAX_MAX_TOKENS`  | No        | int     | `4096`                                       | Límite de tokens de salida                                 |
+| `MINIMAX_MAX_TOKENS`  | No        | int     | `8192`                                       | Límite de tokens de salida                                 |
 | `MINIMAX_TEMPERATURE` | No        | float   | `0.6`                                        | Temperatura de sampling                                     |
-| `MINIMAX_TIMEOUT_MS`  | No        | int     | `30000`                                      | Timeout HTTP en ms                                          |
+| `MINIMAX_TIMEOUT_MS`  | No        | int     | `90000`                                      | Timeout HTTP en ms                                          |
+| `MINIMAX_REASONING_EFFORT` | No   | enum    | `low`                                        | Esfuerzo de razonamiento (`low` \| `medium` \| `high`)       |
 | `GROQ_API_KEY`        | Cond.*    | string  | -                                              | API key de Groq (*legacy; si provider es groq)              |
 | `GROQ_MODEL`          | No        | string  | `qwen/qwen3-32b`                             | Modelo legacy                                               |
 | `LOG_LEVEL`           | No        | enum    | `info`                                       | `trace` \| `debug` \| `info` \| `warn` \| `error` |
 | `CATEGORY_MODERATION_ENABLED` | No | boolean | `true`                                    | Activa/desactiva moderación de categorías dinámicas         |
 | `CATEGORY_MODERATION_AI_ENABLED` | No | boolean | `true`                                 | Activa validación semántica batch con IA del sistema        |
+| `CATEGORY_MODERATION_AI_PROVIDER` | No | enum | `auto`                                  | `auto` \| `openai` (solo moderación gratuita) \| `minimax` \| `none` |
+| `CATEGORY_DAILY_LIMIT` | No | int | `20`                                                | Tope diario de categorías nuevas distintas evaluadas/usuario |
 | `CATEGORY_MODERATION_SCORE_THRESHOLD` | No | float | `0.45`                              | Umbral (0.05-1) para APIs gratuitas de moderación           |
 | `CATEGORY_MODERATION_TIMEOUT_MS` | No | int | `5000`                                     | Timeout HTTP/IA para moderación de categorías en ms         |
 | `CATEGORY_MODERATION_CACHE_TTL_MS` | No | int | `86400000`                               | TTL del caché en memoria para categorías moderadas          |

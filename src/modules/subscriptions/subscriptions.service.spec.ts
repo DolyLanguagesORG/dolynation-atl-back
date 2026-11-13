@@ -401,6 +401,41 @@ describe('SubscriptionsService', () => {
 
       await expect(service.assertLanguageAllowed(1, 'es')).resolves.toBeUndefined();
     });
+
+    it('allows all 4 supported languages on Dolly Pro even with empty selectedLanguages in settings', async () => {
+      for (const lang of ['es', 'en', 'fr', 'it']) {
+        dbMock.select.mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly_pro' }]),
+            }),
+          }),
+        });
+        await expect(service.assertLanguageAllowed(1, lang)).resolves.toBeUndefined();
+      }
+    });
+
+    it('revokes extra language access immediately after downgrading from dolly_pro to dolly', async () => {
+      dbMock.select
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ subscriptionTier: 'dolly' }]),
+            }),
+          }),
+        })
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['fr', 'es', 'en', 'it'] }]),
+            }),
+          }),
+        });
+
+      await expect(service.assertLanguageAllowed(1, 'it')).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED' }),
+      });
+    });
   });
 
   describe('assertCanGenerateReading', () => {

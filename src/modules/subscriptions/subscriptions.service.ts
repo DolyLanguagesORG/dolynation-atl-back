@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readingExplanations, readings, users, userSettings } from '../../database/drizzle/schema';
-import { isSupportedLanguageId } from '../settings/settings.constants';
+import { isSupportedLanguageId, SUPPORTED_LANGUAGE_IDS } from '../settings/settings.constants';
 import {
   resolveActiveLanguages,
   sanitizeSelectedLanguages,
@@ -92,17 +92,11 @@ export class SubscriptionsService {
     // Inicio del día actual en la zona horaria America/Mexico_City
     const startOfDay = getStartOfDayInTimeZone();
 
-    // Lecturas creadas hoy
+    // Lecturas creadas hoy (incluye eliminadas lógicamente para impedir reinicio manual del cupo diario)
     const readingsCountResult = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
-      .where(
-        and(
-          eq(readings.userId, userId),
-          gte(readings.createdAt, startOfDay),
-          isNull(readings.deletedAt),
-        ),
-      );
+      .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));
     const readingsCreatedToday = readingsCountResult[0]?.count ?? 0;
 
     // Preguntas o explicaciones solicitadas hoy
@@ -227,6 +221,11 @@ export class SubscriptionsService {
       });
     }
 
+    // Los planes con acceso total a los 4 idiomas (dolly_pro) no requieren selección ni bloqueo previo
+    if (plan.maxLanguages >= SUPPORTED_LANGUAGE_IDS.length) {
+      return;
+    }
+
     const settingsRows = await this.db
       .select({ selectedLanguages: userSettings.selectedLanguages })
       .from(userSettings)
@@ -267,16 +266,11 @@ export class SubscriptionsService {
     }
 
     const startOfDay = getStartOfDayInTimeZone();
+    // Cuenta todas las lecturas generadas hoy, incluso eliminadas lógicamente, para evitar evasión del límite diario
     const result = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
-      .where(
-        and(
-          eq(readings.userId, userId),
-          gte(readings.createdAt, startOfDay),
-          isNull(readings.deletedAt),
-        ),
-      );
+      .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));
 
     const used = result[0]?.count ?? 0;
     if (used >= plan.dailyReadingsLimit) {

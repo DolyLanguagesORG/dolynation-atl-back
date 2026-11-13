@@ -296,5 +296,37 @@ describe('PromptBuilderService', () => {
       expect(result.uniqueFocusElement).toBeDefined();
       expect(Array.isArray(result.keyConcepts)).toBe(true);
     });
+
+    it('preserves target language across generateRandomParams -> buildPrompt for all 4 languages', () => {
+      const expectedLabels = {
+        es: 'Spanish',
+        en: 'English',
+        fr: 'French',
+        it: 'Italian',
+      } as const;
+
+      for (const [lang, label] of Object.entries(expectedLabels)) {
+        const params = service.generateRandomParams({
+          category: 'gastronomia_molecular',
+          difficulty: 'medium',
+          size: 'medium',
+          language: lang,
+          subcategories: ['Esferificación'],
+          keyConcepts: ['emulsión', 'textura'],
+          avoidTopics: ['Cocina Tradicional'],
+        });
+
+        expect(params.language).toBe(lang);
+
+        const built = service.buildPrompt(params);
+        expect(built.systemPrompt).toContain(`strictly in ${label}`);
+        expect(built.userPrompt).toContain(
+          `Write 100% of "title", "description", and "content" in ${label}`,
+        );
+        expect(built.userPrompt).toContain('STRUCTURE & COHERENCE REQUIREMENTS');
+        expect(built.userPrompt).toContain('AVOID REPETITION');
+        expect(built.userPrompt).toContain('Cocina Tradicional');
+      }
+    });
   });
 });

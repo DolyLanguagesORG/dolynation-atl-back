@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ReadingsService } from '../readings/readings.service';
 import { READING_CATEGORIES } from '../readings/prompt-generation';
-import type { CategoryId } from '../readings/prompt-generation/catalog.types';
+import { SettingsService } from '../settings/settings.service';
 import type { Reading } from '../../database/drizzle/types';
 import type { GenerateContentDto } from './dto/generate-content.dto';
 
@@ -10,17 +10,25 @@ import type { GenerateContentDto } from './dto/generate-content.dto';
  */
 @Injectable()
 export class ContentService {
-  constructor(private readonly readings: ReadingsService) {}
+  constructor(
+    private readonly readings: ReadingsService,
+    private readonly settings: SettingsService,
+  ) {}
 
   /**
    * Resuelve la categoría que se enviará al generador de lecturas.
    *
-   * Actualmente toma el valor explícito del DTO o selecciona una categoría aleatoria del catálogo.
-   * Como seguimiento posterior consultará las preferencias guardadas en el módulo de ajustes antes
-   * de usar una selección aleatoria.
+   * Toma el valor explícito del DTO, o si se omite, elige una de las preferencias configuradas
+   * por el usuario en `/settings/categories` (y solo cae al catálogo base si aún no tiene ninguna).
    */
-  resolveCategory(requested?: CategoryId): CategoryId {
-    if (requested) return requested;
+  async resolveCategory(userId: number, requested?: string): Promise<string> {
+    if (requested && requested.trim().length > 0) {
+      return requested.trim();
+    }
+    const preferred = await this.settings.getCategories(userId);
+    if (preferred.length > 0) {
+      return pickRandom(preferred);
+    }
     return pickRandom(READING_CATEGORIES);
   }
 
@@ -28,7 +36,7 @@ export class ContentService {
    * Genera y persiste una lectura para el usuario aplicando los valores por defecto cuando corresponda.
    */
   async generate(userId: number, dto: GenerateContentDto): Promise<Reading> {
-    const category = this.resolveCategory(dto.category);
+    const category = await this.resolveCategory(userId, dto.category);
     return this.readings.generate({
       userId,
       options: {

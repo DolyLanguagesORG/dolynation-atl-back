@@ -72,6 +72,7 @@ export class AppConfigService {
       timeoutMs: number;
       maxTokens: number;
       temperature: number;
+      reasoningEffort: EnvSchema['MINIMAX_REASONING_EFFORT'];
     };
     groq: {
       apiKey: string | undefined;
@@ -87,6 +88,7 @@ export class AppConfigService {
         timeoutMs: this.config.get('MINIMAX_TIMEOUT_MS', { infer: true }),
         maxTokens: this.config.get('MINIMAX_MAX_TOKENS', { infer: true }),
         temperature: this.config.get('MINIMAX_TEMPERATURE', { infer: true }),
+        reasoningEffort: this.config.get('MINIMAX_REASONING_EFFORT', { infer: true }),
       },
       groq: {
         apiKey: this.config.get('GROQ_API_KEY', { infer: true }),
@@ -99,6 +101,8 @@ export class AppConfigService {
   get moderation(): {
     enabled: boolean;
     aiEnabled: boolean;
+    aiProvider: 'auto' | 'openai' | 'minimax' | 'none';
+    dailyCategoryLimit: number;
     scoreThreshold: number;
     timeoutMs: number;
     cacheTtlMs: number;
@@ -111,6 +115,10 @@ export class AppConfigService {
     const rawAiEnabled: unknown = this.config.get('CATEGORY_MODERATION_AI_ENABLED', {
       infer: true,
     });
+    const rawAiProvider: unknown = this.config.get('CATEGORY_MODERATION_AI_PROVIDER', {
+      infer: true,
+    });
+    const rawDailyLimit: unknown = this.config.get('CATEGORY_DAILY_LIMIT', { infer: true });
     const rawThreshold: unknown = this.config.get('CATEGORY_MODERATION_SCORE_THRESHOLD', {
       infer: true,
     });
@@ -125,9 +133,24 @@ export class AppConfigService {
     const rawOpenaiModel: unknown = this.config.get('OPENAI_MODERATION_MODEL', { infer: true });
     const rawPerspectiveKey: unknown = this.config.get('PERSPECTIVE_API_KEY', { infer: true });
 
+    const normalizedProvider =
+      typeof rawAiProvider === 'string' ? rawAiProvider.trim().toLowerCase() : '';
+    const aiProvider: 'auto' | 'openai' | 'minimax' | 'none' =
+      normalizedProvider === 'openai' ||
+      normalizedProvider === 'minimax' ||
+      normalizedProvider === 'none' ||
+      normalizedProvider === 'auto'
+        ? normalizedProvider
+        : 'auto';
+
     return {
       enabled: typeof rawEnabled === 'boolean' ? rawEnabled : rawEnabled !== 'false',
       aiEnabled: typeof rawAiEnabled === 'boolean' ? rawAiEnabled : rawAiEnabled !== 'false',
+      aiProvider,
+      dailyCategoryLimit:
+        typeof rawDailyLimit === 'number' && Number.isInteger(rawDailyLimit) && rawDailyLimit > 0
+          ? rawDailyLimit
+          : 20,
       scoreThreshold:
         typeof rawThreshold === 'number' && !Number.isNaN(rawThreshold) ? rawThreshold : 0.45,
       timeoutMs: typeof rawTimeout === 'number' && rawTimeout > 0 ? rawTimeout : 5000,

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { canonicalCategoryKey } from '../moderation/category-normalizer';
 
 /** Categoría textual normalizada de una lectura. */
 export type TextCategory = string;
@@ -67,18 +68,23 @@ export class AiResponseParserService {
 
     const categoryRaw = asString(parsed.category, 'category').trim();
     const categoryNormalized = categoryRaw.toLowerCase().replace(/[\s-]+/g, '_');
+    const categoryCanonical = canonicalCategoryKey(categoryRaw);
 
-    const validList =
-      allowedCategories && allowedCategories.length > 0
-        ? allowedCategories.map((c) =>
-            c
-              .trim()
-              .toLowerCase()
-              .replace(/[\s-]+/g, '_'),
-          )
-        : ALLOWED_CATEGORIES;
+    const validSource =
+      allowedCategories && allowedCategories.length > 0 ? allowedCategories : ALLOWED_CATEGORIES;
+    const validList = validSource.map((c) =>
+      c
+        .trim()
+        .toLowerCase()
+        .replace(/[\s-]+/g, '_'),
+    );
+    const validCanonical = validSource.map((c) => canonicalCategoryKey(c)).filter(Boolean);
 
-    if (!validList.includes(categoryNormalized) && !validList.includes(categoryRaw.toLowerCase())) {
+    if (
+      !validList.includes(categoryNormalized) &&
+      !validList.includes(categoryRaw.toLowerCase()) &&
+      !(categoryCanonical.length > 0 && validCanonical.includes(categoryCanonical))
+    ) {
       throw new Error(`Invalid category: ${categoryRaw}`);
     }
     const category = categoryNormalized;
@@ -115,12 +121,33 @@ export class AiResponseParserService {
   }
 
   /**
+   * Extrae de forma segura la explicación de vocabulario incluso si el proveedor
+   * antepone texto de control o etiquetas internas antes del bloque JSON.
+   */
+  parseExplanation(rawResponse: string): string {
+    try {
+      const parsed = this.extractJson(rawResponse) as { explanation?: unknown };
+      if (parsed.explanation !== undefined && parsed.explanation !== null) {
+        return asString(parsed.explanation, 'explanation').trim();
+      }
+    } catch {
+      // Respaldo cuando el modelo devuelve texto plano sin objeto JSON
+    }
+    return rawResponse
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/g, '')
+      .trim();
+  }
+
+  /**
    * Extrae el primer objeto JSON presente en una cadena. Soporta bloques ````json`.
    * Balancea llaves respetando cadenas para evitar cortes prematuros cuando un texto incluye `}`.
    */
   private extractJson(text: string): unknown {
     const cleaned = text
-      .replace(/```json\s*/g, '')
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/```json\s*/gi, '')
       .replace(/```\s*/g, '')
       .trim();
     const firstBrace = cleaned.indexOf('{');

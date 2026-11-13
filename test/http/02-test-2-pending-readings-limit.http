@@ -1,0 +1,122 @@
+### Test 2 — Límite de máximo 3 lecturas pendientes sin revisar
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test2-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 2.1 Registrar, elegir plan dolly, idioma y categoría dinámica
+# @name reg
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Pending Limit"
+}
+
+@token = {{reg.response.body.data.tokens.accessToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly"
+}
+
+###
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["en"]
+}
+
+###
+PUT {{baseUrl}}/settings/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categories": ["astronomia observacional"]
+}
+
+### 2.2 Generar lectura pendiente #1 -> 201 Created
+# @name r1
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "astronomia observacional",
+  "language": "en",
+  "difficulty": "easy",
+  "size": "short"
+}
+
+@reading1 = {{r1.response.body.data.id}}
+
+### 2.3 Generar lectura pendiente #2 -> 201 Created
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "astronomia observacional",
+  "language": "en",
+  "difficulty": "medium",
+  "size": "short"
+}
+
+### 2.4 Generar lectura pendiente #3 -> 201 Created
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "astronomia observacional",
+  "language": "en",
+  "difficulty": "hard",
+  "size": "short"
+}
+
+### 2.5 Intentar generar lectura #4 sin haber evaluado -> 400 READING_PENDING_LIMIT_REACHED
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "astronomia observacional",
+  "language": "en"
+}
+
+### 2.6 Evaluar lectura #1 para bajar pendientes a 2 -> 201 Created
+POST {{baseUrl}}/readings/{{reading1}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "The text introduces observational astronomy techniques and how instruments collect distant light."
+}
+
+### 2.7 Ahora sí deja generar la #4 -> 201 Created
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "astronomia observacional",
+  "language": "en"
+}
+
+### 2.8 Intentar generar #5 con 3 pendientes de nuevo -> 400 READING_PENDING_LIMIT_REACHED
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "astronomia observacional",
+  "language": "en"
+}

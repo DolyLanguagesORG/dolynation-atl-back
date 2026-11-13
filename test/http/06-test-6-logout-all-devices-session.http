@@ -1,0 +1,68 @@
+### Test 6 — Sesión en otro dispositivo tras cerrar sesión en todos lados (logout-all)
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test6-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 6.1 Dispositivo A se registra y activa plan dolly
+# @name deviceA
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Multi Device"
+}
+
+@accessA = {{deviceA.response.body.data.tokens.accessToken}}
+@refreshA = {{deviceA.response.body.data.tokens.refreshToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{accessA}}
+Content-Type: application/json
+
+{
+  "tier": "dolly"
+}
+
+### 6.2 Dispositivo B inicia sesión independiente
+# @name deviceB
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+@accessB = {{deviceB.response.body.data.tokens.accessToken}}
+@refreshB = {{deviceB.response.body.data.tokens.refreshToken}}
+
+### 6.3 Ambos dispositivos acceden antes de logout-all -> 200 OK
+GET {{baseUrl}}/user/profile
+Authorization: Bearer {{accessB}}
+
+### 6.4 Dispositivo A ejecuta logout-all -> 200 OK (revoca todos los refresh tokens)
+POST {{baseUrl}}/auth/logout-all
+Authorization: Bearer {{accessA}}
+
+### 6.5 Dispositivo B aún puede operar brevemente mientras su access token corto no haya expirado -> 200 OK
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessB}}
+
+### 6.6 Pero Dispositivo B ya NO puede refrescar la sesión -> 401 AUTH_TOKEN_INVALID
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshB}}"
+}
+
+### Tampoco Dispositivo A puede refrescar su refresh token previo -> 401 AUTH_TOKEN_INVALID
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshA}}"
+}

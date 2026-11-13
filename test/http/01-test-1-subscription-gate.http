@@ -1,0 +1,159 @@
+### Test 1 — Bloqueo total hasta seleccionar un plan de suscripción
+### Entorno por defecto (cambiar o usar http-client.env.json)
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test1-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 1.1 Rutas públicas permitidas sin plan -> 200 OK
+GET {{baseUrl}}/subscriptions/plans
+
+###
+GET {{baseUrl}}/health/live
+
+###
+GET {{baseUrl}}/version
+
+### 1.2 Registro de usuario nuevo (subscriptionTier = null) -> 201 Created
+# @name registerUser
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Test 1 User"
+}
+
+@accessToken = {{registerUser.response.body.data.tokens.accessToken}}
+@refreshToken = {{registerUser.response.body.data.tokens.refreshToken}}
+
+### 1.3 Intentar usar servicios del sistema SIN elegir plan -> TODOS deben responder 403 SUBSCRIPTION_REQUIRED
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/user/subscription
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/user/profile
+Authorization: Bearer {{accessToken}}
+
+###
+PATCH {{baseUrl}}/user/profile
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "fullName": "Should Fail"
+}
+
+###
+GET {{baseUrl}}/user/streak?days=7
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/history
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/history/scores
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/settings/categories
+Authorization: Bearer {{accessToken}}
+
+###
+PUT {{baseUrl}}/settings/categories
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "categories": ["technology"]
+}
+
+###
+GET {{baseUrl}}/settings/languages
+Authorization: Bearer {{accessToken}}
+
+###
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "languages": ["es"]
+}
+
+###
+GET {{baseUrl}}/readings/options
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/readings
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "category": "technology",
+  "language": "en"
+}
+
+###
+POST {{baseUrl}}/content/generate
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "language": "en"
+}
+
+###
+POST {{baseUrl}}/evaluation/submit
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "readingId": 1,
+  "userResponse": "Intento sin plan"
+}
+
+###
+POST {{baseUrl}}/ia/chat
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "messages": [{ "role": "user", "content": "Hello" }]
+}
+
+### 1.4 Seleccionar un plan sí está permitido -> 201 Created
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "tier": "dolly"
+}
+
+### 1.5 Verificar que los endpoints ahora responden 200 OK
+GET {{baseUrl}}/auth/me
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/user/subscription
+Authorization: Bearer {{accessToken}}
+
+###
+GET {{baseUrl}}/user/profile
+Authorization: Bearer {{accessToken}}
+
+###
+POST {{baseUrl}}/auth/logout
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "refreshToken": "{{refreshToken}}"
+}

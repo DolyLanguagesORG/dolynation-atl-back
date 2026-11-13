@@ -1,16 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsOptional, IsString, Length } from 'class-validator';
 import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
-import {
-  READING_CATEGORIES,
-  READING_DIFFICULTIES,
-  READING_TEXT_SIZES,
-} from '../../readings/prompt-generation';
-import type {
-  CategoryId,
-  DifficultyLevel,
-  TextSize,
-} from '../../readings/prompt-generation/catalog.types';
+import { READING_DIFFICULTIES, READING_TEXT_SIZES } from '../../readings/prompt-generation';
+import type { DifficultyLevel, TextSize } from '../../readings/prompt-generation/catalog.types';
 
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
@@ -30,15 +22,13 @@ export class GenerateContentDto {
   language!: LanguageId;
   @ApiPropertyOptional({
     description:
-      'Categoría temática de la lectura generada. Si se omite, se utiliza una de las ' +
-      'preferencias guardadas del usuario (o una aleatoria si no tiene preferencias).',
-    enum: READING_CATEGORIES,
+      'Categoría temática de la lectura generada (predefinida o personalizada configurada en `/settings/categories`). Si se omite, se selecciona una de las preferencias guardadas del usuario.',
     example: 'technology',
   })
   @IsOptional()
   @IsString()
-  @IsIn(READING_CATEGORIES as readonly string[])
-  category?: CategoryId;
+  @Length(2, 50)
+  category?: string;
 
   @ApiPropertyOptional({
     description: 'Nivel objetivo de inglés. Por defecto `medium` (B1-B2).',

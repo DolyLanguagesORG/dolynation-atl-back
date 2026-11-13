@@ -49,6 +49,26 @@ describe('AiResponseParserService', () => {
       const raw = '{"title":"X","description":"X"}';
       expect(() => parser.parseGeneratedText(raw)).toThrow();
     });
+
+    it('matches dynamic user categories ignoring accents and separators', () => {
+      const raw = JSON.stringify({
+        title: 'La Música en Viena',
+        description: 'Sobre composición clásica.',
+        content: 'Un texto educativo.',
+        category: 'Musica Clasica',
+        difficulty: 'medium',
+      });
+      const result = parser.parseGeneratedText(raw, ['Música Clásica']);
+      expect(result.title).toBe('La Música en Viena');
+      expect(result.category).toBe('musica_clasica');
+    });
+
+    it('strips <think> reasoning tags before parsing JSON', () => {
+      const raw = `<think>First think {ignore: bad json}</think>\n\`\`\`json\n{"title":"Révolution","description":"Histoire","content":"Texte clair.","category":"history","difficulty":"easy"}\n\`\`\``;
+      const result = parser.parseGeneratedText(raw);
+      expect(result.title).toBe('Révolution');
+      expect(result.difficulty).toBe('easy');
+    });
   });
 
   describe('parseEvaluation', () => {
@@ -76,6 +96,20 @@ describe('AiResponseParserService', () => {
       const raw = '{"score": 50, "passed": true, "feedback": "x"}';
       const result = parser.parseEvaluation(raw);
       expect(result.passed).toBe(false);
+    });
+  });
+
+  describe('parseExplanation', () => {
+    it('extracts explanation JSON even when prefixed by provider control noise or <think> tags', () => {
+      const raw =
+        ']<]minimax[>[<tool_call> final answer JSON{"explanation":"La fermentation transforme les sucres."}';
+      expect(parser.parseExplanation(raw)).toBe('La fermentation transforme les sucres.');
+    });
+
+    it('falls back cleanly to trimmed text when no JSON object is present', () => {
+      expect(parser.parseExplanation('<think>note</think>Simple plain explanation.')).toBe(
+        'Simple plain explanation.',
+      );
     });
   });
 });

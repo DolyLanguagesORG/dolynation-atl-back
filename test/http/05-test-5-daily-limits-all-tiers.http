@@ -1,0 +1,119 @@
+### Test 5 — Límite diario de lecturas según plan (dolly=10, dolly_plus=20, dolly_pro=ilimitado)
+### Nota: borrar lecturas con DELETE libera espacio de las 3 pendientes, pero NO devuelve el cupo diario usado.
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test5-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 5.1 Registrar, seleccionar dolly (10/día), idioma es y categoría dinámica
+# @name reg
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Daily Limits"
+}
+
+@token = {{reg.response.body.data.tokens.accessToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly"
+}
+
+###
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["es"]
+}
+
+###
+PUT {{baseUrl}}/settings/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categories": ["historia del arte"]
+}
+
+### 5.2 Consultar estado inicial (0 usadas / 10 disponibles hoy)
+GET {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+
+### 5.3 Generar y evaluar/eliminar lecturas (repetir ciclo hasta llegar a 10 en dolly)
+# @name rDay
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "historia del arte",
+  "language": "es",
+  "difficulty": "medium",
+  "size": "short"
+}
+
+@readingId = {{rDay.response.body.data.id}}
+
+### Evaluar para liberar cupo pendiente (o usar DELETE /readings/{{readingId}})
+POST {{baseUrl}}/readings/{{readingId}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "El texto explica la evolución histórica del movimiento artístico."
+}
+
+### Alternativa de prueba anti-trampa: eliminar lógicamente -> NO devuelve cupo diario
+DELETE {{baseUrl}}/readings/{{readingId}}
+Authorization: Bearer {{token}}
+
+### Al intentar la lectura #11 del día en dolly -> 429 READING_DAILY_LIMIT_REACHED
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "historia del arte",
+  "language": "es"
+}
+
+### 5.4 Subir a dolly_plus (20/día): quedan 10 disponibles adicionales; al llegar a 20 la #21 falla con 429
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly_plus"
+}
+
+###
+GET {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+
+### 5.5 Subir a dolly_pro (sin límite diario): dailyReadingsLimit = null, sigue generando >20/día
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly_pro"
+}
+
+###
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "historia del arte",
+  "language": "es"
+}

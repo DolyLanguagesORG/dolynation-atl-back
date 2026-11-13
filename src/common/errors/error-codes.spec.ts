@@ -25,6 +25,7 @@ describe('ErrorCode catalogue', () => {
       'READING_ALREADY_EVALUATED',
       // Moderation
       'CATEGORY_MODERATION_REJECTED',
+      'CATEGORY_DAILY_LIMIT_REACHED',
       // Validation
       'VALIDATION_ERROR',
       // Server

@@ -1,0 +1,139 @@
+### Test 3 — Suscripción básica (dolly): solo el idioma elegido inicialmente + bloqueo 1 año / pago
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test3-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 3.1 Registro y activación plan dolly
+# @name reg
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Basic Lang"
+}
+
+@token = {{reg.response.body.data.tokens.accessToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly"
+}
+
+###
+PUT {{baseUrl}}/settings/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categories": ["gastronomia"]
+}
+
+### 3.2 Intentar seleccionar 2 idiomas en plan básico -> 400 SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["fr", "en"]
+}
+
+### 3.3 Seleccionar francés como idioma único -> 200 OK
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["fr"]
+}
+
+### 3.4 Generar en francés -> 201 Created
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "gastronomia",
+  "language": "fr",
+  "difficulty": "easy",
+  "size": "short"
+}
+
+### 3.5 Intentar generar en inglés/español/italiano -> 403 SUBSCRIPTION_LANGUAGE_NOT_ALLOWED
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "gastronomia",
+  "language": "en"
+}
+
+###
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "gastronomia",
+  "language": "es"
+}
+
+###
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "gastronomia",
+  "language": "it"
+}
+
+### 3.6 Intentar cambiar a español sin pagar ni cumplir 1 año -> 403 LANGUAGE_CHANGE_LOCKED
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["es"]
+}
+
+### 3.7 Pagar desbloqueo y cambiar a español -> 200 OK
+POST {{baseUrl}}/settings/languages/unlock-change
+Authorization: Bearer {{token}}
+
+###
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["es"]
+}
+
+### 3.8 Español funciona (201) y francés ahora falla (403 SUBSCRIPTION_LANGUAGE_NOT_ALLOWED)
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "gastronomia",
+  "language": "es",
+  "difficulty": "easy",
+  "size": "short"
+}
+
+###
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "gastronomia",
+  "language": "fr"
+}

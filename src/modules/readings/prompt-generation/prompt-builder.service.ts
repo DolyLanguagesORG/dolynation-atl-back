@@ -28,11 +28,35 @@ import type {
 } from './catalog.types';
 
 /** Nombres de idioma legibles inyectados en las instrucciones de los prompts al LLM. */
-const LANGUAGE_NAMES: Record<string, string> = {
+export const LANGUAGE_NAMES: Record<string, string> = {
   es: 'Spanish',
   en: 'English',
   fr: 'French',
   it: 'Italian',
+};
+
+/** Guías lingüísticas y pedagógicas por idioma objetivo para sostener coherencia y registro CEFR. */
+const LANGUAGE_STYLE_GUIDES: Record<string, string> = {
+  es:
+    'Write naturally in neutral international Spanish. Keep orthography and accents impeccable. ' +
+    'For easy (A1-A2), use present, preterite/imperfect basics and simple connectors (primero, además, por eso); ' +
+    'for medium (B1-B2), integrate compound tenses, passive se, and clear transitions (sin embargo, por lo tanto); ' +
+    'for hard (C1-C2), employ nuanced subjunctive, precise nominalizations, and domain-specific idioms.',
+  en:
+    'Write naturally in clear standard English. ' +
+    'For easy (A1-A2), rely on high-frequency vocabulary and crisp SVO sentences; ' +
+    'for medium (B1-B2), combine phrasal verbs, relative clauses, conditionals, and transitional markers (however, moreover); ' +
+    'for hard (C1-C2), deploy academic collocations, inversion, cleft clauses, and nuanced domain terminology.',
+  fr:
+    'Write naturally in authentic standard French (respect accents, elisions, and agreement). ' +
+    'For easy (A1-A2), use présent, passé composé, futur proche and concrete everyday vocabulary; ' +
+    'for medium (B1-B2), weave imparfait/conditionnel, pronoms relatifs, and logical markers (cependant, en effet, ainsi); ' +
+    'for hard (C1-C2), apply subjonctif, nominal structures, idiomatic expressions, and authentic French technical terms.',
+  it:
+    'Write naturally in idiomatic standard Italian (respect accents, articles, and verb agreement). ' +
+    'For easy (A1-A2), use presente, passato prossimo and concrete high-frequency words; ' +
+    'for medium (B1-B2), combine imperfetto, condizionale, combined pronouns, and connectors (tuttavia, quindi, inoltre); ' +
+    'for hard (C1-C2), use congiuntivo, passive/impersonal si forms, essay-style register, and rich specialized vocabulary.',
 };
 
 /**
@@ -58,41 +82,26 @@ export class PromptBuilderService {
     const langLabel = LANGUAGE_NAMES[params.language?.toLowerCase() ?? 'en'] ?? 'English';
 
     const systemPrompt = `
-You are an expert educational content curator and curriculum designer.
-Your task is to brainstorm an engaging, highly specific, and non-cliché topic angle for a language learning reading exercise.
-
-CRITICAL: You must respond ONLY with a valid JSON object in this exact format:
+You curate reading topic ideas for ${langLabel} learners (${difficulty.description}).
+Respond ONLY with a valid JSON object (no markdown fences, no commentary):
 {
-  "subtopic": "A specific, intriguing subtopic title (max 80 chars)",
-  "perspective": "The analytical lens or viewpoint to explore (e.g., historical accident, paradox, societal impact)",
-  "uniqueFocusElement": "A single compelling core question, surprising fact, or hook to explore",
-  "keyConcepts": ["3 to 4 specific concepts, facts, or vocabulary ideas that MUST be included"]
+  "subtopic": "<specific, concrete subtopic title strictly in ${langLabel}>",
+  "perspective": "<brief analytical angle strictly in ${langLabel}>",
+  "uniqueFocusElement": "<one compelling core question or interesting insight strictly in ${langLabel}>",
+  "keyConcepts": ["3 to 5 useful domain vocabulary terms strictly in ${langLabel} appropriate for ${difficulty.label} learners"]
 }
-
-No markdown outside the JSON, no explanations. ONLY the JSON object.
+Be concise, pick one concrete angle quickly, and keep all JSON string values in natural ${langLabel}.
     `.trim();
 
     const antiRepetitionSection =
       recent.length > 0
-        ? `ANTI-REPETITION CONSTRAINT (MANDATORY):
-The student has ALREADY recently completed readings on these specific topics in this category:
-${recent.map((t) => `- "${t}"`).join('\n')}
+        ? `ANTI-REPETITION CONSTRAINT: Do NOT repeat or imitate these recent titles:\n${recent.map((t) => `- "${t}"`).join('\n')}`
+        : `Avoid generic textbook overviews; focus on a concrete phenomenon or application.`;
 
-DO NOT repeat or closely mirror any of the above topics. Propose an entirely DIFFERENT subtopic or unexplored facet of "${categoryConfig.name}".`
-        : `Choose an original, non-cliché angle within "${categoryConfig.name}".`;
-
-    const userPrompt = `
-Brainstorm a fresh, high-interest educational topic for a ${langLabel} reading text.
-
-CATEGORY: "${categoryConfig.name}"
-TARGET LEVEL: ${difficulty.description}
-
+    const userPrompt =
+      `Topic/Category: "${params.category}" (${categoryConfig.name}) | Target language: ${langLabel} | Level: ${difficulty.description} | Lens: ${creativeAngle}
 ${antiRepetitionSection}
-
-CREATIVE INSPIRATION:
-- Suggested lens/angle: ${creativeAngle}
-- Avoid broad generic overviews. Focus on a concrete, tangible story, phenomenon, or real-world application.
-    `.trim();
+Suggest one authentic facet of "${params.category}" and 3-5 useful ${langLabel} domain vocabulary terms aligned with ${difficulty.label}.`.trim();
 
     const seed = `enrich_${params.category.slice(0, 4)}_${Date.now()}_${Math.floor(Math.random() * 1e5)}`;
 
@@ -209,6 +218,7 @@ CREATIVE INSPIRATION:
       uniqueFocusElement: partial?.uniqueFocusElement ?? pickRandom(focusPool),
       keyConcepts: partial?.keyConcepts,
       avoidTopics: partial?.avoidTopics,
+      ...(partial?.language !== undefined ? { language: partial.language } : {}),
     };
   }
 
@@ -235,32 +245,25 @@ CREATIVE INSPIRATION:
    * personajes o narración en primera persona).
    */
   private buildSystemPrompt(category?: string, language?: string): string {
-    const categoryInstruction = category ? `"${category}"` : READING_CATEGORIES.join(' | ');
+    const categoryInstruction = category ?? READING_CATEGORIES.join(' | ');
     const langLabel = LANGUAGE_NAMES[language?.toLowerCase() ?? 'en'] ?? 'English';
 
     return `
-You are an educational content generator for language learners.
-Your task is to generate neutral, informative reading texts in ${langLabel}.
-The text must be expository, not narrative.
-Do not create stories or characters.
-Do not use personal names or personal experiences.
-Do not mention that you are an AI.
+You are an educational expository writer for ${langLabel} learners. Write an informative, logically structured article strictly in ${langLabel} (do not create stories, characters, personal names, anecdotes, or first-person narrative).
 
-IMPORTANT: You must respond ONLY with a valid JSON object in this exact format:
+Respond ONLY with a valid JSON object in this exact format (no markdown or commentary):
 {
-  "title": "A short, engaging title for the text (max 100 characters)",
-  "description": "A brief 1-2 sentence summary of what the text is about",
-  "content": "The full reading text",
+  "title": "<concise engaging title strictly in ${langLabel}>",
+  "description": "<1-2 sentence summary strictly in ${langLabel}>",
+  "content": "<cohesive multi-paragraph expository text strictly in ${langLabel}, separated by \\n\\n>",
   "category": "${categoryInstruction}",
   "difficulty": "easy | medium | hard"
 }
-
-No additional text, no markdown, no explanations. ONLY the JSON object.
     `.trim();
   }
 
   /**
-   * Prompt de usuario que define tema, longitud, nivel y estilo de redacción para el LLM.
+   * Prompt de usuario que define tema, longitud, nivel, estructura y estilo de redacción para el LLM.
    */
   private buildUserPrompt(params: RandomPromptParams): string {
     const categoryConfig = getCategoryConfig(params.category);
@@ -268,39 +271,45 @@ No additional text, no markdown, no explanations. ONLY the JSON object.
     const textSize = TEXT_SIZES[params.size];
     const contentTypeDesc = CONTENT_TYPE_DESCRIPTIONS[params.contentType];
     const perspectiveDesc = PERSPECTIVE_DESCRIPTIONS[params.perspective];
-    const langLabel = LANGUAGE_NAMES[params.language?.toLowerCase() ?? 'en'] ?? 'English';
+    const normalizedLang = params.language?.toLowerCase() ?? 'en';
+    const langLabel = LANGUAGE_NAMES[normalizedLang] ?? 'English';
+    const langGuide = LANGUAGE_STYLE_GUIDES[normalizedLang] ?? LANGUAGE_STYLE_GUIDES['en'];
+    const subtopicLine =
+      params.subcategories.length === 1 &&
+      params.subcategories[0]?.trim().toLowerCase() === categoryConfig.name.trim().toLowerCase()
+        ? `- Primary topic & dynamic category: ${categoryConfig.name}`
+        : `- Primary topic: ${categoryConfig.name}, focusing on ${params.subcategories.join(' and ')}`;
     const keyConceptsLine =
       params.keyConcepts && params.keyConcepts.length > 0
         ? `- Key concepts to weave in: ${params.keyConcepts.join(', ')}\n`
         : '';
+    const avoidTopicsSection =
+      params.avoidTopics && params.avoidTopics.length > 0
+        ? `\nAVOID REPETITION:\n- Do NOT reuse or closely imitate these recent titles/angles: ${params.avoidTopics
+            .slice(0, 15)
+            .map((t) => `"${t}"`)
+            .join(', ')}\n`
+        : '';
 
     return `
-Generate a reading text in ${langLabel} with the following specific constraints:
+Write an informative reading article in ${langLabel}:
 
-TOPIC REQUIREMENTS:
-- Primary topic: ${categoryConfig.name}, focusing on ${params.subcategories.join(' and ')}
-- Content type: Write about ${contentTypeDesc}
-- Perspective: Focus on ${perspectiveDesc}
-- Unique angle: Explore ${params.uniqueFocusElement}
-${keyConceptsLine}
-TEXT SPECIFICATIONS:
-- Length: ${textSize.min}-${textSize.max} words (${textSize.label} length)
-- Approximate reading time: ${textSize.readingTime}
-- Style: Informative and explanatory, like a short article
-- Tone: Neutral and engaging
+TOPIC & VOCABULARY:
+${subtopicLine} (category: "${params.category}")
+- Content type: ${contentTypeDesc} | Perspective: ${perspectiveDesc}
+- Unique angle: ${params.uniqueFocusElement}
+${keyConceptsLine}- Illustrate practical ${langLabel} vocabulary for "${categoryConfig.name}" naturally in context.
+${avoidTopicsSection}
+STRUCTURE & COHERENCE REQUIREMENTS:
+- Organize "content" into 2–4 cohesive paragraphs separated by \\n\\n (opening angle -> mechanisms/contrasts -> synthesis).
+- Length: ${textSize.min}-${textSize.max} words (${textSize.label} length, ${textSize.readingTime} reading time) — judge naturally by paragraph fullness rather than counting words one by one.
+- Write 100% of "title", "description", and "content" in ${langLabel} (natural prose, no bullet points or headings): ${langGuide}
 
-LANGUAGE LEVEL REQUIREMENTS (CRITICAL - THIS IS THE DIFFICULTY):
+LEVEL (${difficulty.label}):
 - Target level: ${difficulty.description}
-- The output "difficulty" field MUST be "${difficulty.id}"
 - VOCABULARY: ${difficulty.vocabularyGuidelines}
 - GRAMMAR: ${difficulty.grammarGuidelines}
-
-STRICT RULES:
-- Do NOT tell a story or create characters
-- Do NOT use personal names or experiences
-- Do NOT write in first-person narrative
-- Do NOT use bullet points or numbered lists in the content
-- Output ONLY the JSON object as specified
+- Output metadata: JSON "category" MUST be "${params.category}" and JSON "difficulty" MUST be "${difficulty.id}".
     `.trim();
   }
 

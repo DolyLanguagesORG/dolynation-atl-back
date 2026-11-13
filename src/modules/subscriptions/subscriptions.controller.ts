@@ -11,6 +11,7 @@ import {
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import { ApiOkResponseOf, ApiOkResponseOfArray } from '../../common/types/api-envelope.decorators';
 import { Public } from '../../common/decorators/public.decorator';
+import { AllowWithoutSubscription } from '../../common/decorators/allow-without-subscription.decorator';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import { SelectSubscriptionDto } from './dto/select-subscription.dto';
@@ -47,6 +48,10 @@ export class SubscriptionsController {
     summary: 'Obtener el plan de suscripción actual del usuario autenticado y su consumo diario',
   })
   @ApiOkResponseOf(UserSubscriptionResponseDto)
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
   @ApiUnauthorizedResponse({
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
@@ -63,6 +68,7 @@ export class SubscriptionsController {
    * Permite seleccionar o cambiar manualmente el plan de suscripción del usuario autenticado.
    */
   @ApiBearerAuth('access-token')
+  @AllowWithoutSubscription()
   @Post('user/subscription')
   @ApiOperation({
     summary: 'Seleccionar o actualizar manualmente el plan de suscripción del usuario',

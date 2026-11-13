@@ -251,5 +251,52 @@ describe('SettingsService', () => {
       expect(promoted.active).toEqual(['en']);
       expect(promoted.languageChangeCredits).toBe(0);
     });
+
+    it('keeps all 4 languages open and unlocked without consuming credits on dolly_pro', async () => {
+      subscriptions.assertSubscriptionActive.mockResolvedValue(SUBSCRIPTION_PLANS.dolly_pro);
+      const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000);
+      mockSettingsRow({
+        selectedLanguages: ['en'],
+        lastLanguageChangeAt: twoDaysAgo,
+        languageChangeCredits: 1,
+      });
+
+      const updated = await service.setLanguages(42, ['fr', 'it']);
+      expect(updated.selected).toEqual(['fr', 'it']);
+      expect(updated.active).toEqual(['fr', 'it', 'es', 'en']);
+      expect(updated.canChangeFree).toBe(true);
+      expect(updated.nextFreeChangeAt).toBeNull();
+      expect(updated.languageChangeCredits).toBe(1);
+    });
+  });
+
+  describe('daily category anti-abuse limit wiring', () => {
+    it('enforces CategoryDailyLimitService before calling AI moderation so 429 aborts with 0 moderation calls', async () => {
+      const dailyLimitMock = {
+        assertAndRecordDailyQuota: jest
+          .fn()
+          .mockRejectedValueOnce(new AppHttpException(ErrorCode.CATEGORY_DAILY_LIMIT_REACHED)),
+      };
+      const serviceWithQuota = new SettingsService(
+        db as unknown as DrizzleDb,
+        moderation as unknown as CategoryModerationService,
+        subscriptions as unknown as SubscriptionsService,
+        dailyLimitMock as never,
+      );
+
+      mockSettingsRow({ preferredCategories: ['Astronomía'] });
+      await expect(serviceWithQuota.setCategories(42, ['Tema 21'])).rejects.toMatchObject({
+        status: 429,
+        response: expect.objectContaining({ code: ErrorCode.CATEGORY_DAILY_LIMIT_REACHED }),
+      });
+
+      expect(dailyLimitMock.assertAndRecordDailyQuota).toHaveBeenCalledWith(
+        42,
+        ['Tema 21'],
+        ['Astronomía'],
+      );
+      expect(moderation.assertCategoriesAllowed).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    });
   });
 });

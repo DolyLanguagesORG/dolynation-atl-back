@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AIProviderFactory } from '../ia/providers/ai-provider.factory';
-import { PromptBuilderService } from './prompt-generation';
+import { LANGUAGE_NAMES, PromptBuilderService } from './prompt-generation';
 import type {
   DifficultyLevel,
   EnrichedTopic,
@@ -207,6 +207,7 @@ export class ReadingsService {
       content: parsed.content,
       category: parsed.category,
       difficulty: parsed.difficulty,
+      language: targetLanguage,
       wordCount,
       status: 'pending',
       createdAt: new Date(),
@@ -223,6 +224,7 @@ export class ReadingsService {
       prompt.seed,
       {
         category: prompt.params.category,
+        language: targetLanguage,
         difficulty: prompt.params.difficulty,
         size: prompt.params.size,
         subcategories: prompt.params.subcategories,
@@ -328,12 +330,15 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
     }
 
-    const systemPrompt = `You are an English comprehension evaluator for language learners.
-Your task is to evaluate if the user correctly understood the main idea of a given text.
+    const rawLang = reading.language as string | undefined;
+    const readingLanguage = (rawLang ?? 'en').toLowerCase();
+    const langLabel = LANGUAGE_NAMES[readingLanguage] ?? 'English';
+    const systemPrompt = `You are a ${langLabel} reading comprehension evaluator for language learners.
+Your task is to evaluate if the user correctly understood the main idea and key supporting details of a ${langLabel} text.
 You must respond ONLY with a JSON object in this exact format: {"score": <number>, "passed": <boolean>, "feedback": "<string>"}
 - "score" is a number from 0 to 100 representing how well the user understood the text
 - "passed" is true if score >= 80, false otherwise
-- "feedback" is a brief (1-2 sentences) explanation of the evaluation
+- "feedback" is a brief (1-2 sentences) constructive explanation written strictly in natural ${langLabel} (never mix words from English or other languages)
 Do not include any other text, explanation, or formatting. Only the JSON object.`;
 
     const userPrompt = `Here is the original text the user read:
@@ -395,33 +400,26 @@ Evaluate how well the user understood the main idea of the text.`;
     await this.subscriptions.assertSubscriptionActive(userId);
     await this.subscriptions.assertCanAskQuestion(userId);
     const reading = await this.findById(id, userId);
+    const rawLang = reading.language as string | undefined;
+    const readingLanguage = (rawLang ?? 'en').toLowerCase();
+    const langLabel = LANGUAGE_NAMES[readingLanguage] ?? 'English';
+    const readingLevel = (reading.difficulty as string | undefined) ?? 'medium';
 
-    const systemPrompt = `You are an English vocabulary explainer for language learners.
-Given a word (and optionally its context in a sentence), respond ONLY with a JSON object:
+    const systemPrompt = `You are a ${langLabel} vocabulary explainer for language learners (target level: ${readingLevel}).
+Given a word or expression in ${langLabel} (and optionally its context sentence from the reading), respond ONLY with a JSON object:
 {"explanation": "<string>"}
-The explanation should be 1-2 sentences, simple enough for a B1-B2 learner.`;
+The explanation must be 1-2 clear sentences written exclusively in natural ${langLabel} (never mix words from English or other languages), suited for a ${readingLevel} learner.`;
 
     const userPrompt = context
-      ? `Explain the word "${word}" as used in this context: "${context}".`
-      : `Explain the English word "${word}" in simple terms.`;
+      ? `Explain the ${langLabel} word/expression "${word}" as used in this context: "${context}".`
+      : `Explain the ${langLabel} word/expression "${word}" in simple terms.`;
 
     const raw = await this.factory.getFullResponse([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt },
     ]);
 
-    let explanation: string;
-    try {
-      const parsed = JSON.parse(
-        raw
-          .replace(/```json\s*/g, '')
-          .replace(/```\s*/g, '')
-          .trim(),
-      ) as { explanation?: string };
-      explanation = String(parsed.explanation ?? raw.trim());
-    } catch {
-      explanation = raw.trim();
-    }
+    const explanation = this.parser.parseExplanation(raw);
 
     await this.subscriptions.recordExplanation({
       readingId: id,

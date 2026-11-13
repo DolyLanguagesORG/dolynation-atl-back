@@ -63,6 +63,21 @@ export function getMaxLanguagesForTier(tier: string | null | undefined): number 
 export const TIMEZONE_RESET = 'America/Mexico_City';
 
 /**
+ * Obtiene la fecha calendario (`YYYY-MM-DD`) en la zona horaria de negocio (`America/Mexico_City`).
+ */
+export function getDateKeyInTimeZone(
+  timeZone: string = TIMEZONE_RESET,
+  now: Date = new Date(),
+): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+/**
  * Calcula el inicio del día calendario actual (00:00:00 hora local)
  * en la zona horaria de negocio configurada (`America/Mexico_City`) como instancia `Date` en UTC.
  */
@@ -70,12 +85,7 @@ export function getStartOfDayInTimeZone(
   timeZone: string = TIMEZONE_RESET,
   now: Date = new Date(),
 ): Date {
-  const ymd = new Intl.DateTimeFormat('en-CA', {
-    timeZone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now);
+  const ymd = getDateKeyInTimeZone(timeZone, now);
   const temp = new Date(`${ymd}T00:00:00Z`);
   const invDate = new Date(temp.toLocaleString('en-US', { timeZone: 'UTC' }));
   const inTz = new Date(temp.toLocaleString('en-US', { timeZone }));

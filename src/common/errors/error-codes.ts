@@ -40,6 +40,7 @@ export enum ErrorCode {
 
   // === Categorías y moderación (4xx) ===
   CATEGORY_MODERATION_REJECTED = 'CATEGORY_MODERATION_REJECTED',
+  CATEGORY_DAILY_LIMIT_REACHED = 'CATEGORY_DAILY_LIMIT_REACHED',
 
   // === Validación (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
@@ -176,6 +177,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.CATEGORY_MODERATION_REJECTED,
     400,
     'One or more categories were rejected by content moderation',
+  ),
+  [ErrorCode.CATEGORY_DAILY_LIMIT_REACHED]: entry(
+    ErrorCode.CATEGORY_DAILY_LIMIT_REACHED,
+    429,
+    'Daily limit for adding or evaluating new custom categories has been reached. Try again tomorrow.',
   ),
   [ErrorCode.VALIDATION_ERROR]: entry(
     ErrorCode.VALIDATION_ERROR,

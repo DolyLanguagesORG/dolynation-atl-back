@@ -255,6 +255,13 @@ export class ReadingDto {
   difficulty!: string | null;
 
   @ApiProperty({
+    example: 'en',
+    enum: ['es', 'en', 'fr', 'it'],
+    description: 'Idioma objetivo en el que fue generada la lectura (`es`, `en`, `fr` o `it`)',
+  })
+  language!: string;
+
+  @ApiProperty({
     example: 280,
     description: 'Conteo total de palabras de la lectura generada',
     nullable: true,

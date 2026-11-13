@@ -5,6 +5,7 @@ import {
   ApiForbiddenResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
@@ -40,6 +41,10 @@ export class SettingsController {
     summary: 'Obtener el catálogo de categorías y la selección actual del usuario',
   })
   @ApiOkResponseOf(CategoriesSettingsDto)
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
   @ApiUnauthorizedResponse({
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
@@ -62,6 +67,15 @@ export class SettingsController {
   @ApiBadRequestResponse({
     description:
       'Categoría inválida o rechazada por moderación (CATEGORY_MODERATION_REJECTED), o límite del plan excedido',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
+  @ApiTooManyRequestsResponse({
+    description:
+      'Límite diario de categorías nuevas distintas evaluadas alcanzado (CATEGORY_DAILY_LIMIT_REACHED)',
     type: ApiErrorDto,
   })
   @ApiUnauthorizedResponse({

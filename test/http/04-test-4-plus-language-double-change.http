@@ -1,0 +1,75 @@
+### Test 4 — Plan medio (dolly_plus): no permite 2 cambios de idioma seguidos
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test4-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 4.1 Registro y activación de plan dolly_plus (hasta 2 idiomas)
+# @name reg
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Plus Double Change"
+}
+
+@token = {{reg.response.body.data.tokens.accessToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly_plus"
+}
+
+### 4.2 Selección inicial de 2 idiomas -> 200 OK (fija candado anual)
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["en", "it"]
+}
+
+### 4.3 Reordenar prioridad de los mismos 2 idiomas activos sí está permitido -> 200 OK
+PUT {{baseUrl}}/settings/languages/reorder
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["it", "en"]
+}
+
+### 4.4 Primer intento de cambiar idioma justo después del registro -> 403 LANGUAGE_CHANGE_LOCKED
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["it", "fr"]
+}
+
+### 4.5 Desbloquear mediante pago (1 crédito) -> 1.º cambio pasa -> 2.º cambio seguido vuelve a fallar
+POST {{baseUrl}}/settings/languages/unlock-change
+Authorization: Bearer {{token}}
+
+### 1.º cambio con crédito -> 200 OK (crédito vuelve a 0)
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["it", "fr"]
+}
+
+### 2.º cambio seguido inmediatamente -> 403 LANGUAGE_CHANGE_LOCKED
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["es", "fr"]
+}

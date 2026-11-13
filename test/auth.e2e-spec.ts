@@ -4,6 +4,8 @@ import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 
+jest.setTimeout(15_000);
+
 describe('Auth endpoints (e2e)', () => {
   let app: INestApplication;
 
@@ -92,6 +94,18 @@ describe('Auth endpoints (e2e)', () => {
       .expect(400);
 
     await supertest(app.getHttpServer()).get(`${baseUrl}/me`).expect(401);
+    const meBeforePlan = await supertest(app.getHttpServer())
+      .get(`${baseUrl}/me`)
+      .set('Authorization', `Bearer ${secondTokens.accessToken}`)
+      .expect(403);
+    expect(meBeforePlan.body.error.code).toBe('SUBSCRIPTION_REQUIRED');
+
+    await supertest(app.getHttpServer())
+      .post('/api/v1/user/subscription')
+      .set('Authorization', `Bearer ${secondTokens.accessToken}`)
+      .send({ tier: 'dolly' })
+      .expect(201);
+
     const me = await supertest(app.getHttpServer())
       .get(`${baseUrl}/me`)
       .set('Authorization', `Bearer ${secondTokens.accessToken}`)

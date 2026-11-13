@@ -26,7 +26,9 @@ describe('ReadingsService', () => {
       | 'buildFallbackEnrichedTopic'
     >
   >;
-  let parser: jest.Mocked<Pick<AiResponseParserService, 'parseGeneratedText' | 'parseEvaluation'>>;
+  let parser: jest.Mocked<
+    Pick<AiResponseParserService, 'parseGeneratedText' | 'parseEvaluation' | 'parseExplanation'>
+  >;
   let logs: jest.Mocked<Pick<PromptLogService, 'logPromptSuccess' | 'logPromptError'>>;
   let users: jest.Mocked<Pick<UsersService, 'findById'>>;
   let settings: jest.Mocked<Pick<SettingsService, 'getCategories'>>;
@@ -83,9 +85,11 @@ describe('ReadingsService', () => {
         keyConcepts: [],
       }),
     };
+    const realParser = new AiResponseParserService();
     parser = {
       parseGeneratedText: jest.fn(),
       parseEvaluation: jest.fn(),
+      parseExplanation: jest.fn((raw: string) => realParser.parseExplanation(raw)),
     };
     logs = { logPromptSuccess: jest.fn(), logPromptError: jest.fn() };
     subscriptions = {
@@ -829,6 +833,123 @@ describe('ReadingsService', () => {
       });
 
       expect(moderation.assertCategoryAllowedForReading).toHaveBeenCalledWith('dia de muertos');
+    });
+  });
+
+  describe('multilingual generate, evaluate and explain (es, en, fr, it)', () => {
+    it('persists target language in readings row & prompt logs and uses it in evaluate/explain prompts', async () => {
+      const frenchReading = {
+        id: 19,
+        userId: 42,
+        status: 'pending',
+        title: 'La Révolution Culinaire',
+        description: 'Les techniques modernes de fermentation.',
+        content: 'La fermentation transforme les saveurs.',
+        category: 'gastronomie',
+        difficulty: 'medium',
+        language: 'fr',
+        wordCount: 5,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      settings.getCategories.mockResolvedValue(['gastronomie']);
+      parser.parseGeneratedText.mockReturnValue({
+        title: frenchReading.title,
+        description: frenchReading.description,
+        content: frenchReading.content,
+        category: 'gastronomie',
+        difficulty: 'medium',
+      });
+      const genParams: RandomPromptParams = {
+        category: 'gastronomie',
+        difficulty: 'medium',
+        size: 'medium',
+        language: 'fr',
+        subcategories: ['fermentation'],
+        contentType: 'how_it_works',
+        perspective: 'process',
+        uniqueFocusElement: 'bactéries lactiques',
+      };
+      promptGen.generateRandomParams.mockReturnValue(genParams);
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys',
+        userPrompt: 'usr',
+        seed: 'seed-fr',
+        params: genParams,
+      });
+
+      const insertedValues = jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([frenchReading]),
+      });
+      const localDb = {
+        ...db,
+        insert: jest.fn().mockReturnValue({ values: insertedValues }),
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockImplementation(() => ({
+              orderBy: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue([]),
+              }),
+              limit: jest.fn().mockResolvedValue([frenchReading]),
+            })),
+          }),
+        }),
+        update: jest.fn().mockReturnValue({
+          set: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([{ ...frenchReading, status: 'completed' }]),
+            }),
+          }),
+        }),
+      };
+      service = await buildModuleWithDb(localDb);
+
+      await service.generate({
+        userId: 42,
+        options: { category: 'gastronomie', difficulty: 'medium', size: 'medium', language: 'fr' },
+      });
+      expect(insertedValues).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
+      expect(logs.logPromptSuccess).toHaveBeenCalledWith(
+        'text_generated',
+        42,
+        19,
+        'seed-fr',
+        expect.objectContaining({ language: 'fr' }),
+      );
+
+      factory.getFullResponse.mockResolvedValueOnce(
+        '<think>Evaluation en cours</think>{"explanation":"La fermentation transforme les aliments."}',
+      );
+      const explained = await service.explain(19, 42, 'fermentation', frenchReading.content);
+      expect(explained.explanation).toBe('La fermentation transforme les aliments.');
+      expect(factory.getFullResponse).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('French vocabulary explainer'),
+          }),
+        ]),
+      );
+
+      parser.parseEvaluation.mockReturnValue({
+        score: 90,
+        passed: true,
+        feedback: 'Très bonne compréhension.',
+      });
+      await service.evaluate(19, 42, { userResponse: 'La fermentation change les saveurs.' });
+      expect(factory.getFullResponse).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('French reading comprehension evaluator'),
+          }),
+        ]),
+      );
     });
   });
 });

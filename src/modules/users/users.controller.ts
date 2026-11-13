@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Patch, Query } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOperation,
   ApiQuery,
@@ -22,6 +23,10 @@ import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
  */
 @ApiTags('user')
 @ApiBearerAuth('access-token')
+@ApiForbiddenResponse({
+  description: 'Active subscription plan required (SUBSCRIPTION_REQUIRED)',
+  type: ApiErrorDto,
+})
 @Controller('user')
 export class UsersController {
   constructor(private readonly users: UsersService) {}

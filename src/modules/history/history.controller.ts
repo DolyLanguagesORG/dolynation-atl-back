@@ -1,5 +1,11 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiForbiddenResponse,
+  ApiOperation,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import { ApiOkResponseOf, ApiOkResponseOfArray } from '../../common/types/api-envelope.decorators';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
@@ -12,6 +18,10 @@ import { HistoryService } from './history.service';
  */
 @ApiTags('history')
 @ApiBearerAuth('access-token')
+@ApiForbiddenResponse({
+  description: 'Active subscription plan required (SUBSCRIPTION_REQUIRED)',
+  type: ApiErrorDto,
+})
 @Controller('history')
 export class HistoryController {
   constructor(private readonly history: HistoryService) {}

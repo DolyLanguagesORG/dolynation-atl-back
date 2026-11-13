@@ -9,6 +9,7 @@ import {
   boolean,
   jsonb,
   index,
+  unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
@@ -105,6 +106,7 @@ export const readings = pgTable(
     content: text('content').notNull(),
     category: varchar('category', { length: 50 }).notNull().default('technology'),
     difficulty: varchar('difficulty', { length: 20 }).notNull().default('medium'),
+    language: varchar('language', { length: 10 }).notNull().default('en'),
     wordCount: integer('word_count').notNull().default(0),
     status: varchar('status', { length: 20 }).notNull().default('pending'),
     score: integer('score'),
@@ -175,6 +177,45 @@ export const readingExplanations = pgTable(
   }),
 );
 
+/** Caché global persistente de categorías evaluadas por moderación automática/IA. */
+export const moderatedCategories = pgTable(
+  'moderated_categories',
+  {
+    canonicalKey: varchar('canonical_key', { length: 120 }).primaryKey(),
+    sampleCategory: varchar('sample_category', { length: 100 }).notNull(),
+    allowed: boolean('allowed').notNull(),
+    layer: varchar('layer', { length: 30 }),
+    reason: varchar('reason', { length: 120 }),
+    provider: varchar('provider', { length: 30 }).notNull().default('system'),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    providerIdx: index('idx_moderated_categories_provider').on(table.provider),
+  }),
+);
+
+/** Registro diario de categorías dinámicas distintas evaluadas por usuario para evitar abuso en bucle. */
+export const categoryDailyUsage = pgTable(
+  'category_daily_usage',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    usageDate: varchar('usage_date', { length: 10 }).notNull(),
+    canonicalKey: varchar('canonical_key', { length: 120 }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userDayKeyUnique: unique('uq_category_daily_usage_user_day_key').on(
+      table.userId,
+      table.usageDate,
+      table.canonicalKey,
+    ),
+  }),
+);
+
 /** Mapa completo de tablas exportadas para consultas relacionales de Drizzle. */
 
 export const schema = {
@@ -185,4 +226,6 @@ export const schema = {
   readings,
   readingExplanations,
   promptLogs,
+  moderatedCategories,
+  categoryDailyUsage,
 };

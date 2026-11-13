@@ -55,9 +55,10 @@ const envSchema = z.object({
   MINIMAX_API_KEY: z.string().optional(),
   MINIMAX_MODEL: z.string().default('MiniMax-M3'),
   MINIMAX_ENDPOINT: z.string().url().default('https://api.minimax.io/v1/chat/completions'),
-  MINIMAX_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
-  MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
+  MINIMAX_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
+  MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(8192),
   MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
+  MINIMAX_REASONING_EFFORT: z.enum(['low', 'medium', 'high']).default('low'),
 
   // Groq (legado — conservado como referencia)
   GROQ_API_KEY: z.string().optional(),
@@ -72,6 +73,14 @@ const envSchema = z.object({
     .string()
     .optional()
     .transform((v) => v === undefined || (v.trim().toLowerCase() !== 'false' && v.trim() !== '0')),
+  CATEGORY_MODERATION_AI_PROVIDER: z.preprocess(
+    emptyToUndefined,
+    z.enum(['auto', 'openai', 'minimax', 'none']).default('auto'),
+  ),
+  CATEGORY_DAILY_LIMIT: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(20),
+  ),
   CATEGORY_MODERATION_SCORE_THRESHOLD: z.preprocess(
     emptyToUndefined,
     z.coerce.number().min(0.05).max(1).default(0.45),

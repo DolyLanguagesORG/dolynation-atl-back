@@ -1,5 +1,5 @@
 /** Reexportaciones públicas de constantes, tipos, utilidades y constructor de prompts. */
-export { PromptBuilderService } from './prompt-builder.service';
+export { LANGUAGE_NAMES, PromptBuilderService } from './prompt-builder.service';
 export {
   CEFR_BY_DIFFICULTY,
   READING_CATEGORIES,

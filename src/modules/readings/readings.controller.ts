@@ -51,6 +51,10 @@ export class ReadingsController {
   @Get('options')
   @ApiOperation({ summary: 'Obtener opciones de generación (categorías, dificultades, CEFR)' })
   @ApiOkResponseOf(ReadingOptionsDto)
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
   @ApiUnauthorizedResponse({
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,

@@ -92,6 +92,7 @@ verifica exhaustividad.
 | `LANGUAGE_NOT_SELECTED`             | 403  | El usuario aún no selecciona idiomas en `/settings/languages`|
 | `LANGUAGE_CHANGE_LOCKED`            | 403  | Selección bloqueada (cambio anual o vía crédito pagado)      |
 | `CATEGORY_MODERATION_REJECTED`      | 400  | Una o más categorías dinámicas rechazadas por moderación     |
+| `CATEGORY_DAILY_LIMIT_REACHED`      | 429  | Límite diario de categorías nuevas evaluadas alcanzado       |
 | `VALIDATION_ERROR`                  | 400  | Falló class-validator; `details.fields[]` con cada campo    |
 | `INTERNAL_ERROR`                    | 500  | Error no controlado; el cliente no recibe detalles internos  |
 | `SERVICE_UNAVAILABLE`               | 503  | Dependencia externa (DB, AI provider) caída                  |

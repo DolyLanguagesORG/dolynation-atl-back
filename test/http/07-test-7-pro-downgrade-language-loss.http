@@ -1,0 +1,147 @@
+### Test 7 — Plan máximo (dolly_pro) baja de plan (downgrade) y pierde acceso a idiomas no activos
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-test7-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 7.1 Registrar y activar plan máximo dolly_pro (acceso abierto a los 4 idiomas)
+# @name reg
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Pro Downgrade"
+}
+
+@token = {{reg.response.body.data.tokens.accessToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly_pro"
+}
+
+###
+PUT {{baseUrl}}/settings/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categories": ["neurociencia"]
+}
+
+### Configurar prioridad explícita para futuro downgrade: 1º Italiano, 2º Francés, 3º Español, 4º Inglés
+PUT {{baseUrl}}/settings/languages
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["it", "fr", "es", "en"]
+}
+
+### 7.2 En dolly_pro puede generar en cualquiera de los 4 idiomas -> 201 Created
+# @name rProFr
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "neurociencia",
+  "language": "fr",
+  "difficulty": "medium",
+  "size": "short"
+}
+
+###
+POST {{baseUrl}}/readings/{{rProFr.response.body.data.id}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "Le texte décrit le rôle des synapses dans l'apprentissage."
+}
+
+### 7.3 Baja a dolly_plus (quedan activos los 2 primeros: ['it', 'fr']) -> 201 Created
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly_plus"
+}
+
+### Francés sigue activo -> 201 Created
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "neurociencia",
+  "language": "fr",
+  "difficulty": "easy",
+  "size": "short"
+}
+
+### Inglés se perdió al bajar de plan -> 403 SUBSCRIPTION_LANGUAGE_NOT_ALLOWED
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "neurociencia",
+  "language": "en"
+}
+
+### 7.4 Baja a dolly básico (solo queda activo #1: ['it'])
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly"
+}
+
+### Italiano (idioma principal) funciona -> 201 Created
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "neurociencia",
+  "language": "it",
+  "difficulty": "easy",
+  "size": "short"
+}
+
+### Francés, Español e Inglés ahora devuelven 403 SUBSCRIPTION_LANGUAGE_NOT_ALLOWED
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "neurociencia",
+  "language": "fr"
+}
+
+###
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "neurociencia",
+  "language": "es"
+}
+
+### Intentar promover 'es' al puesto #1 sin pago -> 403 LANGUAGE_CHANGE_LOCKED
+PUT {{baseUrl}}/settings/languages/reorder
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "languages": ["es", "it", "fr", "en"]
+}

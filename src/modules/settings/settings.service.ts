@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
@@ -8,6 +8,7 @@ import { userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
 import { CategoryModerationService } from '../moderation/category-moderation.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CategoryDailyLimitService } from './category-daily-limit.service';
 import type { LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import {
   arraysEqual,
@@ -18,7 +19,7 @@ import {
   resolveActiveLanguages,
   sanitizeSelectedLanguages,
 } from './language-selection.helpers';
-import { SUPPORTED_LANGUAGES, type LanguageId } from './settings.constants';
+import { SUPPORTED_LANGUAGE_IDS, SUPPORTED_LANGUAGES, type LanguageId } from './settings.constants';
 
 interface SettingsUpsertPatch {
   preferredCategories?: string[];
@@ -38,6 +39,7 @@ export class SettingsService {
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
     private readonly moderation: CategoryModerationService,
     private readonly subscriptions: SubscriptionsService,
+    @Optional() private readonly dailyLimit?: CategoryDailyLimitService,
   ) {}
 
   /**
@@ -81,9 +83,13 @@ export class SettingsService {
   }
 
   /**
-   * Modera, normaliza y actualiza o crea las categorías preferidas del usuario.
+   * Modera, valida el tope diario anti-abuso, normaliza y actualiza o crea las categorías preferidas del usuario.
    */
   async setCategories(userId: number, categories: string[]): Promise<string[]> {
+    if (this.dailyLimit) {
+      const existingCategories = await this.getCategories(userId);
+      await this.dailyLimit.assertAndRecordDailyQuota(userId, categories, existingCategories);
+    }
     const moderated = await this.moderation.assertCategoriesAllowed(categories);
     await this.upsert(userId, { preferredCategories: moderated });
     return moderated;
@@ -137,10 +143,11 @@ export class SettingsService {
       return this.buildLanguagesDtoFromValues(saved, lastChangeAt, credits, plan.maxLanguages, now);
     }
 
-    // 3. Reordenamiento o llenado de nuevos cupos libres tras subir de plan sin eliminar ningún idioma previo.
+    // 3. Plan total (dolly_pro) o reordenamiento/llenado sin eliminar ningún idioma previo: sin bloqueo ni gasto de crédito.
+    const isUnlimitedLanguagesPlan = plan.maxLanguages >= SUPPORTED_LANGUAGE_IDS.length;
     const removedAnySaved = saved.some((lang) => !requested.includes(lang));
-    if (!removedAnySaved) {
-      const effectiveLockDate = lastChangeAt ?? now;
+    if (isUnlimitedLanguagesPlan || !removedAnySaved) {
+      const effectiveLockDate = isUnlimitedLanguagesPlan ? now : (lastChangeAt ?? now);
       await this.persistLanguages(userId, requested, effectiveLockDate, credits);
       return this.buildLanguagesDtoFromValues(
         requested,
@@ -310,8 +317,9 @@ export class SettingsService {
   ): LanguagesSettingsDto {
     const catalog = SUPPORTED_LANGUAGES.map((l) => ({ id: l.id, name: l.name }));
     const active = resolveActiveLanguages(saved, maxLanguages);
-    const canChangeFree = canUseFreeAnnualChange(lastChangeAt, now);
-    const nextFreeAt = getNextFreeChangeAt(lastChangeAt, now);
+    const isUnlimitedLanguagesPlan = maxLanguages >= SUPPORTED_LANGUAGE_IDS.length;
+    const canChangeFree = isUnlimitedLanguagesPlan || canUseFreeAnnualChange(lastChangeAt, now);
+    const nextFreeAt = isUnlimitedLanguagesPlan ? null : getNextFreeChangeAt(lastChangeAt, now);
 
     return {
       catalog,
