@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+/** Convierte cadenas vacías en `undefined` para aplicar valores por defecto de forma segura. */
+const emptyToUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
 /**
  * Esquema centralizado de Zod para todas las variables de entorno.
  * Lo importa AppModule en ConfigModule para validar `process.env` al arrancar.
@@ -58,6 +62,48 @@ const envSchema = z.object({
   // Groq (legado — conservado como referencia)
   GROQ_API_KEY: z.string().optional(),
   GROQ_MODEL: z.string().default('qwen/qwen3-32b'),
+
+  // ===== Moderación de categorías dinámicas =====
+  CATEGORY_MODERATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || (v.trim().toLowerCase() !== 'false' && v.trim() !== '0')),
+  CATEGORY_MODERATION_AI_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || (v.trim().toLowerCase() !== 'false' && v.trim() !== '0')),
+  CATEGORY_MODERATION_SCORE_THRESHOLD: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().min(0.05).max(1).default(0.45),
+  ),
+  CATEGORY_MODERATION_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(5000),
+  ),
+  CATEGORY_MODERATION_CACHE_TTL_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(86_400_000),
+  ),
+
+  // OpenAI Moderation API (endpoint gratuito `omni-moderation-latest`; opcional)
+  OPENAI_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  OPENAI_MODERATION_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://api.openai.com/v1/moderations'),
+  ),
+  OPENAI_MODERATION_MODEL: z.preprocess(
+    emptyToUndefined,
+    z.string().default('omni-moderation-latest'),
+  ),
+
+  // Google Perspective API (cuota gratuita; opcional)
+  PERSPECTIVE_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
 });
 
 export type EnvSchema = z.infer<typeof envSchema>;
