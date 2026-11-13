@@ -18,6 +18,7 @@ import { UpdateCategoriesDto } from './dto/update-categories.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
 import { SettingsService } from './settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { normalizeCategoryNames } from '../moderation/category-normalizer';
 
 /**
  * Controlador de preferencias de aprendizaje y configuración del usuario (`/settings`).
@@ -59,7 +60,8 @@ export class SettingsController {
   @ApiOperation({ summary: 'Guardar la selección de categorías del usuario' })
   @ApiOkResponseOf(CategoriesSettingsDto)
   @ApiBadRequestResponse({
-    description: 'ID de categoría inválido o límite del plan excedido',
+    description:
+      'Categoría inválida o rechazada por moderación (CATEGORY_MODERATION_REJECTED), o límite del plan excedido',
     type: ApiErrorDto,
   })
   @ApiUnauthorizedResponse({
@@ -70,8 +72,9 @@ export class SettingsController {
     @CurrentUser() current: AuthUser,
     @Body() dto: UpdateCategoriesDto,
   ): Promise<ApiResponse<CategoriesSettingsDto>> {
-    await this.subscriptions.assertCategoryLimit(current.id, dto.categories.length);
-    const selected = await this.settings.setCategories(current.id, dto.categories);
+    const normalized = normalizeCategoryNames(dto.categories);
+    await this.subscriptions.assertCategoryLimit(current.id, normalized.length);
+    const selected = await this.settings.setCategories(current.id, normalized);
     const catalog = READING_CATEGORIES.map((id) => ({ id, name: getCategoryConfig(id).name }));
     return apiOk('Categories updated', { catalog, selected });
   }

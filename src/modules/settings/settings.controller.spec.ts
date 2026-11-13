@@ -61,6 +61,16 @@ describe('SettingsController', () => {
       expect(result.data.selected).toEqual(['technology', 'history']);
       expect(settings.setCategories).toHaveBeenCalledWith(42, ['technology', 'history']);
     });
+
+    it('normalizes whitespace and deduplicates case/accent variants before enforcing limit and saving', async () => {
+      const result = await controller.updateCategories(user, {
+        categories: ['  Technology  ', 'technology', 'Música Clásica', 'musica   clasica'],
+      });
+
+      expect(subscriptions.assertCategoryLimit).toHaveBeenCalledWith(42, 2);
+      expect(settings.setCategories).toHaveBeenCalledWith(42, ['technology', 'Música Clásica']);
+      expect(result.data.selected).toEqual(['technology', 'Música Clásica']);
+    });
   });
 
   describe('GET /settings/languages', () => {

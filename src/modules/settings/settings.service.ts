@@ -5,13 +5,17 @@ import type { DrizzleDb } from '../../database/database.module';
 import { userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
 import { DEFAULT_LANGUAGE, type LanguageId } from './settings.constants';
+import { CategoryModerationService } from '../moderation/category-moderation.service';
 
 /**
  * Servicio que consulta y persiste las preferencias de categorías e idioma por usuario.
  */
 @Injectable()
 export class SettingsService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDb,
+    private readonly moderation: CategoryModerationService,
+  ) {}
 
   /**
    * Busca la fila de preferencias del usuario o devuelve `null` si aún no existe.
@@ -42,11 +46,12 @@ export class SettingsService {
   }
 
   /**
-   * Actualiza o crea las categorías preferidas del usuario.
+   * Modera, normaliza y actualiza o crea las categorías preferidas del usuario.
    */
   async setCategories(userId: number, categories: string[]): Promise<string[]> {
-    await this.upsert(userId, { preferredCategories: categories });
-    return categories;
+    const moderated = await this.moderation.assertCategoriesAllowed(categories);
+    await this.upsert(userId, { preferredCategories: moderated });
+    return moderated;
   }
 
   /**
