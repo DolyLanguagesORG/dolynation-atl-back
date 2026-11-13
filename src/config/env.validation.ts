@@ -1,12 +1,12 @@
 import { z } from 'zod';
 
 /**
- * Centralised Zod schema for all environment variables.
- * Imported by ConfigModule and used to validate process.env at boot.
- * Failures abort the boot with a clear list of missing/invalid vars.
+ * Esquema centralizado de Zod para todas las variables de entorno.
+ * Lo importa AppModule en ConfigModule para validar `process.env` al arrancar.
+ * Si falta una variable obligatoria o es inválida, aborta el arranque con el detalle.
  */
 const envSchema = z.object({
-  // ===== App =====
+  // ===== Aplicación =====
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3333),
   HOST: z.string().default('0.0.0.0'),
@@ -25,7 +25,7 @@ const envSchema = z.object({
   GIT_COMMIT: z.string().default('unknown'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
-  // ===== Database =====
+  // ===== Base de datos =====
   DB_HOST: z.string().default('127.0.0.1'),
   DB_PORT: z.coerce.number().int().positive().default(5432),
   DB_USER: z.string().default('dolynglish_user'),
@@ -36,15 +36,15 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
 
-  // ===== Auth (JWT) =====
+  // ===== Autenticación (JWT) =====
   JWT_SECRET: z.string().min(32).default('change-me-in-production-please-32-chars-minimum'),
   JWT_ACCESS_TTL: z.string().default('5m'),
   JWT_REFRESH_TTL: z.string().default('30d'),
 
-  // ===== AI providers =====
-  // Solo `minimax` esta registrado en la factoria de proveedores
-  // (`AIProviderFactory`). Aceptar `groq` aqui pero no ahi hacia que la app
-  // arrancara y reventara en runtime al pedir una lectura.
+  // ===== Proveedores de IA =====
+  // Solo `minimax` está registrado en la factoría de proveedores
+  // (`AIProviderFactory`). Aceptar `groq` aquí pero no ahí hacía que la app
+  // arrancara y fallara en tiempo de ejecución al pedir una lectura.
   AI_DEFAULT_PROVIDER: z.enum(['minimax']).default('minimax'),
 
   // MiniMax M3
@@ -55,7 +55,7 @@ const envSchema = z.object({
   MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
   MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
 
-  // Groq (legacy — kept for reference)
+  // Groq (legado — conservado como referencia)
   GROQ_API_KEY: z.string().optional(),
   GROQ_MODEL: z.string().default('qwen/qwen3-32b'),
 });
@@ -63,8 +63,8 @@ const envSchema = z.object({
 export type EnvSchema = z.infer<typeof envSchema>;
 
 /**
- * Validate raw env object. Returns the parsed (and coerced) object on success.
- * Throws a ZodError with detailed messages on failure.
+ * Valida el objeto crudo de variables de entorno.
+ * Devuelve el objeto validado (con conversiones de tipo aplicadas) o lanza un ZodError.
  */
 export function validateEnv(raw: Record<string, unknown>): EnvSchema {
   return envSchema.parse(raw);

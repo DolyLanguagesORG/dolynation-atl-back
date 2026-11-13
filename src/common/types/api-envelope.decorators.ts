@@ -4,35 +4,31 @@ import { ApiCreatedResponse, ApiExtraModels, ApiOkResponse, getSchemaPath } from
 import { ApiSuccessEnvelopeDto } from './api-response.dto';
 
 /**
- * Decorator helpers that document the runtime `{ message, data, error }`
- * envelope in the OpenAPI spec consumed by Scalar.
+ * Decoradores auxiliares que documentan el sobre estándar `{ message, data, error }`
+ * en la especificación OpenAPI consumida por Scalar.
  *
- * Why this exists
+ * Por qué existen
  * ----------------
- * Every controller wraps its payload via `apiOk(message, data)`, so the
- * wire format always looks like:
+ * Todos los controladores envuelven su respuesta con `apiOk(message, data)`, así que el
+ * formato real en la red siempre tiene esta estructura:
  *
  *   { "message": "...", "data": {...}, "error": null }
  *
- * But the previous docs annotated success responses with
- * `@ApiOkResponse({ type: ReadingDto })`, which tells Scalar the body is
- * `ReadingDto` directly. Scalar then rendered the example as a bare
- * reading object — exactly what users were seeing in /docs and reporting
- * as "the docs don't match the real API".
+ * Si se usara directamente `@ApiOkResponse({ type: ReadingDto })`, Scalar mostraría el
+ * cuerpo como `ReadingDto` sin el envoltorio, desalineado de la respuesta real.
  *
- * Each helper here produces an `allOf` schema that combines:
- *   1. `$ref` to the shared `ApiSuccessEnvelopeDto` (carries `message`,
- *      `error: null` and the generic `data` placeholder), AND
- *   2. An inline override that pins `data` to the actual model — or to an
- *      array of that model, or to `null` for void endpoints (logout /
- *      soft-delete).
+ * Cada helper genera un esquema `allOf` que combina:
+ *   1. `$ref` hacia `ApiSuccessEnvelopeDto` (contiene `message`, `error: null` y el
+ *      marcador genérico `data`), y
+ *   2. Un override inline que fija `data` al modelo concreto, a un arreglo de ese modelo
+ *      o a `null` para endpoints sin contenido útil (como logout o borrado lógico).
  *
- * `ApiExtraModels` is required so the nested `$ref`s resolve in the
- * `components.schemas` block of the generated spec. Both the envelope
- * DTO and the inner data model are registered every time.
+ * `ApiExtraModels` es obligatorio para que las referencias `$ref` anidadas se
+ * registren dentro de `components.schemas` en la especificación generada.
  */
 type ModelCtor = Type<unknown>;
 
+/** Construye el esquema OpenAPI `allOf` que envuelve el payload dentro de `data`. */
 const envelopeAllOfSchema = (modelSchema: Record<string, unknown>): Record<string, unknown> => ({
   allOf: [
     { $ref: getSchemaPath(ApiSuccessEnvelopeDto) },
@@ -45,32 +41,32 @@ const envelopeAllOfSchema = (modelSchema: Record<string, unknown>): Record<strin
   ],
 });
 
-/** 200 OK — single object payload. */
+/** Respuesta 200 OK con un objeto único en `data`. */
 export const ApiOkResponseOf = (model: ModelCtor): MethodDecorator =>
   applyDecorators(
     ApiExtraModels(ApiSuccessEnvelopeDto, model),
     ApiOkResponse({
-      description: 'Standard success envelope.',
+      description: 'Sobre estándar de respuesta exitosa.',
       schema: envelopeAllOfSchema({ $ref: getSchemaPath(model) }),
     }),
   );
 
-/** 201 Created — single object payload. */
+/** Respuesta 201 Created con un objeto único en `data`. */
 export const ApiCreatedResponseOf = (model: ModelCtor): MethodDecorator =>
   applyDecorators(
     ApiExtraModels(ApiSuccessEnvelopeDto, model),
     ApiCreatedResponse({
-      description: 'Standard success envelope.',
+      description: 'Sobre estándar de recurso creado exitosamente.',
       schema: envelopeAllOfSchema({ $ref: getSchemaPath(model) }),
     }),
   );
 
-/** 200 OK — array payload (typed item). */
+/** Respuesta 200 OK con un arreglo tipado de elementos en `data`. */
 export const ApiOkResponseOfArray = (item: ModelCtor): MethodDecorator =>
   applyDecorators(
     ApiExtraModels(ApiSuccessEnvelopeDto, item),
     ApiOkResponse({
-      description: 'Standard success envelope wrapping a list.',
+      description: 'Sobre estándar de respuesta exitosa que envuelve una lista.',
       schema: envelopeAllOfSchema({
         type: 'array',
         items: { $ref: getSchemaPath(item) },
@@ -78,12 +74,12 @@ export const ApiOkResponseOfArray = (item: ModelCtor): MethodDecorator =>
     }),
   );
 
-/** 2xx — `data: null` payload (used by 204 endpoints that still emit the envelope). */
+/** Respuesta 2xx con `data: null` (usada por endpoints 204 o sin carga útil que conservan el sobre). */
 export const ApiOkResponseEmpty = (): MethodDecorator =>
   applyDecorators(
     ApiExtraModels(ApiSuccessEnvelopeDto),
     ApiOkResponse({
-      description: 'Standard success envelope with a null payload.',
+      description: 'Sobre estándar de respuesta exitosa con carga nula (`data: null`).',
       schema: envelopeAllOfSchema({ type: 'null', nullable: true }),
     }),
   );

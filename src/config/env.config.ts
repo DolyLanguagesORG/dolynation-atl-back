@@ -3,14 +3,14 @@ import { ConfigService } from '@nestjs/config';
 import type { EnvSchema } from './env.validation';
 
 /**
- * Strongly-typed wrapper around ConfigService.
- * Use this everywhere instead of raw ConfigService.get() to get type safety.
+ * Wrapper fuertemente tipado sobre ConfigService.
+ * Úsalo en toda la aplicación en lugar de llamar a ConfigService.get() sin tipado.
  */
 @Injectable()
 export class AppConfigService {
   constructor(private readonly config: ConfigService<EnvSchema, true>) {}
 
-  // ===== App =====
+  // ===== Aplicación =====
   get nodeEnv(): EnvSchema['NODE_ENV'] {
     return this.config.get('NODE_ENV', { infer: true });
   }
@@ -30,7 +30,7 @@ export class AppConfigService {
     return this.config.get('LOG_LEVEL', { infer: true });
   }
 
-  // ===== Database =====
+  // ===== Base de datos =====
   get db(): {
     host: string;
     port: number;
@@ -49,7 +49,7 @@ export class AppConfigService {
     };
   }
 
-  // ===== Auth =====
+  // ===== Autenticación =====
   get jwt(): {
     secret: string;
     accessTtl: string;
@@ -62,7 +62,7 @@ export class AppConfigService {
     };
   }
 
-  // ===== AI =====
+  // ===== Inteligencia Artificial =====
   get ai(): {
     defaultProvider: EnvSchema['AI_DEFAULT_PROVIDER'];
     minimax: {

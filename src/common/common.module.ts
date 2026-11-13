@@ -5,14 +5,13 @@ import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 /**
- * Global cross-cutting concerns:
- *  - AllExceptionsFilter: uniform error envelope
- *  - LoggingInterceptor: log every successful request
- *  - JwtAuthGuard: opt-in auth via @Public() decorator
+ * Responsabilidades transversales globales:
+ *  - AllExceptionsFilter: formato uniforme de errores en el sobre estándar
+ *  - LoggingInterceptor: registro de cada petición HTTP exitosa
+ *  - JwtAuthGuard: autenticación obligatoria por defecto con exclusión mediante `@Public()`
  *
- * The `X-App-Version` header is not here: it is a middleware registered in
- * `main.ts`, because it must also reach the responses that never reach a
- * controller (404, 401).
+ * La cabecera `X-App-Version` no vive aquí: se registra como middleware en `main.ts`
+ * para cubrir también respuestas que no llegan a un controlador (404, 401).
  */
 @Global()
 @Module({

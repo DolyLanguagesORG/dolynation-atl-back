@@ -11,14 +11,21 @@ import { AppConfigService } from './config/env.config';
 import { appVersion } from './common/version';
 import { versionHeaderMiddleware } from './common/middleware/version-header.middleware';
 
+/**
+ * Punto de entrada de la aplicación NestJS.
+ *
+ * Configura seguridad (Helmet + CORS + compresión), la cabecera `X-App-Version`,
+ * validación global de DTOs, el prefijo global de la API, la documentación
+ * OpenAPI/Scalar en `/docs` y la ruta raíz de verificación.
+ */
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
 
-  // Security & perf. Helmet is configured to allow the Scalar API Reference CDN
-  // (cdn.jsdelivr.net) so the /docs page can load its standalone JS bundle.
-  // The /docs route itself is registered BEFORE setGlobalPrefix below so it stays
-  // at the root path (not under /api/v1).
+  // Seguridad y rendimiento. Helmet se configura para permitir la CDN de
+  // Scalar API Reference (cdn.jsdelivr.net) de modo que /docs pueda cargar su
+  // bundle JS independiente. La ruta /docs se registra antes de setGlobalPrefix
+  // para permanecer en la raíz (fuera de /api/v1).
   app.use(
     helmet({
       contentSecurityPolicy: {
@@ -42,11 +49,11 @@ async function bootstrap(): Promise<void> {
   app.use(compression());
 
   // Cabecera X-App-Version en toda respuesta (incluidos 404 y 401).
-  // Va antes del enrutado para que cubra tambien las peticiones que nunca
-  // llegan a un controlador. Ver common/middleware/version-header.middleware.ts
+  // Va antes del enrutado para que cubra también las peticiones que nunca
+  // llegan a un controlador. Ver common/middleware/version-header.middleware.ts.
   app.use(versionHeaderMiddleware);
 
-  // Global validation pipe — class-validator + class-transformer
+  // Pipe global de validación — class-validator + class-transformer.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -56,48 +63,55 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Enable CORS for the mobile client
+  // Habilita CORS para los clientes web y móviles.
   app.enableCors({
     origin: true,
     credentials: true,
   });
 
-  // API prefix (configurable via API_PREFIX, default "api/v1").
-  // MUST run BEFORE SwaggerModule.createDocument so the OpenAPI document
-  // advertises paths under /api/v1/... and Scalar's "Try it" hits the
-  // real route. Moving this after createDocument was the root cause of
-  // the production bug where /docs showed POST /auth/register but the
-  // live server only accepted POST /api/v1/auth/register.
+  // Prefijo de la API (configurable vía API_PREFIX; por defecto "api/v1").
+  // DEBE ejecutarse ANTES de SwaggerModule.createDocument para que el documento
+  // OpenAPI publique las rutas bajo /api/v1/... y el botón "Try it" de Scalar
+  // apunte a la ruta real. Mover esto después de createDocument causó en su
+  // momento que /docs mostrara POST /auth/register cuando el servidor solo
+  // aceptaba POST /api/v1/auth/register.
   const env = app.get(AppConfigService);
   app.setGlobalPrefix(env.apiPrefix);
 
-  // Scalar API reference at /docs (replaces Swagger UI).
-  // IMPORTANT: register this BEFORE the OpenAPI document so /docs stays at
-  // the root and is NOT prefixed with /api/v1.
+  // Referencia de API con Scalar en /docs (reemplaza a Swagger UI).
+  // IMPORTANTE: se registra aquí pero conservando /docs en la raíz (sin prefijo /api/v1).
   //
-  // Note on `.addServer(...)`: DO NOT add a server URL that contains the
-  // API prefix. The paths in the spec already carry the versioned prefix
-  // (because we called `setGlobalPrefix` above before `createDocument`).
-  // If you add a server URL of `/api/v1`, Scalar concatenates it with the
-  // paths and produces routes like `/api/v1/api/v1/auth/register`, which
-  // the app does not serve. Scalar computes its base URL from the page
-  // origin (the actual host:port the browser is on), so leaving servers
-  // empty makes the "Try it" button hit the correct relative path.
+  // Nota sobre `.addServer(...)`: NO agregar una URL de servidor que incluya el
+  // prefijo de la API. Las rutas del spec ya incluyen el prefijo versionado
+  // (porque `setGlobalPrefix` se llamó arriba antes de `createDocument`).
+  // Si se añade `/api/v1` como servidor, Scalar lo concatena y produce rutas
+  // duplicadas como `/api/v1/api/v1/auth/register` que no existen. Scalar calcula
+  // la URL base desde el origen del navegador, por lo que dejar `servers` vacío
+  // garantiza que "Try it" use la ruta relativa correcta.
   const swaggerConfig = new DocumentBuilder()
     .setTitle('Dolynglish API')
     .setDescription(
-      'Backend for the Dolynglish mobile app — language learning with AI-generated reading exercises',
+      'Backend de la aplicación Dolynglish — aprendizaje de idiomas con lecturas y evaluaciones generadas por IA',
     )
-    // La version del documento es la del build en ejecucion, no un numero
-    // fijo: asi el OpenAPI dice la misma version que reportan /health/live y
-    // /health/ready.
+    // La versión del documento es la del build en ejecución, no un número
+    // fijo: así el OpenAPI reporta la misma versión que /health/live y /health/ready.
     .setVersion(appVersion().version)
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'access-token')
-    .addTag('auth', 'User registration, login, logout, refresh')
-    .addTag('user', 'User profile and streak')
-    .addTag('readings', 'AI-generated English readings and evaluations')
-    .addTag('ia', 'Raw chat with the active AI provider')
-    .addTag('health', 'Liveness and readiness probes')
+    .addTag('auth', 'Registro, inicio y cierre de sesión, renovación de tokens y perfil actual')
+    .addTag('user', 'Perfil del usuario y racha de actividad')
+    .addTag('subscriptions', 'Planes de suscripción, estado actual y cuotas de uso')
+    .addTag('settings', 'Preferencias de categorías e idioma de estudio')
+    .addTag('readings', 'Lecturas generadas por IA, evaluaciones de comprensión y vocabulario')
+    .addTag('content', 'Generación de lecturas usando preferencias guardadas como respaldo')
+    .addTag('evaluation', 'Envío y calificación de resúmenes de lectura')
+    .addTag('history', 'Historial agregado de actividad y puntuaciones recientes')
+    .addTag('ia', 'Chat directo con el proveedor de inteligencia artificial activo')
+    .addTag(
+      'admin',
+      'Supervisión de categorías globales y listado de usuarios (solo administradores)',
+    )
+    .addTag('health', 'Sondas de disponibilidad (liveness) y preparación (readiness)')
+    .addTag('version', 'Información de la versión y build en ejecución')
     .build();
   const document = SwaggerModule.createDocument(app, swaggerConfig);
 
@@ -110,23 +124,21 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Expose the raw OpenAPI 3.1 JSON document at the versioned prefix so
-  // it matches the path the app actually serves. Useful for tooling that
-  // generates clients, feeds API specs to AI agents, or stores the spec
-  // alongside the source code.
+  // Expone el documento JSON crudo de OpenAPI 3.1 bajo el prefijo versionado
+  // para que coincida con las rutas reales. Útil para generar clientes,
+  // alimentar agentes de IA o inspeccionar el contrato.
   app.getHttpAdapter().get(`/${env.apiPrefix}/openapi.json`, (_req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Cache-Control', 'public, max-age=60');
     res.json(document);
   });
 
-  // Root health-check
+  // Verificación rápida en la ruta raíz.
   app.getHttpAdapter().get('/', (_req, res) => {
     res.json({
       message: 'Dolynglish API is running',
-      // La version y el commit son los del build en ejecucion: los mismos
-      // que devuelve /health/live y /health/ready. Antes iban hardcodeados
-      // ('1.0.0'), asi que la raiz mentia sobre la version que corria.
+      // La versión y el commit son los del build en ejecución: los mismos que
+      // devuelven /health/live y /health/ready. Antes iban hardcodeados ('1.0.0').
       data: { ...appVersion(), status: 'healthy' },
     });
   });

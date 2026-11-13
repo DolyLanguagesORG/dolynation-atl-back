@@ -18,14 +18,12 @@ interface ValidationErrorEntry {
 }
 
 /**
- * Converts the array-of-strings shape that `class-validator` puts inside a
- * BadRequestException body into structured per-field entries.
+ * Convierte el arreglo de cadenas que `class-validator` coloca dentro de una
+ * `BadRequestException` en entradas estructuradas por campo.
  *
- * class-validator's default shape is `[ "email - must be an email", "password - too short" ]`.
- * The leading "fieldName -" part is captured; the rest is the human message.
- *
- * If the string doesn't match the pattern, we fall back to `_root` so we never
- * silently drop the error.
+ * El formato esperado por defecto es `["email - must be an email", "password - too short"]`.
+ * Captura el prefijo `"nombreCampo -"` y conserva el resto como mensaje legible.
+ * Si no coincide con el patrón, lo agrupa bajo `_root` para no perder ningún detalle.
  */
 function parseValidationMessages(arr: string[]): ValidationErrorEntry[] {
   return arr.map((raw) => {
@@ -38,22 +36,21 @@ function parseValidationMessages(arr: string[]): ValidationErrorEntry[] {
 }
 
 /**
- * Catches every thrown error and renders the standard envelope:
- *   { message: string, data: null, error: { code, message, details? } }
+ * Filtro global que captura cualquier excepción lanzada y devuelve el sobre estándar:
+ *   `{ message: string, data: null, error: { code, message, details? } }`
  *
- * Security guarantees:
- *   - Unknown errors (raw `new Error(...)`) are NEVER leaked to the client.
- *     Only a generic "An unexpected error occurred" message and the code
- *     `INTERNAL_ERROR` are returned; the full original is logged with full
- *     context (request, stack) for the dev team to debug.
- *   - SQL strings, file paths and stack frames never appear in the response.
- *   - The HTTP status code is determined by the ErrorCode catalogue or the
- *     original HttpException — never by the raw error.
+ * Garantías de seguridad:
+ *   - Los errores desconocidos (`new Error(...)`) NUNCA se filtran al cliente.
+ *     Solo se devuelve el mensaje genérico de `INTERNAL_ERROR`; el error original
+ *     completo se registra en logs del servidor para depuración.
+ *   - Consultas SQL, rutas de archivos y stack traces jamás aparecen en la respuesta.
+ *   - El código HTTP lo define el catálogo `ErrorCatalog` o la `HttpException` original.
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
+  /** Intercepta la excepción del contexto HTTP y escribe el sobre serializado en la respuesta. */
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -64,8 +61,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
   }
 
   /**
-   * Visible for testing. Maps an unknown exception to a status + body.
-   * The body is guaranteed safe to send to clients.
+   * Visible para pruebas unitarias. Convierte una excepción arbitraria en un estado HTTP
+   * y un cuerpo seguro para enviar al cliente.
    */
   buildEnvelope(
     exception: unknown,
@@ -76,9 +73,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       const body = exception.getResponse();
 
-      // 1) Reads our code from the body. This covers AppHttpException AND
-      //    raw HttpExceptions whose body happens to have a `code` field
-      //    (e.g. thrown by ValidationPipe's exceptionFactory).
+      // 1) Lee nuestro código de error desde el cuerpo. Cubre AppHttpException y
+      //    HttpExceptions con campo `code` propio (p. ej. lanzadas por ValidationPipe).
       const fromBody = this.tryReadCodeFromBody(body);
       this.logger.error(`DEBUG-BODY: ${JSON.stringify(body)}`);
       if (fromBody) {
@@ -90,7 +86,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const status = exception.getStatus();
       const resp = exception.getResponse();
 
-      // 2) Foreign validation errors (raw class-validator shape).
+      // 2) Errores de validación externos (formato estándar de class-validator).
       // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
       if (status === HttpStatus.BAD_REQUEST && this.isValidationResponse(resp)) {
         const code = ErrorCode.VALIDATION_ERROR;
@@ -99,13 +95,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
         return this.okResponse(meta, { fields });
       }
 
-      // 3) Foreign HttpException without our code in the body — map by status.
+      // 3) HttpException externa sin código propio en el cuerpo: se mapea por código HTTP.
       const code = this.codeFromStatus(status);
       const meta = ErrorCatalog[code] ?? fallback;
       return this.okResponse(meta);
     }
 
-    // 4) Anything else — log everything, respond with a generic 500
+    // 4) Cualquier otro error no controlado: se registra completo y se responde 500 genérico.
     this.logger.error(
       JSON.stringify({
         msg: 'Unhandled exception caught by AllExceptionsFilter',

@@ -1,293 +1,372 @@
 import { ApiProperty, type ApiPropertyOptions } from '@nestjs/swagger';
 
-/** Common envelope used by every successful (HTTP 2xx) response.
+/**
+ * Sobre común utilizado por todas las respuestas exitosas (HTTP 2xx).
  *
- * The `data` field type is intentionally loose (`object`). Per-endpoint
- * documentation overrides the inline `data` schema with a `$ref` to the
- * actual model (see `api-envelope.decorators.ts`). Using a generic
- * `TData` here triggers NestJS's circular-dependency detection because
- * the schema generator cannot resolve the concrete type, so we declare
- * it as `object` directly. */
+ * El tipo del campo `data` es intencionalmente abierto (`object`). La documentación
+ * de cada endpoint reemplaza el esquema inline de `data` con un `$ref` hacia el
+ * modelo real (ver `api-envelope.decorators.ts`). Usar un genérico `TData` aquí
+ * dispara la detección de dependencias circulares de NestJS Swagger porque el
+ * generador de esquemas no resuelve el tipo concreto.
+ */
 export class ApiSuccessEnvelopeDto {
   @ApiProperty({
     example: 'Reading generated successfully',
-    description: 'Human-readable status message',
+    description: 'Mensaje de estado legible para humanos',
   })
   message!: string;
 
   @ApiProperty({
     type: 'object',
     additionalProperties: true,
-    description: 'The shape of the resource (or list of resources) returned.',
+    description: 'Estructura del recurso (o lista de recursos) devuelto.',
   })
   data!: object;
 
   @ApiProperty({
     nullable: true,
     description:
-      'Always null on success. When populated, see ApiErrorDto for the shape (error envelope is reused from /common/errors).',
+      'Siempre es null en respuestas exitosas. Cuando ocurre un error, sigue la forma de ApiErrorDto.',
   })
   error!: ApiErrorDto | null;
 }
 
 /**
- * 204 No Content has no body. This class is what Scalar renders when a
- * controller returns `void` — keeps the response shape consistent.
+ * Representación documental cuando un endpoint 204 No Content no devuelve cuerpo,
+ * manteniendo la consistencia visual en Scalar.
  */
 export class ApiNoContentResponseDto {
   @ApiProperty({
     example: { ok: true },
-    description: 'Always present (even on 204) so the envelope stays uniform.',
+    description:
+      'Marcador de respuesta vacía para mantener uniforme el esquema en la documentación.',
   })
   noContent!: Record<string, never>;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth
+// Autenticación
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * The `user` slice of /auth/me or /auth/register's response body. Never
- * includes the password hash.
+ * Vista pública del usuario incluida en `/auth/me`, `/auth/register` y `/auth/login`.
+ * Nunca expone el hash de la contraseña.
  */
 export class AuthUserViewDto {
-  @ApiProperty({ example: 42 })
+  @ApiProperty({ example: 42, description: 'Identificador único del usuario' })
   id!: number;
 
-  @ApiProperty({ example: 'sebastian@example.com' })
+  @ApiProperty({ example: 'sebastian@example.com', description: 'Correo electrónico de la cuenta' })
   email!: string;
 
-  @ApiProperty({ example: 'Sebastián Rodríguez' })
+  @ApiProperty({ example: 'Sebastián Rodríguez', description: 'Nombre completo del usuario' })
   fullName!: string;
 
-  @ApiProperty({ example: 5, description: 'Current active streak in days.' })
+  @ApiProperty({ example: 5, description: 'Racha activa actual en días consecutivos.' })
   currentStreak!: number;
 
-  @ApiProperty({ example: null, nullable: true, description: 'Last day the streak was extended.' })
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    description: 'Última fecha en la que se extendió la racha.',
+  })
   lastStreakDate!: string | null;
 
-  @ApiProperty({ example: '2026-08-31T15:16:43.474Z', format: 'date-time' })
+  @ApiProperty({
+    example: '2026-08-31T15:16:43.474Z',
+    format: 'date-time',
+    description: 'Fecha y hora de creación de la cuenta',
+  })
   createdAt!: Date;
 }
 
 /**
- * JWT pair returned by /auth/register, /auth/login, /auth/refresh.
+ * Par de tokens JWT devuelto por `/auth/register`, `/auth/login` y `/auth/refresh`.
  */
 export class AuthTokensDto {
-  @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…' })
+  @ApiProperty({
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…',
+    description: 'Token JWT de acceso para autenticar peticiones',
+  })
   accessToken!: string;
 
-  @ApiProperty({ example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…' })
+  @ApiProperty({
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…',
+    description: 'Token JWT de actualización para renovar la sesión',
+  })
   refreshToken!: string;
 
-  @ApiProperty({ example: 300, description: 'Access token lifetime in seconds.' })
+  @ApiProperty({
+    example: 300,
+    description: 'Tiempo de vida del token de acceso en segundos.',
+  })
   expiresIn!: number;
 }
 
 /**
- * `data` shape for /auth/register and /auth/login (201 / 200).
+ * Estructura de `data` para `/auth/register` y `/auth/login` (201 / 200).
  */
 export class AuthResponseDto {
-  @ApiProperty({ type: () => AuthUserViewDto })
+  @ApiProperty({
+    type: () => AuthUserViewDto,
+    description: 'Perfil público del usuario autenticado',
+  })
   user!: AuthUserViewDto;
 
-  @ApiProperty({ type: () => AuthTokensDto })
+  @ApiProperty({ type: () => AuthTokensDto, description: 'Par de tokens emitidos para la sesión' })
   tokens!: AuthTokensDto;
 }
 
 /**
- * `data` shape for /auth/refresh (200).
+ * Estructura de `data` para `/auth/refresh` (200).
  */
 export class RefreshResponseDto {
-  @ApiProperty({ type: () => AuthTokensDto })
+  @ApiProperty({ type: () => AuthTokensDto, description: 'Nuevo par de tokens tras la rotación' })
   tokens!: AuthTokensDto;
 }
 
 /**
- * `data` shape for /auth/me (200).
+ * Estructura de `data` para `/auth/me` (200).
  */
 export class MeResponseDto {
-  @ApiProperty({ type: () => AuthUserViewDto })
+  @ApiProperty({ type: () => AuthUserViewDto, description: 'Datos públicos del usuario actual' })
   user!: AuthUserViewDto;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Readings
+// Lecturas
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * One category entry returned by /readings/options.
+ * Entrada de categoría devuelta por `/readings/options`.
  */
 export class ReadingCategoryDto {
   @ApiProperty({
     example: 'programming',
     enum: ['technology', 'history', 'education', 'programming', 'culture', 'pop_culture'],
-    description: 'Internal identifier for the category',
+    description: 'Identificador interno de la categoría',
   })
   id!: 'technology' | 'history' | 'education' | 'programming' | 'culture' | 'pop_culture';
 
-  @ApiProperty({ example: 'Programming', description: 'Human-readable name of the category' })
+  @ApiProperty({ example: 'Programming', description: 'Nombre legible de la categoría' })
   name!: string;
 
   @ApiProperty({
     example: ['Web Development', 'Databases'],
-    description: 'Sub-topics the LLM can focus on inside this category.',
+    description: 'Subtemas en los que el LLM puede enfocarse dentro de esta categoría.',
     type: [String],
   })
   subcategories!: string[];
 }
 
 /**
- * One reading size preset returned by /readings/options.
+ * Configuración predefinida de tamaño de lectura devuelta por `/readings/options`.
  */
 export class ReadingSizeDto {
-  @ApiProperty({ example: 'short', enum: ['short', 'medium', 'long'] })
+  @ApiProperty({
+    example: 'short',
+    enum: ['short', 'medium', 'long'],
+    description: 'Identificador del tamaño',
+  })
   id!: 'short' | 'medium' | 'long';
 
-  @ApiProperty({ example: 'Short' })
+  @ApiProperty({ example: 'Short', description: 'Etiqueta legible del tamaño' })
   label!: string;
 
-  @ApiProperty({ example: '80-120 words' })
+  @ApiProperty({ example: '80-120 words', description: 'Rango aproximado de palabras' })
   wordRange!: string;
 
-  @ApiProperty({ example: '~1 min' })
+  @ApiProperty({ example: '~1 min', description: 'Tiempo estimado de lectura' })
   readingTime!: string;
 }
 
 /**
- * `data` shape for /readings/options (200). Returns the catalogue the
- * UI needs to populate its pickers — categories with sub-topics, the
- * three difficulty levels, the three size presets, and informational
- * CEFR mappings.
+ * Estructura de `data` para `/readings/options` (200). Devuelve el catálogo necesario
+ * para poblar los selectores de la interfaz: categorías con subtemas, los tres niveles
+ * de dificultad, los tres tamaños predefinidos y los niveles CEFR informativos.
  */
 export class ReadingOptionsDto {
   @ApiProperty({
-    description: 'All available categories with their sub-topics',
+    description: 'Todas las categorías disponibles junto con sus subtemas',
     type: [ReadingCategoryDto],
   })
   categories!: ReadingCategoryDto[];
 
-  @ApiProperty({ example: ['easy', 'medium', 'hard'], type: [String] })
+  @ApiProperty({
+    example: ['easy', 'medium', 'hard'],
+    type: [String],
+    description: 'Niveles de dificultad disponibles',
+  })
   difficulties!: string[];
 
   @ApiProperty({
-    description: 'Reading size presets — controls word count and reading time',
+    description: 'Tamaños predefinidos de lectura — controlan la extensión y tiempo estimado',
     type: [ReadingSizeDto],
   })
   sizes!: ReadingSizeDto[];
 
-  @ApiProperty({ example: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'], type: [String] })
+  @ApiProperty({
+    example: ['A1', 'A2', 'B1', 'B2', 'C1', 'C2'],
+    type: [String],
+    description: 'Niveles del Marco Común Europeo de Referencia (CEFR) de referencia',
+  })
   cefrLevels!: string[];
 }
 
 /**
- * A reading entity as returned by /readings endpoints.
- * Mirrors the Drizzle `readings` table row but documented explicitly so
- * Scalar renders every field.
+ * Entidad de lectura devuelta por los endpoints de `/readings`.
+ * Refleja una fila de la tabla `readings` en Drizzle, documentada explícitamente
+ * para que Scalar muestre cada campo.
  */
 export class ReadingDto {
-  @ApiProperty({ example: 42 })
+  @ApiProperty({ example: 42, description: 'Identificador único de la lectura' })
   id!: number;
 
-  @ApiProperty({ example: 7, description: 'Owning user id' })
+  @ApiProperty({ example: 7, description: 'Identificador del usuario propietario' })
   userId!: number;
 
-  @ApiProperty({ example: 'The Rise of TypeScript' })
+  @ApiProperty({ example: 'The Rise of TypeScript', description: 'Título de la lectura' })
   title!: string;
 
-  @ApiProperty({ example: 'How a small Microsoft project became the default for web backends.' })
+  @ApiProperty({
+    example: 'How a small Microsoft project became the default for web backends.',
+    description: 'Resumen breve introductorio de la lectura',
+  })
   description!: string;
 
   @ApiProperty({
-    description: 'Full reading body in plain text.',
+    description: 'Cuerpo completo de la lectura en texto plano.',
     example: 'TypeScript was first released in 2012...',
   })
   content!: string;
 
-  @ApiProperty({ example: 'technology', nullable: true })
+  @ApiProperty({
+    example: 'technology',
+    nullable: true,
+    description: 'Categoría temática de la lectura',
+  })
   category!: string | null;
 
-  @ApiProperty({ example: 'medium', nullable: true })
+  @ApiProperty({
+    example: 'medium',
+    nullable: true,
+    description: 'Nivel de dificultad aplicado al generar la lectura',
+  })
   difficulty!: string | null;
 
-  @ApiProperty({ example: 280, description: 'Word count of the generated reading', nullable: true })
+  @ApiProperty({
+    example: 280,
+    description: 'Conteo total de palabras de la lectura generada',
+    nullable: true,
+  })
   wordCount!: number | null;
 
-  @ApiProperty({ example: 'pending', enum: ['pending', 'completed'] })
+  @ApiProperty({
+    example: 'pending',
+    enum: ['pending', 'completed'],
+    description: 'Estado actual de la lectura (`pending` o `completed`)',
+  })
   status!: string;
 
-  @ApiProperty({ example: 87, nullable: true, description: 'Set after evaluation; 0–100.' })
+  @ApiProperty({
+    example: 87,
+    nullable: true,
+    description:
+      'Calificación obtenida tras evaluar la comprensión (0–100); null si sigue pendiente.',
+  })
   score!: number | null;
 
-  @ApiProperty({ example: null, nullable: true, description: 'Set after evaluation.' })
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    description: 'Retroalimentación generada por IA tras la evaluación; null si sigue pendiente.',
+  })
   feedback!: string | null;
 
   @ApiProperty({
     example: null,
     nullable: true,
     description:
-      "User's written summary (set when the user evaluates the reading). Null until evaluation.",
+      'Resumen escrito por el usuario al enviar la evaluación. Es null hasta que se evalúa.',
   })
   userResponse!: string | null;
 
   @ApiProperty({
     example: false,
     nullable: true,
-    description: 'true if score >= 80. null until evaluation.',
+    description: 'Indica si el usuario aprobó (score >= 80). Es null hasta la evaluación.',
   })
   passed!: boolean | null;
 
-  @ApiProperty({ example: '2026-08-31T15:16:43.474Z', format: 'date-time' })
+  @ApiProperty({
+    example: '2026-08-31T15:16:43.474Z',
+    format: 'date-time',
+    description: 'Fecha y hora de creación de la lectura',
+  })
   createdAt!: Date;
 
-  @ApiProperty({ example: null, nullable: true, format: 'date-time' })
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    format: 'date-time',
+    description: 'Fecha y hora de la última actualización',
+  })
   updatedAt!: Date | null;
 
   @ApiProperty({
     example: null,
     nullable: true,
     format: 'date-time',
-    description: 'Soft-delete timestamp.',
+    description: 'Marca temporal de borrado lógico (soft-delete).',
   })
   deletedAt!: Date | null;
 }
 
 /**
- * `data` shape for /readings/{id}/evaluate (200).
+ * Estructura de `data` para `/readings/{id}/evaluate` (200).
  */
 export class EvaluationResultDto {
-  @ApiProperty({ example: 87, minimum: 0, maximum: 100 })
+  @ApiProperty({
+    example: 87,
+    minimum: 0,
+    maximum: 100,
+    description: 'Puntuación de comprensión lectora de 0 a 100',
+  })
   score!: number;
 
-  @ApiProperty({ example: true, description: 'true if score >= 80' })
+  @ApiProperty({ example: true, description: 'Es true cuando la puntuación es >= 80' })
   passed!: boolean;
 
   @ApiProperty({
     example: 'Your summary captured the main point about TypeScript adoption.',
-    description: 'AI-generated feedback for the user',
+    description: 'Retroalimentación generada por la IA para el usuario',
   })
   feedback!: string;
 
   @ApiProperty({
     example: 'TypeScript adoption grew because of better tooling and gradual typing.',
-    description: 'Echo of the user response that was evaluated (for app convenience).',
+    description: 'Copia del resumen enviado por el usuario para comodidad del cliente.',
   })
   userResponse!: string;
 
-  @ApiProperty({ type: () => ReadingDto })
+  @ApiProperty({
+    type: () => ReadingDto,
+    description: 'Registro actualizado de la lectura evaluada',
+  })
   reading!: ReadingDto;
 }
 
 /**
- * `data` shape for /readings/{id}/explanations (200).
+ * Estructura de `data` para `/readings/{id}/explanations` (200).
  */
 export class ExplanationResultDto {
   @ApiProperty({
     example: 'In this context, "release" means publishing a new version of software.',
+    description: 'Explicación contextual de la palabra o expresión consultada',
   })
   explanation!: string;
 
-  @ApiProperty({ type: () => ReadingDto })
+  @ApiProperty({ type: () => ReadingDto, description: 'Lectura asociada a la consulta' })
   reading!: ReadingDto;
 }
 
@@ -296,24 +375,28 @@ export class ExplanationResultDto {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `data` shape for /ia/chat (200).
+ * Estructura de `data` para `/ia/chat` (200).
  */
 export class ChatResponseDto {
-  @ApiProperty({ example: 'TypeScript was first released in 2012 by Microsoft...' })
+  @ApiProperty({
+    example: 'TypeScript was first released in 2012 by Microsoft...',
+    description: 'Respuesta en texto plano generada por el proveedor de IA',
+  })
   text!: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Health
+// Salud del servicio (Health)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * `data` shape for /health/live and /health/ready (200).
- * Mirrors the `@nestjs/terminus` HealthCheckResult shape.
+ * Estructura de `data` para `/health/live` y `/health/ready` (200).
+ * Refleja el formato `HealthCheckResult` de `@nestjs/terminus`.
  */
 export class HealthCheckResultDto {
   @ApiProperty({
-    description: 'Per-dependency status map. Keys are dependency identifiers (e.g. "app", "db").',
+    description:
+      'Mapa de estado por dependencia. Las claves identifican cada dependencia (p. ej. "app", "db").',
     type: 'object',
     additionalProperties: {
       type: 'object',
@@ -329,7 +412,7 @@ export class HealthCheckResultDto {
   info!: Record<string, Record<string, unknown> & { status: 'up' | 'down' }>;
 
   @ApiProperty({
-    description: 'When a dependency is down, the failing key → reason.',
+    description: 'Cuando una dependencia falla, indica la clave afectada y el motivo.',
     type: 'object',
     nullable: true,
     example: null,
@@ -337,18 +420,21 @@ export class HealthCheckResultDto {
   })
   error!: Record<string, Record<string, unknown>> | null;
 
-  @ApiProperty({ example: 'up', enum: ['up', 'down'] })
+  @ApiProperty({
+    example: 'up',
+    enum: ['up', 'down'],
+    description: 'Estado global de salud de la aplicación',
+  })
   status!: 'up' | 'down';
 }
 
-// Re-export types with the ApiPropertyOptions type so the file is self-contained
-// for callers that import these DTOs from elsewhere.
+// Reexporta ApiPropertyOptions para que el archivo sea autocontenido para consumidores externos.
 export type { ApiPropertyOptions };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Standard error envelope (re-used from common/errors/api-error.dto.ts)
-// The runtime type must be importable, so we re-export it here for the
-// /readings/openapi.json consumers that fetch a single import path.
+// Sobre estándar de error (reutilizado desde common/errors/api-error.dto.ts)
+// El tipo en tiempo de ejecución debe importarse para que los consumidores del spec
+// puedan referenciarlo desde una ruta única.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ApiErrorDto } from '../errors/api-error.dto';
