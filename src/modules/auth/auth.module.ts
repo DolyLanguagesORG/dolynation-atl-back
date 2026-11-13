@@ -7,6 +7,8 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { UsersModule } from '../users/users.module';
 import { ReadingsModule } from '../readings/readings.module';
+import { MailModule } from '../mail/mail.module';
+import { AuthEmailTokenService } from './auth-email-token.service';
 import type { EnvSchema } from '../../config/env.validation';
 
 /**
@@ -17,6 +19,7 @@ import type { EnvSchema } from '../../config/env.validation';
   imports: [
     UsersModule,
     ReadingsModule,
+    MailModule,
     PassportModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
@@ -31,7 +34,7 @@ import type { EnvSchema } from '../../config/env.validation';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, AuthEmailTokenService, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}

@@ -42,6 +42,23 @@ export class ProfileResponseDto {
   createdAt!: Date;
 
   @ApiProperty({
+    example: '2026-10-01T12:40:56.000Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'Momento en que el usuario confirmó su correo. Es nulo mientras la cuenta siga sin verificar',
+  })
+  emailVerifiedAt!: Date | null;
+
+  @ApiProperty({
+    example: 'es',
+    enum: ['es', 'en'],
+    description:
+      'Locale de interfaz del usuario. Determina el idioma de los correos transaccionales',
+  })
+  locale!: string;
+
+  @ApiProperty({
     type: [String],
     example: ['es', 'en'],
     description:

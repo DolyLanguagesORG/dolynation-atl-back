@@ -14,6 +14,8 @@ describe('UsersController', () => {
     subscriptionTier: 'dolly',
     currentStreak: 3,
     lastStreakDate: '2026-10-17',
+    emailVerifiedAt: new Date('2026-10-01T00:05:00Z'),
+    locale: 'es',
     createdAt: new Date('2026-10-01T00:00:00Z'),
     selectedLanguages: ['fr'],
   };

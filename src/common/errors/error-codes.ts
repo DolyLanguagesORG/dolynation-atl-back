@@ -18,6 +18,8 @@ export enum ErrorCode {
   AUTH_EMAIL_ALREADY_EXISTS = 'AUTH_EMAIL_ALREADY_EXISTS',
   AUTH_PASSWORD_TOO_WEAK = 'AUTH_PASSWORD_TOO_WEAK',
   AUTH_UNAUTHORIZED = 'AUTH_UNAUTHORIZED',
+  AUTH_EMAIL_NOT_VERIFIED = 'AUTH_EMAIL_NOT_VERIFIED',
+  AUTH_EMAIL_TOKEN_INVALID = 'AUTH_EMAIL_TOKEN_INVALID',
 
   // === Recursos (4xx) ===
   RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
@@ -107,6 +109,16 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.AUTH_UNAUTHORIZED,
     401,
     'Authentication is required to access this resource',
+  ),
+  [ErrorCode.AUTH_EMAIL_NOT_VERIFIED]: entry(
+    ErrorCode.AUTH_EMAIL_NOT_VERIFIED,
+    403,
+    'Your email address has not been confirmed yet. Please check your inbox and confirm it to continue.',
+  ),
+  [ErrorCode.AUTH_EMAIL_TOKEN_INVALID]: entry(
+    ErrorCode.AUTH_EMAIL_TOKEN_INVALID,
+    400,
+    'This link is invalid, has expired or has already been used. Please request a new one.',
   ),
   [ErrorCode.RESOURCE_NOT_FOUND]: entry(
     ErrorCode.RESOURCE_NOT_FOUND,

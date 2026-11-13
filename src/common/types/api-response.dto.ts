@@ -90,6 +90,23 @@ export class AuthUserViewDto {
     description: 'Fecha y hora de creación de la cuenta',
   })
   createdAt!: Date;
+
+  @ApiProperty({
+    example: '2026-08-31T15:20:11.902Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'Momento en que el usuario confirmó su correo. Es nulo mientras la cuenta siga sin verificar',
+  })
+  emailVerifiedAt!: Date | null;
+
+  @ApiProperty({
+    example: 'es',
+    enum: ['es', 'en'],
+    description:
+      'Locale de interfaz del usuario. Determina el idioma de los correos transaccionales',
+  })
+  locale!: string;
 }
 
 /**
@@ -127,6 +144,76 @@ export class AuthResponseDto {
 
   @ApiProperty({ type: () => AuthTokensDto, description: 'Par de tokens emitidos para la sesión' })
   tokens!: AuthTokensDto;
+}
+
+/**
+ * Estructura de `data` para `/auth/register` (201).
+ *
+ * `tokens` es `null` cuando la verificación de correo es obligatoria: en ese
+ * caso la cuenta queda pendiente de confirmar y no se emite ninguna sesión.
+ */
+export class RegisterResponseDto {
+  @ApiProperty({
+    type: () => AuthUserViewDto,
+    description: 'Perfil público del usuario recién creado',
+  })
+  user!: AuthUserViewDto;
+
+  @ApiProperty({
+    type: () => AuthTokensDto,
+    nullable: true,
+    description:
+      'Par de tokens emitidos para la sesión. Es nulo cuando el usuario debe confirmar su correo antes de poder entrar',
+  })
+  tokens!: AuthTokensDto | null;
+
+  @ApiProperty({
+    example: false,
+    description: 'Indica que el usuario debe confirmar su correo antes de poder iniciar sesión',
+  })
+  emailVerificationRequired!: boolean;
+}
+
+/**
+ * Estructura de `data` para `/auth/verify-email` (200).
+ */
+export class EmailVerifiedDto {
+  @ApiProperty({ example: true, description: 'Siempre `true`: el correo quedó confirmado' })
+  emailVerified!: boolean;
+
+  @ApiProperty({
+    type: AuthUserViewDto,
+    description: 'Perfil público actualizado del usuario autenticado',
+  })
+  user!: AuthUserViewDto;
+
+  @ApiProperty({
+    type: AuthTokensDto,
+    description: 'Par de tokens JWT emitidos tras confirmar el correo para continuar el onboarding',
+  })
+  tokens!: AuthTokensDto;
+}
+
+/**
+ * Estructura de `data` para `/auth/forgot-password` y `/auth/resend-verification` (200).
+ *
+ * El valor es siempre `true`, exista o no la cuenta, para no permitir
+ * enumerar qué correos están registrados.
+ */
+export class EmailSentDto {
+  @ApiProperty({
+    example: true,
+    description: 'Siempre `true`. Si la cuenta existe, se envió el correo correspondiente',
+  })
+  emailSent!: boolean;
+}
+
+/**
+ * Estructura de `data` para `/auth/reset-password` (200).
+ */
+export class PasswordUpdatedDto {
+  @ApiProperty({ example: true, description: 'Siempre `true`: la contraseña quedó actualizada' })
+  passwordUpdated!: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

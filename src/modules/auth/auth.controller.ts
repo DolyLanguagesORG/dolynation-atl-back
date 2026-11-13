@@ -13,6 +13,10 @@ import {
   AuthResponseDto,
   AuthTokensDto,
   AuthUserViewDto,
+  EmailSentDto,
+  EmailVerifiedDto,
+  PasswordUpdatedDto,
+  RegisterResponseDto,
 } from '../../common/types/api-response.dto';
 import {
   ApiCreatedResponseOf,
@@ -20,7 +24,15 @@ import {
   ApiOkResponseOf,
 } from '../../common/types/api-envelope.decorators';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RefreshTokenDto } from './dto/auth.dto';
+import {
+  RegisterDto,
+  LoginDto,
+  RefreshTokenDto,
+  VerifyEmailDto,
+  ForgotPasswordDto,
+  ResendVerificationDto,
+  ResetPasswordDto,
+} from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { AllowWithoutSubscription } from '../../common/decorators/allow-without-subscription.decorator';
 import { AppHttpException } from '../../common/errors/app-http.exception';
@@ -38,22 +50,111 @@ export class AuthController {
 
   /**
    * Registra un usuario nuevo y devuelve su perfil público junto con el par de tokens.
+   *
+   * Cuando la verificación de correo es obligatoria, `tokens` llega `null` y el
+   * usuario debe confirmar su correo antes de poder iniciar sesión.
    */
   @Public()
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Crear una nueva cuenta y devolver tokens de acceso y actualización',
+    summary: 'Create a new account and return access and refresh tokens',
+    description:
+      'When email verification is required, `tokens` is `null` and `emailVerificationRequired` is `true`: the account must confirm its email address before signing in.',
   })
-  @ApiCreatedResponseOf(AuthResponseDto)
+  @ApiCreatedResponseOf(RegisterResponseDto)
   @ApiConflictResponse({
     description: 'El correo electrónico ya está en uso',
     type: ApiErrorDto,
   })
   @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
-  async register(@Body() dto: RegisterDto): Promise<ApiResponse<AuthResponseDto>> {
+  async register(@Body() dto: RegisterDto): Promise<ApiResponse<RegisterResponseDto>> {
     const result = await this.auth.register(dto);
     return apiOk('User registered successfully', result);
+  }
+
+  /**
+   * Confirma el correo de una cuenta con el token recibido por correo.
+   */
+  @Public()
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirm the email address of an account',
+    description:
+      'Consumes the single-use token delivered by email. The token expires 24 hours after it was issued.',
+  })
+  @ApiOkResponseOf(EmailVerifiedDto)
+  @ApiBadRequestResponse({
+    description: 'The token is invalid, expired or has already been used',
+    type: ApiErrorDto,
+  })
+  async verifyEmail(@Body() dto: VerifyEmailDto): Promise<ApiResponse<EmailVerifiedDto>> {
+    const result = await this.auth.verifyEmail(dto.token);
+    return apiOk('Email verified successfully', result);
+  }
+
+  /**
+   * Solicita el envío del correo de restablecimiento de contraseña.
+   *
+   * La respuesta es idéntica exista o no la cuenta, para no permitir enumerar
+   * los correos registrados.
+   */
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Request a password reset email',
+    description:
+      'The response is always the same, whether or not the account exists, so that registered email addresses cannot be discovered.',
+  })
+  @ApiOkResponseOf(EmailSentDto)
+  @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
+  async forgotPassword(@Body() dto: ForgotPasswordDto): Promise<ApiResponse<EmailSentDto>> {
+    const result = await this.auth.forgotPassword(dto.email);
+    return apiOk('If the account exists, a password reset email has been sent', result);
+  }
+
+  /**
+   * Reenvía el correo de confirmación de cuenta si esta sigue sin verificarse.
+   */
+  @Public()
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Resend the account confirmation email',
+    description:
+      'The response is always the same, whether or not the account exists or is already verified.',
+  })
+  @ApiOkResponseOf(EmailSentDto)
+  @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
+  async resendVerification(@Body() dto: ResendVerificationDto): Promise<ApiResponse<EmailSentDto>> {
+    const result = await this.auth.resendVerification(dto.email);
+    return apiOk(
+      'If the account exists and is unverified, a confirmation email has been sent',
+      result,
+    );
+  }
+
+  /**
+   * Establece una nueva contraseña usando un token de restablecimiento válido.
+   */
+  @Public()
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Set a new password using a password reset token',
+    description:
+      'The token is single-use and expires 60 minutes after it was issued. All active sessions of the account are revoked.',
+  })
+  @ApiOkResponseOf(PasswordUpdatedDto)
+  @ApiBadRequestResponse({
+    description: 'The token is invalid, expired or has already been used',
+    type: ApiErrorDto,
+  })
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<ApiResponse<PasswordUpdatedDto>> {
+    const result = await this.auth.resetPassword(dto.token, dto.password);
+    return apiOk('Password updated successfully', result);
   }
 
   @Public()

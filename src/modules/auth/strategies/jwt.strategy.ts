@@ -5,6 +5,9 @@ import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../../users/users.service';
 import { UnauthorizedException } from '@nestjs/common';
 import type { AuthUser } from '../../../common/decorators/current-user.decorator';
+import { AppConfigService } from '../../../config/env.config';
+import { AppHttpException } from '../../../common/errors/app-http.exception';
+import { ErrorCode } from '../../../common/errors/error-codes';
 
 /** Carga útil esperada dentro del token JWT. */
 export interface JwtPayload {
@@ -21,6 +24,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     config: ConfigService,
     private readonly users: UsersService,
+    private readonly appConfig: AppConfigService,
   ) {
     const secret = config.get<string>('JWT_SECRET');
     if (!secret) throw new Error('JWT_SECRET is not configured');
@@ -52,6 +56,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         message: 'User no longer exists',
       });
     }
+
+    // Con la verificación de correo activa, un token emitido antes de confirmar
+    // el correo deja de ser válido.
+    if (this.appConfig.mail.verificationRequired && !user.emailVerifiedAt) {
+      throw new AppHttpException(ErrorCode.AUTH_EMAIL_NOT_VERIFIED);
+    }
+
     return {
       id: user.id,
       email: user.email,
