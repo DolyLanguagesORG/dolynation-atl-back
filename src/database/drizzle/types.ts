@@ -41,6 +41,7 @@ export type NewPromptLog = InferInsertModel<typeof promptLogs>;
 
 export type ModeratedCategory = InferSelectModel<typeof moderatedCategories>;
 export type NewModeratedCategory = InferInsertModel<typeof moderatedCategories>;
+export type { CategoryPromptProfile } from './schema';
 
 export type CategoryDailyUsage = InferSelectModel<typeof categoryDailyUsage>;
 export type NewCategoryDailyUsage = InferInsertModel<typeof categoryDailyUsage>;

@@ -267,7 +267,17 @@ export const readingExplanations = pgTable(
   }),
 );
 
-/** Caché global persistente de categorías evaluadas por moderación automática/IA. */
+/** Blueprint editorial reutilizable de una categoría personalizada para evitar llamadas repetidas en cada lectura. */
+export interface CategoryPromptProfile {
+  displayName: string;
+  editorialGuidance: string;
+  subtopics: string[];
+  uniqueFocusAngles: string[];
+  coreConcepts: string[];
+  generatedAt: string;
+}
+
+/** Caché global persistente de categorías evaluadas por moderación automática/IA y su biblioteca de prompts. */
 export const moderatedCategories = pgTable(
   'moderated_categories',
   {
@@ -277,6 +287,8 @@ export const moderatedCategories = pgTable(
     layer: varchar('layer', { length: 30 }),
     reason: varchar('reason', { length: 120 }),
     provider: varchar('provider', { length: 30 }).notNull().default('system'),
+    promptProfile: jsonb('prompt_profile').$type<CategoryPromptProfile | null>(),
+    profileModel: varchar('profile_model', { length: 60 }),
     createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
   },

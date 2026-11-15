@@ -1,3 +1,5 @@
+import type { AIRequestOptions } from '../ia/providers/ai-provider.interface';
+
 /** Capas secuenciales del pipeline de moderación de categorías dinámicas. */
 export type ModerationLayer =
   'format' | 'blacklist' | 'regex' | 'openai_moderation' | 'perspective_api' | 'ai_moderation';
@@ -20,8 +22,10 @@ export interface CategoryModerationRejection {
 /** Opciones para ajustar la ejecución del pipeline de moderación. */
 export interface ModerationOptions {
   /**
-   * Si es `true`, omite el llamado de respaldo al LLM del sistema (MiniMax) cuando no hay
+   * Si es `true`, omite el llamado de respaldo al LLM del sistema cuando no hay
    * entrada en caché, manteniendo activos blacklist, regex, caché y APIs gratuitas.
    */
   skipAiFallback?: boolean;
+  /** Opciones internas para seleccionar proveedor o modelo de IA al moderar/generar blueprints. */
+  aiOptions?: AIRequestOptions;
 }
