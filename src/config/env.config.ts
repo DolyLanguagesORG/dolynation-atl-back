@@ -2,15 +2,41 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvSchema } from './env.validation';
 
+const DEFAULT_GOOGLE_MODEL = 'gemini-3.5-flash-lite';
+const DEFAULT_GOOGLE_ENDPOINT =
+  'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const DEFAULT_GOOGLE_DECISIONS_MODEL = 'gemini-decision-1';
+const DEFAULT_GOOGLE_DECISIONS_ENDPOINT =
+  'https://generativelanguage.googleapis.com/v1beta/decisions';
+
+function optionalTrimmedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function nonEmptyString(value: unknown, fallback: string): string {
+  return optionalTrimmedString(value) ?? fallback;
+}
+
+function positiveInt(value: unknown, fallback: number): number {
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+function validFloat(value: unknown, fallback: number): number {
+  if (typeof value === 'string' && value.trim() === '') return fallback;
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) && !Number.isNaN(num) ? num : fallback;
+}
+
 /**
- * Strongly-typed wrapper around ConfigService.
- * Use this everywhere instead of raw ConfigService.get() to get type safety.
+ * Wrapper fuertemente tipado sobre ConfigService.
+ * Úsalo en toda la aplicación en lugar de llamar a ConfigService.get() sin tipado.
  */
 @Injectable()
 export class AppConfigService {
   constructor(private readonly config: ConfigService<EnvSchema, true>) {}
 
-  // ===== App =====
+  // ===== Aplicación =====
   get nodeEnv(): EnvSchema['NODE_ENV'] {
     return this.config.get('NODE_ENV', { infer: true });
   }
@@ -30,7 +56,7 @@ export class AppConfigService {
     return this.config.get('LOG_LEVEL', { infer: true });
   }
 
-  // ===== Database =====
+  // ===== Base de datos =====
   get db(): {
     host: string;
     port: number;
@@ -49,7 +75,7 @@ export class AppConfigService {
     };
   }
 
-  // ===== Auth =====
+  // ===== Autenticación =====
   get jwt(): {
     secret: string;
     accessTtl: string;
@@ -62,7 +88,7 @@ export class AppConfigService {
     };
   }
 
-  // ===== AI =====
+  // ===== Inteligencia Artificial =====
   get ai(): {
     defaultProvider: EnvSchema['AI_DEFAULT_PROVIDER'];
     minimax: {
@@ -72,26 +98,162 @@ export class AppConfigService {
       timeoutMs: number;
       maxTokens: number;
       temperature: number;
+      reasoningEffort: EnvSchema['MINIMAX_REASONING_EFFORT'];
+    };
+    google: {
+      apiKey: string | undefined;
+      model: string;
+      endpoint: string;
+      timeoutMs: number;
+      maxTokens: number;
+      temperature: number;
+      decisions: {
+        model: string;
+        endpoint: string;
+        timeoutMs: number;
+      };
     };
     groq: {
       apiKey: string | undefined;
       model: string;
     };
   } {
+    const rawProvider: unknown = this.config.get('AI_DEFAULT_PROVIDER', { infer: true });
+    const normalizedProvider =
+      typeof rawProvider === 'string' ? rawProvider.trim().toLowerCase() : '';
+    const defaultProvider: EnvSchema['AI_DEFAULT_PROVIDER'] =
+      normalizedProvider === 'google' || normalizedProvider === 'minimax'
+        ? normalizedProvider
+        : 'minimax';
+
     return {
-      defaultProvider: this.config.get('AI_DEFAULT_PROVIDER', { infer: true }),
+      defaultProvider,
       minimax: {
-        apiKey: this.config.get('MINIMAX_API_KEY', { infer: true }),
+        apiKey: optionalTrimmedString(this.config.get('MINIMAX_API_KEY', { infer: true })),
         model: this.config.get('MINIMAX_MODEL', { infer: true }),
         endpoint: this.config.get('MINIMAX_ENDPOINT', { infer: true }),
         timeoutMs: this.config.get('MINIMAX_TIMEOUT_MS', { infer: true }),
         maxTokens: this.config.get('MINIMAX_MAX_TOKENS', { infer: true }),
         temperature: this.config.get('MINIMAX_TEMPERATURE', { infer: true }),
+        reasoningEffort: this.config.get('MINIMAX_REASONING_EFFORT', { infer: true }),
+      },
+      google: {
+        apiKey: optionalTrimmedString(this.config.get('GOOGLE_API_KEY', { infer: true })),
+        model: nonEmptyString(
+          this.config.get('GOOGLE_MODEL', { infer: true }),
+          DEFAULT_GOOGLE_MODEL,
+        ),
+        endpoint: nonEmptyString(
+          this.config.get('GOOGLE_ENDPOINT', { infer: true }),
+          DEFAULT_GOOGLE_ENDPOINT,
+        ),
+        timeoutMs: positiveInt(this.config.get('GOOGLE_TIMEOUT_MS', { infer: true }), 90_000),
+        maxTokens: positiveInt(this.config.get('GOOGLE_MAX_TOKENS', { infer: true }), 8192),
+        temperature: validFloat(this.config.get('GOOGLE_TEMPERATURE', { infer: true }), 0.7),
+        decisions: {
+          model: nonEmptyString(
+            this.config.get('GOOGLE_DECISIONS_MODEL', { infer: true }),
+            DEFAULT_GOOGLE_DECISIONS_MODEL,
+          ),
+          endpoint: nonEmptyString(
+            this.config.get('GOOGLE_DECISIONS_ENDPOINT', { infer: true }),
+            DEFAULT_GOOGLE_DECISIONS_ENDPOINT,
+          ),
+          timeoutMs: positiveInt(
+            this.config.get('GOOGLE_DECISIONS_TIMEOUT_MS', { infer: true }),
+            15_000,
+          ),
+        },
       },
       groq: {
         apiKey: this.config.get('GROQ_API_KEY', { infer: true }),
         model: this.config.get('GROQ_MODEL', { infer: true }),
       },
+    };
+  }
+
+  // ===== Correo transaccional =====
+  get mail(): {
+    host: string | undefined;
+    port: number;
+    user: string | undefined;
+    password: string | undefined;
+    from: string | undefined;
+    fromName: string | undefined;
+    secure: boolean;
+    frontendBaseUrl: string;
+    verificationRequired: boolean;
+  } {
+    return {
+      host: this.config.get('SMTP_HOST', { infer: true }),
+      port: this.config.get('SMTP_PORT', { infer: true }),
+      user: this.config.get('SMTP_USER', { infer: true }),
+      password: this.config.get('SMTP_PASSWORD', { infer: true }),
+      from: this.config.get('SMTP_FROM', { infer: true }),
+      fromName: this.config.get('SMTP_FROM_NAME', { infer: true }),
+      secure: this.config.get('SMTP_SECURE', { infer: true }),
+      frontendBaseUrl: this.config.get('FRONTEND_BASE_URL', { infer: true }),
+      verificationRequired: this.config.get('EMAIL_VERIFICATION_REQUIRED', { infer: true }),
+    };
+  }
+
+  // ===== Moderación de categorías =====
+  get moderation(): {
+    enabled: boolean;
+    aiEnabled: boolean;
+    aiProvider: 'auto' | 'openai' | 'google-decisions' | 'minimax' | 'google' | 'none';
+    dailyCategoryLimit: number;
+    scoreThreshold: number;
+    timeoutMs: number;
+    cacheTtlMs: number;
+    openaiApiKey: string | undefined;
+    openaiEndpoint: string;
+    openaiModel: string;
+  } {
+    const rawEnabled: unknown = this.config.get('CATEGORY_MODERATION_ENABLED', { infer: true });
+    const rawAiEnabled: unknown = this.config.get('CATEGORY_MODERATION_AI_ENABLED', {
+      infer: true,
+    });
+    const rawAiProvider: unknown = this.config.get('CATEGORY_MODERATION_AI_PROVIDER', {
+      infer: true,
+    });
+    const rawDailyLimit: unknown = this.config.get('CATEGORY_DAILY_LIMIT', { infer: true });
+    const rawThreshold: unknown = this.config.get('CATEGORY_MODERATION_SCORE_THRESHOLD', {
+      infer: true,
+    });
+    const rawTimeout: unknown = this.config.get('CATEGORY_MODERATION_TIMEOUT_MS', { infer: true });
+    const rawCacheTtl: unknown = this.config.get('CATEGORY_MODERATION_CACHE_TTL_MS', {
+      infer: true,
+    });
+    const rawOpenaiKey: unknown = this.config.get('OPENAI_API_KEY', { infer: true });
+    const rawOpenaiEndpoint: unknown = this.config.get('OPENAI_MODERATION_ENDPOINT', {
+      infer: true,
+    });
+    const rawOpenaiModel: unknown = this.config.get('OPENAI_MODERATION_MODEL', { infer: true });
+
+    const normalizedProvider =
+      typeof rawAiProvider === 'string' ? rawAiProvider.trim().toLowerCase() : '';
+    const aiProvider: 'auto' | 'openai' | 'google-decisions' | 'minimax' | 'google' | 'none' =
+      normalizedProvider === 'openai' ||
+      normalizedProvider === 'google-decisions' ||
+      normalizedProvider === 'minimax' ||
+      normalizedProvider === 'google' ||
+      normalizedProvider === 'none' ||
+      normalizedProvider === 'auto'
+        ? normalizedProvider
+        : 'auto';
+
+    return {
+      enabled: typeof rawEnabled === 'boolean' ? rawEnabled : rawEnabled !== 'false',
+      aiEnabled: typeof rawAiEnabled === 'boolean' ? rawAiEnabled : rawAiEnabled !== 'false',
+      aiProvider,
+      dailyCategoryLimit: positiveInt(rawDailyLimit, 20),
+      scoreThreshold: validFloat(rawThreshold, 0.45),
+      timeoutMs: positiveInt(rawTimeout, 5000),
+      cacheTtlMs: positiveInt(rawCacheTtl, 86_400_000),
+      openaiApiKey: optionalTrimmedString(rawOpenaiKey),
+      openaiEndpoint: nonEmptyString(rawOpenaiEndpoint, 'https://api.openai.com/v1/moderations'),
+      openaiModel: nonEmptyString(rawOpenaiModel, 'omni-moderation-latest'),
     };
   }
 }

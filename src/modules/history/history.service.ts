@@ -1,35 +1,56 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { readings } from '../../database/drizzle/schema';
+import { readingExplanations, readings } from '../../database/drizzle/schema';
 import type {
   HistoryReadingsSummaryDto,
   HistoryScoreEntryDto,
   HistorySummaryDto,
 } from './dto/history-summary.dto';
 
+/** Límite predeterminado de calificaciones recientes devueltas por consulta. */
 const RECENT_LIMIT = 10;
 
+/**
+ * Servicio encargado de calcular el historial agregado y las calificaciones recientes del usuario.
+ */
 @Injectable()
 export class HistoryService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  /**
+   * Obtiene el resumen completo de actividad del usuario en paralelo.
+   */
   async getSummary(userId: number): Promise<HistorySummaryDto> {
-    const [readingsSummary, recentScores] = await Promise.all([
+    const [readingsSummary, recentScores, wordsLookedUp] = await Promise.all([
       this.readingsSummaryFor(userId),
       this.recentScoresFor(userId),
+      this.wordsLookedUpFor(userId),
     ]);
 
     return {
       readings: readingsSummary,
       recentScores,
-      // Word lookups are not persisted yet; keep the field so the frontend can
-      // bind to it without a schema change once the lookup table is added.
-      wordsLookedUp: 0,
+      wordsLookedUp,
     };
   }
 
+  /**
+   * Cuenta el total histórico de explicaciones y consultas de vocabulario realizadas por el usuario.
+   */
+  private async wordsLookedUpFor(userId: number): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(readingExplanations)
+      .where(eq(readingExplanations.userId, userId));
+
+    return rows[0]?.count ?? 0;
+  }
+
+  /**
+   * Calcula totales de lecturas (pendientes, completadas, aprobadas y promedio) del usuario.
+   */
   private async readingsSummaryFor(userId: number): Promise<HistoryReadingsSummaryDto> {
     const rows = await this.db
       .select({
@@ -56,6 +77,9 @@ export class HistoryService {
     return { total, pending, completed, passed, averageScore };
   }
 
+  /**
+   * Consulta las lecturas completadas más recientes junto con su puntaje y fecha de evaluación.
+   */
   async recentScoresFor(userId: number, limit = RECENT_LIMIT): Promise<HistoryScoreEntryDto[]> {
     const rows = await this.db
       .select({

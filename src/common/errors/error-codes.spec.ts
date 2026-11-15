@@ -18,11 +18,16 @@ describe('ErrorCode catalogue', () => {
       'AUTH_TOKEN_INVALID',
       'AUTH_EMAIL_ALREADY_EXISTS',
       'AUTH_PASSWORD_TOO_WEAK',
+      'AUTH_EMAIL_NOT_VERIFIED',
+      'AUTH_EMAIL_TOKEN_INVALID',
       // Resource
       'RESOURCE_NOT_FOUND',
       'RESOURCE_FORBIDDEN',
       'READING_PENDING_LIMIT_REACHED',
       'READING_ALREADY_EVALUATED',
+      // Moderation
+      'CATEGORY_MODERATION_REJECTED',
+      'CATEGORY_DAILY_LIMIT_REACHED',
       // Validation
       'VALIDATION_ERROR',
       // Server
@@ -86,6 +91,8 @@ describe('ErrorCatalog', () => {
       ErrorCode.AUTH_TOKEN_INVALID,
       ErrorCode.AUTH_EMAIL_ALREADY_EXISTS,
       ErrorCode.AUTH_PASSWORD_TOO_WEAK,
+      ErrorCode.AUTH_EMAIL_NOT_VERIFIED,
+      ErrorCode.AUTH_EMAIL_TOKEN_INVALID,
     ];
     for (const code of authCodes) {
       expect(ErrorCatalog[code].status).toBeGreaterThanOrEqual(400);

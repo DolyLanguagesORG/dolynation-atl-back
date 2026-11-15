@@ -1,41 +1,56 @@
+import { ErrorCode } from '../../common/errors/error-codes';
 import { ContentService } from './content.service';
 import type { ReadingsService } from '../readings/readings.service';
-import { READING_CATEGORIES } from '../readings/prompt-generation';
+import type { SettingsService } from '../settings/settings.service';
 
 describe('ContentService', () => {
   let service: ContentService;
   let readings: jest.Mocked<Pick<ReadingsService, 'generate'>>;
+  let settings: jest.Mocked<Pick<SettingsService, 'getCategories'>>;
 
   beforeEach(() => {
     readings = { generate: jest.fn().mockResolvedValue({ id: 1 }) };
-    service = new ContentService(readings as unknown as ReadingsService);
+    settings = { getCategories: jest.fn().mockResolvedValue([]) };
+    service = new ContentService(
+      readings as unknown as ReadingsService,
+      settings as unknown as SettingsService,
+    );
   });
 
   describe('resolveCategory', () => {
-    it('returns the explicit category when provided', () => {
-      expect(service.resolveCategory('history')).toBe('history');
+    it('returns the explicit category when provided', async () => {
+      await expect(service.resolveCategory(42, 'history')).resolves.toBe('history');
     });
 
-    it('falls back to a value from the catalog when none provided', () => {
-      const result = service.resolveCategory();
-      expect(READING_CATEGORIES).toContain(result);
+    it('prefers user saved dynamic categories before falling back to catalog', async () => {
+      settings.getCategories.mockResolvedValue(['Astronomía Observacional']);
+      await expect(service.resolveCategory(42)).resolves.toBe('Astronomía Observacional');
+    });
+
+    it('throws RESOURCE_FORBIDDEN when requested category is omitted and user has no saved categories', async () => {
+      await expect(service.resolveCategory(42)).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({
+          code: ErrorCode.RESOURCE_FORBIDDEN,
+        }),
+      });
     });
   });
 
   describe('generate', () => {
-    it('forwards resolved options to readings.generate', async () => {
-      await service.generate(42, { category: 'technology', difficulty: 'hard' });
+    it('forwards explicit language and resolved options to readings.generate', async () => {
+      await service.generate(42, { category: 'technology', difficulty: 'hard', language: 'fr' });
       expect(readings.generate).toHaveBeenCalledWith({
         userId: 42,
-        options: { category: 'technology', difficulty: 'hard' },
+        options: { category: 'technology', difficulty: 'hard', language: 'fr' },
       });
     });
 
-    it('omits undefined difficulty and size', async () => {
-      await service.generate(42, { category: 'technology' });
+    it('omits undefined difficulty and size while forwarding language', async () => {
+      await service.generate(42, { category: 'technology', language: 'it' });
       expect(readings.generate).toHaveBeenCalledWith({
         userId: 42,
-        options: { category: 'technology' },
+        options: { category: 'technology', language: 'it' },
       });
     });
   });

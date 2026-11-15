@@ -29,7 +29,7 @@ const mockEnv: Record<string, string> = {
   DB_PASSWORD: 'test',
   DB_DATABASE: 'test',
   JWT_SECRET: 'a'.repeat(64),
-  JWT_ACCESS_TTL: '15m',
+  JWT_ACCESS_TTL: '5m',
   JWT_REFRESH_TTL: '30d',
   AI_DEFAULT_PROVIDER: 'minimax',
   MINIMAX_API_KEY: 'sk-test',
@@ -116,24 +116,24 @@ describe('POST /readings request body is fully documented', () => {
     expect(ref).toBe('#/components/schemas/GenerateReadingDto');
   });
 
-  it('GenerateReadingDto documents category (required) with the right enum and example', () => {
+  it('GenerateReadingDto documents category (required) as custom string with example and no fixed enum', () => {
     const schema = document.components?.schemas?.['GenerateReadingDto'];
     expect(schema).toBeDefined();
     const category = schema?.properties?.['category'];
     expect(category).toBeDefined();
     expect(category?.type).toBe('string');
-    expect(category?.enum).toEqual(
-      expect.arrayContaining([
-        'technology',
-        'history',
-        'education',
-        'programming',
-        'culture',
-        'pop_culture',
-      ]),
-    );
-    expect(category?.example).toBe('technology');
-    expect(schema?.required).toEqual(expect.arrayContaining(['category']));
+    expect(category?.enum).toBeUndefined();
+    expect(category?.example).toBe('Día de Muertos');
+    expect(schema?.required).toEqual(expect.arrayContaining(['category', 'language']));
+  });
+
+  it('GenerateReadingDto documents language (required) with supported 4-language enum', () => {
+    const schema = document.components?.schemas?.['GenerateReadingDto'];
+    const language = schema?.properties?.['language'];
+    expect(language).toBeDefined();
+    expect(language?.type).toBe('string');
+    expect(language?.enum).toEqual(['es', 'en', 'fr', 'it']);
+    expect(schema?.required).toEqual(expect.arrayContaining(['language']));
   });
 
   it('GenerateReadingDto documents difficulty (optional) with the right enum and example', () => {

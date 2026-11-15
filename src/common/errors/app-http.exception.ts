@@ -2,20 +2,18 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { type ErrorCode, getErrorMeta } from './error-codes';
 
 /**
- * Domain exception that carries a stable ErrorCode so the global filter
- * can render a consistent envelope.
+ * Excepción de dominio que transporta un `ErrorCode` estable para que el filtro global
+ * genere un sobre de error consistente.
  *
- * Use this instead of `new NotFoundException('...')` etc. so that the API
- * contract uses a documented code (and never leaks the original message
- * to clients when the error is server-side).
+ * Usa esta clase en lugar de `new NotFoundException('...')` o equivalentes de NestJS
+ * para garantizar que la API responda con un código documentado y nunca filtre
+ * detalles internos del servidor al cliente.
  */
 export class AppHttpException extends HttpException {
   constructor(code: ErrorCode, details?: Record<string, unknown>) {
     const meta = getErrorMeta(code);
-    // Pass the public message + code + details in the body. The filter reads
-    // them and renders the final envelope, but NestJS's built-in exception
-    // log (which runs before our filter) also reads them, so we include
-    // everything the consumer might want.
+    // Envía el mensaje público, código y detalles dentro del cuerpo. El filtro los lee
+    // para construir el sobre final, y el logger nativo de NestJS también los inspecciona.
     const body: { code: ErrorCode; message: string; details?: Record<string, unknown> } = {
       code: meta.code,
       message: meta.message,
@@ -29,11 +27,11 @@ export class AppHttpException extends HttpException {
 }
 
 /**
- * Helper to keep the existing call sites readable.
- *   throw httpError(ErrorCode.RESOURCE_NOT_FOUND, { id: 42 });
+ * Helper conciso para lanzar errores de dominio desde servicios y controladores.
+ * Ejemplo: `throw httpError(ErrorCode.RESOURCE_NOT_FOUND, { id: 42 });`
  */
 export const httpError = (code: ErrorCode, details?: Record<string, unknown>): AppHttpException =>
   new AppHttpException(code, details);
 
-// Re-export HttpStatus for controllers that still need it.
+// Reexporta HttpStatus para controladores que aún lo requieran.
 export { HttpStatus };

@@ -6,10 +6,14 @@ import type { NewPromptLog } from '../../../database/drizzle/types';
 import { and, desc, eq, isNull } from 'drizzle-orm';
 import type { PromptEvent } from './prompt-log.types';
 
+/**
+ * Servicio de registro y consulta de bitácoras de generación, evaluación y explicaciones con IA.
+ */
 @Injectable()
 export class PromptLogService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  /** Registra un evento exitoso de interacción con la IA junto con su semilla y parámetros. */
   async logPromptSuccess(
     event: PromptEvent,
     userId: number,
@@ -29,6 +33,7 @@ export class PromptLogService {
     await this.db.insert(promptLogs).values(row);
   }
 
+  /** Registra un fallo ocurrido durante la generación o procesamiento de una petición de IA. */
   async logPromptError(
     event: PromptEvent,
     userId: number | null,
@@ -46,6 +51,7 @@ export class PromptLogService {
     await this.db.insert(promptLogs).values(row);
   }
 
+  /** Consulta los intentos fallidos recientes asociados a un usuario. */
   async recentFailedAttempts(
     userId: number,
     limit = 5,

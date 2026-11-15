@@ -1,62 +1,69 @@
 /**
- * Canonical error codes for the Dolynglish API.
+ * Códigos de error canónicos para la API de Dolynglish.
  *
- * Every error returned to the client uses one of these codes. The string value
- * (not the TS enum number) is what the client sees, so we can add or rename
- * codes without breaking compatibility.
+ * Cada error devuelto al cliente utiliza uno de estos códigos. El cliente recibe
+ * el valor en texto (no un índice numérico) para mantener compatibilidad al agregar
+ * o reorganizar códigos.
  *
- * Conventions:
- *   - 4xx codes = client did something wrong
- *   - 5xx codes = server side issue (the client did nothing wrong)
- *   - NEVER leak internal details (SQL strings, file paths, secrets) into the
- *     `message` field. The full error is logged server-side; the client gets
- *     a generic, safe message plus a stable code.
+ * Convenciones:
+ *   - Códigos 4xx = error del cliente o de validación/permisos
+ *   - Códigos 5xx = fallo del servidor o de dependencias externas
+ *   - NUNCA filtrar detalles internos (SQL, rutas, secretos) en el campo `message`.
  */
 export enum ErrorCode {
-  // === Auth (4xx) ===
+  // === Autenticación (4xx) ===
   AUTH_INVALID_CREDENTIALS = 'AUTH_INVALID_CREDENTIALS',
   AUTH_TOKEN_EXPIRED = 'AUTH_TOKEN_EXPIRED',
   AUTH_TOKEN_INVALID = 'AUTH_TOKEN_INVALID',
   AUTH_EMAIL_ALREADY_EXISTS = 'AUTH_EMAIL_ALREADY_EXISTS',
   AUTH_PASSWORD_TOO_WEAK = 'AUTH_PASSWORD_TOO_WEAK',
   AUTH_UNAUTHORIZED = 'AUTH_UNAUTHORIZED',
+  AUTH_EMAIL_NOT_VERIFIED = 'AUTH_EMAIL_NOT_VERIFIED',
+  AUTH_EMAIL_TOKEN_INVALID = 'AUTH_EMAIL_TOKEN_INVALID',
 
-  // === Resources (4xx) ===
+  // === Recursos (4xx) ===
   RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
   RESOURCE_FORBIDDEN = 'RESOURCE_FORBIDDEN',
 
-  // === Readings domain (4xx) ===
+  // === Dominio de lecturas (4xx) ===
   READING_PENDING_LIMIT_REACHED = 'READING_PENDING_LIMIT_REACHED',
   READING_ALREADY_EVALUATED = 'READING_ALREADY_EVALUATED',
   READING_DAILY_LIMIT_REACHED = 'READING_DAILY_LIMIT_REACHED',
   EXPLANATION_DAILY_LIMIT_REACHED = 'EXPLANATION_DAILY_LIMIT_REACHED',
 
-  // === Subscriptions (4xx) ===
+  // === Suscripciones e idiomas (4xx) ===
   SUBSCRIPTION_REQUIRED = 'SUBSCRIPTION_REQUIRED',
   SUBSCRIPTION_INVALID_TIER = 'SUBSCRIPTION_INVALID_TIER',
   SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED = 'SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED',
+  SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED = 'SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED',
   SUBSCRIPTION_LANGUAGE_NOT_ALLOWED = 'SUBSCRIPTION_LANGUAGE_NOT_ALLOWED',
+  LANGUAGE_NOT_SELECTED = 'LANGUAGE_NOT_SELECTED',
+  LANGUAGE_CHANGE_LOCKED = 'LANGUAGE_CHANGE_LOCKED',
 
-  // === Validation (4xx) ===
+  // === Categorías y moderación (4xx) ===
+  CATEGORY_MODERATION_REJECTED = 'CATEGORY_MODERATION_REJECTED',
+  CATEGORY_DAILY_LIMIT_REACHED = 'CATEGORY_DAILY_LIMIT_REACHED',
+
+  // === Validación (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
 
-  // === Server (5xx) ===
+  // === Servidor (5xx) ===
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
 }
 
+/** Metadatos asociados a cada código del catálogo de errores. */
 export interface ErrorMeta {
   code: ErrorCode;
-  /** HTTP status code, returned to the client. */
+  /** Código de estado HTTP devuelto al cliente. */
   status: number;
-  /** Human-readable message, safe to expose. NEVER includes SQL, paths, or secrets. */
+  /** Mensaje legible seguro para exponer. Nunca incluye SQL, rutas ni secretos. */
   message: string;
 }
 
 /**
- * Builder for ErrorMeta entries. Using a function (instead of inline object
- * literals) makes typescript-eslint accept the assignment: the parameter is
- * typed as the union ErrorCode, which the specific enum member satisfies.
+ * Constructor auxiliar de entradas `ErrorMeta`. Usar una función (en lugar de objetos
+ * literales directos) hace que typescript-eslint acepte la asignación de enum.
  */
 const entry = (code: ErrorCode, status: number, message: string): ErrorMeta => ({
   code,
@@ -65,13 +72,12 @@ const entry = (code: ErrorCode, status: number, message: string): ErrorMeta => (
 });
 
 /**
- * The full catalogue. Every ErrorCode MUST have an entry here.
- * Tests in error-codes.spec.ts assert this exhaustively.
+ * Catálogo completo de errores. Todo `ErrorCode` DEBE tener una entrada aquí;
+ * las pruebas en `error-codes.spec.ts` verifican esta cobertura de forma exhaustiva.
  */
-// The indexed access [ErrorCode.X]: entry(...) compares the enum member
-// type with the Record key type. typescript-eslint flags this as
-// no-unsafe-enum-comparison even though every entry IS keyed by its own
-// ErrorCode value — a known false positive for string/numeric enums.
+// El acceso indexado `[ErrorCode.X]: entry(...)` compara el miembro del enum
+// con el tipo clave de `Record`. typescript-eslint marca esto como
+// `no-unsafe-enum-comparison` aunque cada clave coincida con su propio `ErrorCode`.
 /* eslint-disable @typescript-eslint/no-unsafe-enum-comparison */
 export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
   [ErrorCode.AUTH_INVALID_CREDENTIALS]: entry(
@@ -103,6 +109,16 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.AUTH_UNAUTHORIZED,
     401,
     'Authentication is required to access this resource',
+  ),
+  [ErrorCode.AUTH_EMAIL_NOT_VERIFIED]: entry(
+    ErrorCode.AUTH_EMAIL_NOT_VERIFIED,
+    403,
+    'Your email address has not been confirmed yet. Please check your inbox and confirm it to continue.',
+  ),
+  [ErrorCode.AUTH_EMAIL_TOKEN_INVALID]: entry(
+    ErrorCode.AUTH_EMAIL_TOKEN_INVALID,
+    400,
+    'This link is invalid, has expired or has already been used. Please request a new one.',
   ),
   [ErrorCode.RESOURCE_NOT_FOUND]: entry(
     ErrorCode.RESOURCE_NOT_FOUND,
@@ -149,10 +165,35 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     400,
     'You have exceeded the category limit for your subscription plan',
   ),
+  [ErrorCode.SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED]: entry(
+    ErrorCode.SUBSCRIPTION_LANGUAGE_LIMIT_EXCEEDED,
+    400,
+    'You have exceeded the maximum number of languages allowed by your subscription plan',
+  ),
   [ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED]: entry(
     ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED,
     403,
-    'Your subscription plan only allows English readings. Upgrade your plan to unlock more languages',
+    'The requested language is not enabled in your active subscription language selection',
+  ),
+  [ErrorCode.LANGUAGE_NOT_SELECTED]: entry(
+    ErrorCode.LANGUAGE_NOT_SELECTED,
+    403,
+    'You must select your learning languages in settings before generating readings',
+  ),
+  [ErrorCode.LANGUAGE_CHANGE_LOCKED]: entry(
+    ErrorCode.LANGUAGE_CHANGE_LOCKED,
+    403,
+    'Your selected languages are locked. You can change them once per year or unlock an immediate change with a payment',
+  ),
+  [ErrorCode.CATEGORY_MODERATION_REJECTED]: entry(
+    ErrorCode.CATEGORY_MODERATION_REJECTED,
+    400,
+    'One or more categories were rejected by content moderation',
+  ),
+  [ErrorCode.CATEGORY_DAILY_LIMIT_REACHED]: entry(
+    ErrorCode.CATEGORY_DAILY_LIMIT_REACHED,
+    429,
+    'Daily limit for adding or evaluating new custom categories has been reached. Try again tomorrow.',
   ),
   [ErrorCode.VALIDATION_ERROR]: entry(
     ErrorCode.VALIDATION_ERROR,
@@ -174,10 +215,12 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
 
 const ERROR_CODE_VALUES: ErrorCode[] = Object.values(ErrorCode);
 
+/** Valida si un valor desconocido corresponde a un `ErrorCode` reconocido. */
 export function isErrorCode(value: unknown): value is ErrorCode {
   return typeof value === 'string' && ERROR_CODE_VALUES.includes(value as ErrorCode);
 }
 
+/** Obtiene los metadatos HTTP de un código de error, usando `INTERNAL_ERROR` como respaldo. */
 export function getErrorMeta(code: ErrorCode): ErrorMeta {
   return ErrorCatalog[code] ?? ErrorCatalog[ErrorCode.INTERNAL_ERROR];
 }

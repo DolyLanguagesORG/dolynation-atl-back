@@ -13,6 +13,9 @@ import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
 import { AdminCategoryDto, AdminUserRowDto } from './dto/admin-category.dto';
 
+/**
+ * Controlador para rutas de administración (`/admin`), protegido por `AdminGuard`.
+ */
 @ApiTags('admin')
 @ApiBearerAuth('access-token')
 @UseGuards(AdminGuard)
@@ -20,24 +23,42 @@ import { AdminCategoryDto, AdminUserRowDto } from './dto/admin-category.dto';
 export class AdminController {
   constructor(private readonly admin: AdminService) {}
 
+  /**
+   * Devuelve el catálogo global de categorías y subcategorías.
+   */
   @Get('categories')
   @ApiOperation({
-    summary: 'List all global categories (admin-only)',
+    summary: 'Listar todas las categorías globales (solo administradores)',
     description:
-      'Returns the global catalog of categories with their subcategories. Mutating the catalog requires a schema-backed table — tracked as a follow-up.',
+      'Devuelve el catálogo global de categorías junto con sus subcategorías. Modificar el catálogo requiere una tabla respaldada en el esquema (pendiente de seguimiento).',
   })
   @ApiOkResponseOfArray(AdminCategoryDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  @ApiForbiddenResponse({ description: 'User is not an administrator', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'El usuario no es administrador',
+    type: ApiErrorDto,
+  })
   listCategories(): ApiResponse<AdminCategoryDto[]> {
     return apiOk('Admin categories', this.admin.listCategories());
   }
 
+  /**
+   * Devuelve el listado reciente de usuarios para supervisión administrativa.
+   */
   @Get('users')
-  @ApiOperation({ summary: 'List users for supervision (admin-only)' })
+  @ApiOperation({ summary: 'Listar usuarios para supervisión (solo administradores)' })
   @ApiOkResponseOfArray(AdminUserRowDto)
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
-  @ApiForbiddenResponse({ description: 'User is not an administrator', type: ApiErrorDto })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'El usuario no es administrador',
+    type: ApiErrorDto,
+  })
   async listUsers(): Promise<ApiResponse<AdminUserRowDto[]>> {
     const list = await this.admin.listUsers();
     return apiOk('Admin users', list);

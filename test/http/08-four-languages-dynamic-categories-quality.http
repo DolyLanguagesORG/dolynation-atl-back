@@ -1,0 +1,150 @@
+### Calidad pedagógica en 4 idiomas (es, en, fr, it), 3 dificultades y categorías dinámicas
+@baseUrl = http://localhost:57011/api/v1
+@email = qa-4langs-{{$timestamp}}@example.com
+@password = QaPassword123!
+
+### 8.1 Registro con dolly_pro y categorías dinámicas personalizadas
+# @name reg
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "fullName": "QA Four Languages Quality"
+}
+
+@token = {{reg.response.body.data.tokens.accessToken}}
+
+###
+POST {{baseUrl}}/user/subscription
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "tier": "dolly_pro"
+}
+
+###
+PUT {{baseUrl}}/settings/categories
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "categories": ["Música Clásica", "Gastronomía Molecular", "Quantum Computing", "Arquitectura Gótica"]
+}
+
+### 8.2 Español - Fácil (A1-A2) con categoría dinámica con acentos -> revisar vocabulario y coherencia
+# @name esEasy
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "Gastronomía Molecular",
+  "language": "es",
+  "difficulty": "easy",
+  "size": "short"
+}
+
+### Pedir explicación de vocabulario en español
+POST {{baseUrl}}/readings/{{esEasy.response.body.data.id}}/explanations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "word": "emulsión",
+  "context": "{{esEasy.response.body.data.description}}"
+}
+
+### Evaluar lectura española (libera pendiente #1)
+POST {{baseUrl}}/readings/{{esEasy.response.body.data.id}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "El texto explica de forma sencilla cómo técnicas científicas transforman texturas en la cocina."
+}
+
+### 8.3 Inglés - Medio (B1-B2)
+# @name enMed
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "Quantum Computing",
+  "language": "en",
+  "difficulty": "medium",
+  "size": "medium"
+}
+
+###
+POST {{baseUrl}}/readings/{{enMed.response.body.data.id}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "The reading explains how quantum principles and qubits solve specialized computational problems."
+}
+
+### 8.4 Francés - Medio/Difícil con categoría dinámica -> comprobar coherencia, acentos y léxico francés
+# @name frHard
+POST {{baseUrl}}/readings
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "category": "Música Clásica",
+  "language": "fr",
+  "difficulty": "hard",
+  "size": "long"
+}
+
+### Pedir explicación de vocabulario en francés
+POST {{baseUrl}}/readings/{{frHard.response.body.data.id}}/explanations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "word": "harmonie"
+}
+
+### Evaluar lectura francesa
+POST {{baseUrl}}/readings/{{frHard.response.body.data.id}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "Le texte analyse la structure harmonique et l'évolution historique de la musique classique."
+}
+
+### 8.5 Italiano vía POST /content/generate (sin especificar category, usa categoría dinámica del usuario)
+# @name itContent
+POST {{baseUrl}}/content/generate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "language": "it",
+  "difficulty": "medium",
+  "size": "medium"
+}
+
+### Pedir explicación de vocabulario en italiano
+POST {{baseUrl}}/readings/{{itContent.response.body.data.id}}/explanations
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "word": "struttura"
+}
+
+### Evaluar lectura italiana
+POST {{baseUrl}}/readings/{{itContent.response.body.data.id}}/evaluate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "userResponse": "L'articolo esplora le caratteristiche tecniche e il vocabolario fondamentale dell'argomento."
+}

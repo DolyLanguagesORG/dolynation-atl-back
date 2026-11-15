@@ -26,7 +26,7 @@ describe('OpenAPI schema documentation', () => {
             DB_PASSWORD: 'test',
             DB_DATABASE: 'test',
             JWT_SECRET: 'a'.repeat(64),
-            JWT_ACCESS_TTL: '15m',
+            JWT_ACCESS_TTL: '5m',
             JWT_REFRESH_TTL: '30d',
             AI_DEFAULT_PROVIDER: 'minimax',
             MINIMAX_API_KEY: 'sk-test',
@@ -90,23 +90,25 @@ describe('OpenAPI schema documentation', () => {
       const schema = schemas()['RefreshTokenDto'];
       expect(schema).toBeDefined();
       const props = (schema.properties ?? {}) as Record<string, unknown>;
-      expect(props['refreshToken']).toBeDefined();
+      expect(props['refreshToken']).toMatchObject({ minLength: 1 });
     });
   });
 
   describe('readings DTOs', () => {
-    it('documents GenerateReadingDto with category (required), difficulty, and size', () => {
+    it('documents GenerateReadingDto with category (required), language (required), difficulty, and size', () => {
       const schema = schemas()['GenerateReadingDto'];
       expect(schema).toBeDefined();
       const props = (schema.properties ?? {}) as Record<string, unknown>;
       expect(props['category']).toBeDefined();
+      expect(props['language']).toBeDefined();
       expect(props['difficulty']).toBeDefined();
       expect(props['size']).toBeDefined();
+      expect(schema.required).toEqual(expect.arrayContaining(['category', 'language']));
       // The previous version of this DTO had a `seed` field that was a
       // no-op; this regression test pins its removal.
       expect(props['seed']).toBeUndefined();
       // And a `cefrLevel` field that the service now derives internally —
-      // it must NOT leak into the public spec, only `category`+`difficulty`+`size`.
+      // it must NOT leak into the public spec, only `category`+`language`+`difficulty`+`size`.
       expect(props['cefrLevel']).toBeUndefined();
     });
 
@@ -180,6 +182,11 @@ describe('OpenAPI schema documentation', () => {
       requiresBodySchema('post', '/api/v1/auth/login', 'LoginDto');
     });
 
+    it('POST /auth/refresh and /auth/logout reference RefreshTokenDto', () => {
+      requiresBodySchema('post', '/api/v1/auth/refresh', 'RefreshTokenDto');
+      requiresBodySchema('post', '/api/v1/auth/logout', 'RefreshTokenDto');
+    });
+
     it('POST /readings references GenerateReadingDto', () => {
       requiresBodySchema('post', '/api/v1/readings', 'GenerateReadingDto');
     });
@@ -192,8 +199,62 @@ describe('OpenAPI schema documentation', () => {
       requiresBodySchema('post', '/api/v1/readings/{id}/explanations', 'CreateExplanationDto');
     });
 
+    it('PATCH /readings/explanations/{explanationId}/glossary references ToggleGlossarySaveDto', () => {
+      requiresBodySchema(
+        'patch',
+        '/api/v1/readings/explanations/{explanationId}/glossary',
+        'ToggleGlossarySaveDto',
+      );
+    });
+
     it('POST /ia/chat references ChatRequestDto', () => {
       requiresBodySchema('post', '/api/v1/ia/chat', 'ChatRequestDto');
+    });
+  });
+
+  describe('response and settings DTO consistency', () => {
+    it('AuthUserViewDto exposes subscriptionTier and nullable fullName matching PublicUser', () => {
+      const schema = schemas()['AuthUserViewDto'];
+      expect(schema).toBeDefined();
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+      expect(props['subscriptionTier']).toBeDefined();
+      expect(props['subscriptionTier']?.['nullable']).toBe(true);
+      expect(props['fullName']?.['nullable']).toBe(true);
+    });
+
+    it('ReadingCategoryDto documents subcategories as ReadingSubcategoryDto objects', () => {
+      const schema = schemas()['ReadingCategoryDto'];
+      expect(schema).toBeDefined();
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+      const subItems = props['subcategories']?.['items'] as { $ref?: string } | undefined;
+      expect(subItems?.$ref).toContain('ReadingSubcategoryDto');
+      expect(schemas()['ReadingSubcategoryDto']).toBeDefined();
+    });
+
+    it('UpdateCategoriesDto accepts free-text custom topics without fixed enum constraint', () => {
+      const schema = schemas()['UpdateCategoriesDto'];
+      expect(schema).toBeDefined();
+      const props = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+      const items = props['categories']?.['items'] as Record<string, unknown> | undefined;
+      expect(items?.['enum']).toBeUndefined();
+    });
+
+    it('ExplanationResultDto and GlossaryEntryDto expose structured breakdown, alternatives and contexts', () => {
+      const explanationSchema = schemas()['ExplanationResultDto'];
+      const glossarySchema = schemas()['GlossaryEntryDto'];
+      expect(explanationSchema).toBeDefined();
+      expect(glossarySchema).toBeDefined();
+      expect(schemas()['WordBreakdownItemDto']).toBeDefined();
+      expect(schemas()['AlternativeExpressionDto']).toBeDefined();
+      expect(schemas()['UsageContextDto']).toBeDefined();
+
+      const expProps = (explanationSchema.properties ?? {}) as Record<string, unknown>;
+      expect(expProps['wordBreakdown']).toBeDefined();
+      expect(expProps['otherWaysToSay']).toBeDefined();
+      expect(expProps['otherContexts']).toBeDefined();
+      expect(expProps['literalMeaning']).toBeDefined();
+      expect(expProps['isSaved']).toBeDefined();
+      expect(expProps['cached']).toBeDefined();
     });
   });
 });

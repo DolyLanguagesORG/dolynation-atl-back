@@ -1,34 +1,28 @@
 import type {
-  CategoryConfig,
-  CategoryId,
   CefrLevel,
   ContentPerspective,
   ContentType,
   DifficultyConfig,
   DifficultyLevel,
+  ExplorationLens,
   TextSize,
   TextSizeConfig,
 } from './catalog.types';
 
+/** Mapeo de niveles de dificultad generales a los niveles CEFR correspondientes. */
 export const CEFR_BY_DIFFICULTY: Record<DifficultyLevel, readonly CefrLevel[]> = {
   easy: ['A2', 'B1'],
   medium: ['B2'],
   hard: ['C1', 'C2'],
 };
 
-export const READING_CATEGORIES: readonly CategoryId[] = [
-  'technology',
-  'history',
-  'education',
-  'programming',
-  'culture',
-  'pop_culture',
-] as const;
-
+/** Niveles de dificultad aceptados al generar una lectura. */
 export const READING_DIFFICULTIES: readonly DifficultyLevel[] = ['easy', 'medium', 'hard'] as const;
 
+/** Tamaños de texto soportados para las lecturas generadas. */
 export const READING_TEXT_SIZES: readonly TextSize[] = ['short', 'medium', 'long'] as const;
 
+/** Niveles CEFR completos expuestos como referencia en las opciones de generación. */
 export const READING_CEFR_LEVELS: readonly CefrLevel[] = [
   'A1',
   'A2',
@@ -38,12 +32,14 @@ export const READING_CEFR_LEVELS: readonly CefrLevel[] = [
   'C2',
 ] as const;
 
+/** Configuración de rango de palabras y tiempo estimado de lectura por tamaño. */
 export const TEXT_SIZES: Record<TextSize, TextSizeConfig> = {
   short: { min: 80, max: 120, label: 'short', readingTime: '~1 min' },
   medium: { min: 150, max: 220, label: 'medium', readingTime: '~2 min' },
   long: { min: 250, max: 350, label: 'long', readingTime: '~3 min' },
 };
 
+/** Lineamientos pedagógicos de vocabulario y gramática enviados al LLM según dificultad. */
 export const DIFFICULTY_LEVELS: Record<DifficultyLevel, DifficultyConfig> = {
   easy: {
     id: 'easy',
@@ -77,89 +73,7 @@ export const DIFFICULTY_LEVELS: Record<DifficultyLevel, DifficultyConfig> = {
   },
 };
 
-export const CATEGORIES: CategoryConfig[] = [
-  {
-    id: 'technology',
-    name: 'Technology',
-    subcategories: [
-      { id: 'smartphones', name: 'Smartphones and Mobile Technology' },
-      { id: 'ai', name: 'Artificial Intelligence' },
-      { id: 'cybersecurity', name: 'Cybersecurity' },
-      { id: 'social_media', name: 'Social Media' },
-      { id: 'robotics', name: 'Robotics' },
-      { id: 'cloud', name: 'Cloud Computing' },
-      { id: 'iot', name: 'Internet of Things' },
-      { id: 'vr_ar', name: 'Virtual and Augmented Reality' },
-    ],
-  },
-  {
-    id: 'history',
-    name: 'History',
-    subcategories: [
-      { id: 'ancient', name: 'Ancient Civilizations' },
-      { id: 'medieval', name: 'Medieval Period' },
-      { id: 'wars', name: 'Wars and Conflicts' },
-      { id: 'industrial', name: 'Industrial Revolution' },
-      { id: 'cultural', name: 'Cultural Movements' },
-      { id: 'inventions', name: 'Famous Inventions' },
-      { id: 'exploration', name: 'Exploration and Discovery' },
-    ],
-  },
-  {
-    id: 'education',
-    name: 'Education',
-    subcategories: [
-      { id: 'learning', name: 'Learning Methods' },
-      { id: 'online', name: 'Online Education' },
-      { id: 'study', name: 'Study Techniques' },
-      { id: 'psychology', name: 'Educational Psychology' },
-      { id: 'languages', name: 'Language Learning' },
-      { id: 'skills', name: 'Skills Development' },
-    ],
-  },
-  {
-    id: 'programming',
-    name: 'Programming',
-    subcategories: [
-      { id: 'web', name: 'Web Development' },
-      { id: 'databases', name: 'Databases' },
-      { id: 'algorithms', name: 'Algorithms' },
-      { id: 'software', name: 'Software Engineering' },
-      { id: 'mobile', name: 'Mobile Development' },
-      { id: 'devops', name: 'DevOps' },
-      { id: 'security', name: 'Software Security' },
-    ],
-  },
-  {
-    id: 'culture',
-    name: 'Culture',
-    subcategories: [
-      { id: 'music', name: 'Music' },
-      { id: 'art', name: 'Visual Arts' },
-      { id: 'literature', name: 'Literature' },
-      { id: 'traditions', name: 'Traditions and Customs' },
-      { id: 'cinema', name: 'Cinema' },
-      { id: 'gastronomy', name: 'Gastronomy' },
-      { id: 'architecture', name: 'Architecture' },
-    ],
-  },
-  {
-    id: 'pop_culture',
-    name: 'Pop Culture',
-    subcategories: [
-      { id: 'anime_manga', name: 'Anime and Manga' },
-      { id: 'disney', name: 'Disney' },
-      { id: 'marvel', name: 'Marvel Universe' },
-      { id: 'dc', name: 'DC Universe' },
-      { id: 'pixar', name: 'Pixar Animation' },
-      { id: 'gaming', name: 'Video Games' },
-      { id: 'kpop', name: 'K-Pop and Asian Pop Culture' },
-      { id: 'scifi_fantasy', name: 'Sci-Fi and Fantasy Franchises' },
-      { id: 'fun_facts', name: 'Fun Facts and Trivia' },
-    ],
-  },
-];
-
+/** Descripciones textuales en inglés de los tipos de contenido para construir prompts. */
 export const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
   historical_fact: 'a historical fact or event',
   interesting_discovery: 'an interesting discovery or finding',
@@ -170,6 +84,7 @@ export const CONTENT_TYPE_DESCRIPTIONS: Record<ContentType, string> = {
   practical_application: 'a practical application or real-world use case',
 };
 
+/** Descripciones textuales en inglés de las perspectivas analíticas para los prompts. */
 export const PERSPECTIVE_DESCRIPTIONS: Record<ContentPerspective, string> = {
   causes: 'the causes and origins',
   effects: 'the effects and consequences',
@@ -180,69 +95,7 @@ export const PERSPECTIVE_DESCRIPTIONS: Record<ContentPerspective, string> = {
   challenges: 'the challenges and difficulties',
 };
 
-export const UNIQUE_FOCUS_BY_CATEGORY: Record<CategoryId, string[]> = {
-  technology: [
-    'its impact on daily life',
-    'how it changed communication',
-    'its unexpected origins',
-    'common misconceptions about it',
-    'its environmental implications',
-    'how it affects human behavior',
-    'its role in solving global problems',
-    'the pioneers who made it possible',
-  ],
-  history: [
-    'the key figures involved',
-    'the lasting impact on society',
-    'lesser-known facts',
-    'how it shaped the modern world',
-    'the cultural context of the time',
-    'what we can learn from it today',
-    'the causes that led to it',
-    'how different groups experienced it',
-  ],
-  education: [
-    'research-backed strategies',
-    'common mistakes to avoid',
-    'how technology is changing it',
-    'cultural differences in approach',
-    'the psychology behind it',
-    'practical tips for implementation',
-    'historical development of methods',
-    'future trends and innovations',
-  ],
-  programming: [
-    'real-world applications',
-    'common pitfalls and how to avoid them',
-    'evolution of best practices',
-    'performance considerations',
-    'security implications',
-    'how beginners can get started',
-    'advanced techniques for experts',
-    'industry standards and conventions',
-  ],
-  culture: [
-    'historical origins and evolution',
-    'regional variations',
-    'influence on modern society',
-    'famous examples and masterpieces',
-    'the creative process behind it',
-    'social and political context',
-    'cross-cultural comparisons',
-    'preservation and future challenges',
-  ],
-  pop_culture: [
-    'behind-the-scenes secrets and fun facts',
-    'the creative minds and studios behind it',
-    'its cultural impact and global influence',
-    'interesting trivia fans might not know',
-    'how it revolutionized its genre',
-    'memorable characters and why fans love them',
-    'connections between different franchises',
-    'the evolution from original to modern adaptations',
-  ],
-};
-
+/** Enfoques narrativos genéricos usados como respaldo para categorías personalizadas. */
 export const GENERIC_UNIQUE_FOCUS: readonly string[] = [
   'its unexpected origins and early history',
   'how it quietly impacts daily life and society',
@@ -256,15 +109,68 @@ export const GENERIC_UNIQUE_FOCUS: readonly string[] = [
   'a surprising real-world application in an unexpected field',
 ];
 
-export const CREATIVE_PERSPECTIVE_ANGLES: readonly string[] = [
-  'an unexpected accident or mistake that led to a major discovery',
-  'how microscopic or hidden details drive the entire system',
-  'a historical controversy or fierce debate between competing ideas',
-  'an overlooked human story or unsung contributor behind the scene',
-  'an environmental or ecological ripple effect few people realize',
-  'a paradox where the intuitive assumption turns out to be wrong',
-  'how an ancient technique is being revived with modern science',
-  'a surprising connection between two seemingly unrelated fields',
-  'the psychological or behavioral impact on how humans think or act',
-  'a future dilemma or ethical question raised by recent breakthroughs',
+/** Dimensiones versátiles de exploración para evitar introducciones repetitivas y ampliar el enfoque por categoría. */
+export const VERSATILE_EXPLORATION_LENSES: readonly ExplorationLens[] = [
+  {
+    id: 'iconic_figure_or_thinker',
+    label: 'Single Figure, Creator, or Thinker Spotlight',
+    guidance:
+      'Zoom into ONE specific philosopher, artist, chronicler, innovator, or key figure inside this category (for example, Plato alone, Nietzsche alone, or José Guadalupe Posada), examining one concrete idea or work rather than summarizing the entire field.',
+    weight: 2,
+  },
+  {
+    id: 'pop_culture_cinema_media',
+    label: 'Cinema, Literature & Pop Culture Impact',
+    guidance:
+      'Explore how ONE specific film, animated movie, book, series, museum show, or music work portrays, spreads, or transforms this category (for example, Coco for Día de Muertos or philosophical sci-fi cinema), highlighting cultural details and accuracy.',
+    weight: 2,
+  },
+  {
+    id: 'regional_contrast_variation',
+    label: 'Regional Contrast & Lesser-Known Variations',
+    guidance:
+      'Contrast two distinct regions, local customs, or competing schools of thought within this exact category (for example, northern vs southern traditions or contrasting communities), revealing differences most outsiders miss.',
+    weight: 2,
+  },
+  {
+    id: 'specific_historical_episode',
+    label: 'Specific Year, Controversy, or Turning Point',
+    guidance:
+      'Focus tightly on ONE specific historical year, festival episode, cultural debate, institutional shift, or revival strictly centered on this category, without drifting into unrelated macro-history.',
+    weight: 2,
+  },
+  {
+    id: 'surprising_trivia_and_facts',
+    label: 'Surprising Trivia & Counter-Intuitive Facts',
+    guidance:
+      'Share genuinely surprising, "you probably did not know this" facts, hidden science, craftsmanship economics, or common misconceptions strictly about this category—skipping all beginner definitions.',
+    weight: 2,
+  },
+  {
+    id: 'single_artifact_symbol_or_paradox',
+    label: 'Single Artifact, Ritual, or Thought Experiment',
+    guidance:
+      'Dedicate the entire piece to unpacking ONE concrete symbol, traditional item, culinary detail, ritual, or famous paradox/thought experiment within this category.',
+    weight: 2,
+  },
+  {
+    id: 'modern_evolution_and_debate',
+    label: 'Modern Shifts, Globalization & Debates',
+    guidance:
+      'Examine how this category is changing today through urban life, digital culture, modern ethics, tourism, or generational shifts while remaining rooted in the core subject.',
+    weight: 2,
+  },
+  {
+    id: 'fresh_foundational_angle',
+    label: 'Nuanced Non-Cliché Foundations',
+    guidance:
+      'Offer a fresh, intellectually engaging perspective on essential roots of this category without using generic encyclopedia openings or boilerplate "blend of X and Y" templates.',
+    weight: 1,
+    requiresFreshBasics: true,
+  },
 ];
+
+/** Ángulos creativos sugeridos durante la etapa intermedia de enriquecimiento temático. */
+export const CREATIVE_PERSPECTIVE_ANGLES: readonly string[] = VERSATILE_EXPLORATION_LENSES.map(
+  (lens) => lens.guidance,
+);

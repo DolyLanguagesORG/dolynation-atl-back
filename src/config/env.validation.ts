@@ -1,12 +1,16 @@
 import { z } from 'zod';
 
+/** Convierte cadenas vacías en `undefined` para aplicar valores por defecto de forma segura. */
+const emptyToUndefined = (value: unknown): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
 /**
- * Centralised Zod schema for all environment variables.
- * Imported by ConfigModule and used to validate process.env at boot.
- * Failures abort the boot with a clear list of missing/invalid vars.
+ * Esquema centralizado de Zod para todas las variables de entorno.
+ * Lo importa AppModule en ConfigModule para validar `process.env` al arrancar.
+ * Si falta una variable obligatoria o es inválida, aborta el arranque con el detalle.
  */
-const envSchema = z.object({
-  // ===== App =====
+const baseEnvSchema = z.object({
+  // ===== Aplicación =====
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3333),
   HOST: z.string().default('0.0.0.0'),
@@ -25,7 +29,7 @@ const envSchema = z.object({
   GIT_COMMIT: z.string().default('unknown'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 
-  // ===== Database =====
+  // ===== Base de datos =====
   DB_HOST: z.string().default('127.0.0.1'),
   DB_PORT: z.coerce.number().int().positive().default(5432),
   DB_USER: z.string().default('dolynglish_user'),
@@ -36,35 +40,180 @@ const envSchema = z.object({
     .optional()
     .transform((v) => v === 'true' || v === '1'),
 
-  // ===== Auth (JWT) =====
+  // ===== Autenticación (JWT) =====
   JWT_SECRET: z.string().min(32).default('change-me-in-production-please-32-chars-minimum'),
-  JWT_ACCESS_TTL: z.string().default('15m'),
-  JWT_REFRESH_TTL: z.string().default('30d'),
+  // `emptyToUndefined` importa: una variable de GitHub que no existe llega
+  // como cadena vacia, y sin esto `AI_DEFAULT_PROVIDER=` haria fallar el enum
+  // en el arranque (y `JWT_ACCESS_TTL=` dejaria los tokens sin expirar).
+  JWT_ACCESS_TTL: z.preprocess(emptyToUndefined, z.string().default('5m')),
+  JWT_REFRESH_TTL: z.preprocess(emptyToUndefined, z.string().default('30d')),
 
-  // ===== AI providers =====
-  // Solo `minimax` esta registrado en la factoria de proveedores
-  // (`AIProviderFactory`). Aceptar `groq` aqui pero no ahi hacia que la app
-  // arrancara y reventara en runtime al pedir una lectura.
-  AI_DEFAULT_PROVIDER: z.enum(['minimax']).default('minimax'),
+  // ===== Proveedores de IA =====
+  // Proveedores registrados en `AIProviderFactory`: `minimax` y `google`.
+  // `groq` se conserva solo como configuración legada sin proveedor activo en la factoría.
+  AI_DEFAULT_PROVIDER: z.preprocess(
+    emptyToUndefined,
+    z.enum(['minimax', 'google']).default('minimax'),
+  ),
 
-  // MiniMax M3
-  MINIMAX_API_KEY: z.string().optional(),
-  MINIMAX_MODEL: z.string().default('MiniMax-M3'),
-  MINIMAX_ENDPOINT: z.string().url().default('https://api.minimax.io/v1/chat/completions'),
-  MINIMAX_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
-  MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
-  MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
+  // MiniMax
+  MINIMAX_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  // `emptyToUndefined` en todas: una variable o secret de GitHub que no
+  // existe llega como cadena vacia. Sin el preprocess, `MINIMAX_MODEL=`
+  // mandaria un modelo inexistente al API y `MINIMAX_REASONING_EFFORT=`
+  // reventaria el enum en el arranque.
+  MINIMAX_MODEL: z.preprocess(emptyToUndefined, z.string().default('MiniMax-M2.7')),
+  MINIMAX_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://api.minimax.io/v1/chat/completions'),
+  ),
+  MINIMAX_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
+  MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(8192),
+  MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.7),
+  MINIMAX_REASONING_EFFORT: z.preprocess(
+    emptyToUndefined,
+    z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
+  ),
 
-  // Groq (legacy — kept for reference)
-  GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().default('qwen/qwen3-32b'),
+  // Google AI Studio (Gemini — compatible con Chat Completions de OpenAI)
+  GOOGLE_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  GOOGLE_MODEL: z.preprocess(emptyToUndefined, z.string().default('gemini-3.5-flash-lite')),
+  GOOGLE_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .url()
+      .default('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
+  ),
+  GOOGLE_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(90000),
+  ),
+  GOOGLE_MAX_TOKENS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(8192),
+  ),
+  GOOGLE_TEMPERATURE: z.preprocess(emptyToUndefined, z.coerce.number().min(0).max(2).default(0.7)),
+  // Google Decisions API (`gemini-decision-1`, 0 tokens de salida para compuertas condicionales)
+  GOOGLE_DECISIONS_MODEL: z.preprocess(emptyToUndefined, z.string().default('gemini-decision-1')),
+  GOOGLE_DECISIONS_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://generativelanguage.googleapis.com/v1beta/decisions'),
+  ),
+  GOOGLE_DECISIONS_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(15000),
+  ),
+
+  // Groq (legado — conservado como referencia)
+  GROQ_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  GROQ_MODEL: z.preprocess(emptyToUndefined, z.string().default('qwen/qwen3-32b')),
+
+  // ===== Moderación de categorías dinámicas =====
+  CATEGORY_MODERATION_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || (v.trim().toLowerCase() !== 'false' && v.trim() !== '0')),
+  CATEGORY_MODERATION_AI_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v === undefined || (v.trim().toLowerCase() !== 'false' && v.trim() !== '0')),
+  CATEGORY_MODERATION_AI_PROVIDER: z.preprocess(
+    emptyToUndefined,
+    z.enum(['auto', 'openai', 'google-decisions', 'minimax', 'google', 'none']).default('auto'),
+  ),
+  CATEGORY_DAILY_LIMIT: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(20),
+  ),
+  CATEGORY_MODERATION_SCORE_THRESHOLD: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().min(0.05).max(1).default(0.45),
+  ),
+  CATEGORY_MODERATION_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(15000),
+  ),
+  CATEGORY_MODERATION_CACHE_TTL_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(86_400_000),
+  ),
+
+  // OpenAI Moderation API (endpoint gratuito `omni-moderation-latest`; opcional)
+  OPENAI_API_KEY: z
+    .string()
+    .optional()
+    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
+  OPENAI_MODERATION_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://api.openai.com/v1/moderations'),
+  ),
+  OPENAI_MODERATION_MODEL: z.preprocess(
+    emptyToUndefined,
+    z.string().default('omni-moderation-latest'),
+  ),
+
+  // ===== Correo transaccional (SMTP) =====
+  // Opcionales: sin ellas la app arranca igual y el envío falla con un mensaje
+  // claro ("falta SMTP_HOST/SMTP_USER") cuando se intenta enviar un correo.
+  // El proveedor es solo configuración: Mailtrap Sandbox en desarrollo y
+  // Brevo en staging/producción funcionan con el mismo cliente SMTP.
+  SMTP_HOST: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().default(587)),
+  SMTP_USER: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_PASSWORD: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_FROM: z.preprocess(emptyToUndefined, z.string().optional()),
+  SMTP_FROM_NAME: z.preprocess(emptyToUndefined, z.string().optional()),
+  // `true` solo para TLS implícito (puerto 465). Con 587/2525 se usa STARTTLS.
+  SMTP_SECURE: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
+  ),
+
+  // Base pública del frontend: se usa para construir los enlaces de los correos
+  // (confirmación de cuenta y restablecimiento de contraseña).
+  FRONTEND_BASE_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('http://localhost:3000'),
+  ),
+
+  // Cuando es `true`, iniciar sesión (y refrescar el token) exige que el
+  // usuario haya confirmado su correo. Desactivado por defecto para no
+  // bloquear las cuentas existentes en desarrollo.
+  EMAIL_VERIFICATION_REQUIRED: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
+  ),
+});
+
+/**
+ * El provider de Google lanza `GOOGLE_API_KEY is not configured` en runtime.
+ * Sin esta regla, la app arrancaba igual y **cada** generacion de lectura
+ * fallaba en silencio (el `AiDegradedService` la atrapaba y degradaba).
+ * Con la regla, la app no arranca y el error dice exactamente que falta.
+ */
+const envSchema = baseEnvSchema.superRefine((env, ctx) => {
+  if (env.AI_DEFAULT_PROVIDER === 'google' && !env.GOOGLE_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['GOOGLE_API_KEY'],
+      message:
+        'GOOGLE_API_KEY es obligatoria cuando AI_DEFAULT_PROVIDER=google: sin ella el proveedor lanza "GOOGLE_API_KEY is not configured" en cada generacion de lectura',
+    });
+  }
 });
 
 export type EnvSchema = z.infer<typeof envSchema>;
 
 /**
- * Validate raw env object. Returns the parsed (and coerced) object on success.
- * Throws a ZodError with detailed messages on failure.
+ * Valida el objeto crudo de variables de entorno.
+ * Devuelve el objeto validado (con conversiones de tipo aplicadas) o lanza un ZodError.
  */
 export function validateEnv(raw: Record<string, unknown>): EnvSchema {
   return envSchema.parse(raw);

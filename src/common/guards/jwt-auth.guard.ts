@@ -5,9 +5,9 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import type { AuthUser } from '../decorators/current-user.decorator';
 
 /**
- * Global JWT auth guard. Apply once at the AppModule level (APP_GUARD).
- * Routes decorated with @Public() bypass the guard.
- * Routes without it require a valid Bearer JWT in the Authorization header.
+ * Guardia global de autenticación JWT aplicado en `CommonModule` (`APP_GUARD`).
+ * Las rutas marcadas con `@Public()` omiten esta verificación; todas las demás
+ * exigen un JWT Bearer válido en la cabecera `Authorization`.
  */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -15,6 +15,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     super();
   }
 
+  /** Permite el acceso directo si el método o controlador tiene el metadato `@Public()`. */
   override canActivate(
     context: ExecutionContext,
   ): boolean | Promise<boolean> | Observable<boolean> {
@@ -26,6 +27,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
+  /** Normaliza la falta o invalidez del token lanzando `UnauthorizedException`. */
   override handleRequest<T = AuthUser>(err: unknown, user: T): T {
     if (err || !user) {
       throw new UnauthorizedException({
@@ -37,5 +39,5 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
   }
 }
 
-// Imported here to satisfy the type-only import requirement
+// Importado aquí para cumplir con la regla de importaciones solo de tipos.
 import type { Observable } from 'rxjs';

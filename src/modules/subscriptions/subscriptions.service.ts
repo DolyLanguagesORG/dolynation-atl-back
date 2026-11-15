@@ -1,10 +1,22 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, eq, gte, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readingExplanations, readings, users, userSettings } from '../../database/drizzle/schema';
+import type {
+  AlternativeExpressionItem,
+  ExplanationEntryType,
+  ReadingExplanation,
+  UsageContextItem,
+  WordBreakdownItem,
+} from '../../database/drizzle/types';
+import { isSupportedLanguageId, SUPPORTED_LANGUAGE_IDS } from '../settings/settings.constants';
+import {
+  resolveActiveLanguages,
+  sanitizeSelectedLanguages,
+} from '../settings/language-selection.helpers';
 import {
   getStartOfDayInTimeZone,
   isValidSubscriptionTier,
@@ -16,37 +28,42 @@ import {
 import type { SubscriptionPlanItemDto } from './dto/subscription-plan-response.dto';
 import type { UserSubscriptionResponseDto } from './dto/user-subscription-response.dto';
 
+/**
+ * Servicio encargado de consultar planes, medir consumo diario y hacer cumplir las cuotas de suscripción.
+ */
 @Injectable()
 export class SubscriptionsService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
-  /**
-   * Return all subscription plans and their feature limits.
-   */
-  getPlans(): SubscriptionPlanItemDto[] {
-    return SUBSCRIPTION_TIERS.map((tier) => {
-      const plan = SUBSCRIPTION_PLANS[tier];
-      return {
-        id: plan.id,
-        name: plan.name,
-        description: plan.description,
-        maxCategories: plan.maxCategories,
-        allowedLanguages: [...plan.allowedLanguages],
-        dailyReadingsLimit: plan.dailyReadingsLimit,
-        dailyQuestionsLimit: plan.dailyQuestionsLimit,
-      };
-    });
+  private toPlanDto(plan: SubscriptionPlanConfig): SubscriptionPlanItemDto {
+    return {
+      id: plan.id,
+      name: plan.name,
+      description: plan.description,
+      maxCategories: plan.maxCategories,
+      maxLanguages: plan.maxLanguages,
+      allowedLanguages: [...plan.allowedLanguages],
+      dailyReadingsLimit: plan.dailyReadingsLimit,
+      dailyQuestionsLimit: plan.dailyQuestionsLimit,
+    };
   }
 
   /**
-   * Get the plan configuration for a given tier.
+   * Devuelve todos los planes de suscripción disponibles y sus límites por nivel.
+   */
+  getPlans(): SubscriptionPlanItemDto[] {
+    return SUBSCRIPTION_TIERS.map((tier) => this.toPlanDto(SUBSCRIPTION_PLANS[tier]));
+  }
+
+  /**
+   * Obtiene la configuración de un plan para un nivel determinado.
    */
   getPlan(tier: SubscriptionTier): SubscriptionPlanConfig {
     return SUBSCRIPTION_PLANS[tier];
   }
 
   /**
-   * Fetch user subscription status, current plan details, and today's usage counters.
+   * Obtiene el estado de suscripción del usuario, el detalle del plan actual y sus contadores de uso diario.
    */
   async getUserSubscription(userId: number): Promise<UserSubscriptionResponseDto> {
     const userRows = await this.db
@@ -64,31 +81,32 @@ export class SubscriptionsService {
     const tier: SubscriptionTier | null = isValidSubscriptionTier(rawTier) ? rawTier : null;
     const planConfig = tier ? SUBSCRIPTION_PLANS[tier] : null;
 
-    // Active categories count from user_settings
+    // Cantidad de categorías e idiomas activos configurados en user_settings
     const settingsRows = await this.db
-      .select({ categories: userSettings.preferredCategories })
+      .select({
+        categories: userSettings.preferredCategories,
+        selectedLanguages: userSettings.selectedLanguages,
+      })
       .from(userSettings)
       .where(eq(userSettings.userId, userId))
       .limit(1);
     const categoriesCount = settingsRows[0]?.categories?.length ?? 0;
+    const savedLanguages = sanitizeSelectedLanguages(settingsRows[0]?.selectedLanguages);
+    const activeLanguages = planConfig
+      ? resolveActiveLanguages(savedLanguages, planConfig.maxLanguages)
+      : [];
 
-    // Start of the current day in America/Mexico_City
+    // Inicio del día actual en la zona horaria America/Mexico_City
     const startOfDay = getStartOfDayInTimeZone();
 
-    // Readings created today
+    // Lecturas creadas hoy (incluye eliminadas lógicamente para impedir reinicio manual del cupo diario)
     const readingsCountResult = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
-      .where(
-        and(
-          eq(readings.userId, userId),
-          gte(readings.createdAt, startOfDay),
-          isNull(readings.deletedAt),
-        ),
-      );
+      .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));
     const readingsCreatedToday = readingsCountResult[0]?.count ?? 0;
 
-    // Questions/explanations asked today
+    // Preguntas o explicaciones solicitadas hoy
     const questionsCountResult = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readingExplanations)
@@ -108,20 +126,12 @@ export class SubscriptionsService {
     return {
       hasSubscription: tier !== null,
       tier,
-      plan: planConfig
-        ? {
-            id: planConfig.id,
-            name: planConfig.name,
-            description: planConfig.description,
-            maxCategories: planConfig.maxCategories,
-            allowedLanguages: [...planConfig.allowedLanguages],
-            dailyReadingsLimit: planConfig.dailyReadingsLimit,
-            dailyQuestionsLimit: planConfig.dailyQuestionsLimit,
-          }
-        : null,
+      plan: planConfig ? this.toPlanDto(planConfig) : null,
       usage: {
         categoriesCount,
         categoriesLimit: planConfig?.maxCategories ?? null,
+        languagesCount: activeLanguages.length,
+        languagesLimit: planConfig?.maxLanguages ?? null,
         readingsCreatedToday,
         readingsLimit,
         readingsRemainingToday,
@@ -133,7 +143,7 @@ export class SubscriptionsService {
   }
 
   /**
-   * Allow user to select or change their subscription tier manually.
+   * Permite al usuario seleccionar o cambiar manualmente su nivel de suscripción.
    */
   async selectSubscription(
     userId: number,
@@ -160,8 +170,8 @@ export class SubscriptionsService {
   }
 
   /**
-   * Enforces that the user has an active subscription plan selected.
-   * Throws 403 SUBSCRIPTION_REQUIRED if the user has no subscription.
+   * Exige que el usuario tenga un plan de suscripción activo seleccionado.
+   * Lanza `403 SUBSCRIPTION_REQUIRED` si el usuario no cuenta con suscripción.
    */
   async assertSubscriptionActive(userId: number): Promise<SubscriptionPlanConfig> {
     const userRows = await this.db
@@ -186,7 +196,7 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether candidate categories count respects the plan's limit.
+   * Valida si la cantidad de categorías candidatas respeta el límite del plan del usuario.
    */
   async assertCategoryLimit(userId: number, candidateCount: number): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
@@ -201,41 +211,73 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether a requested language is permitted for the user's plan.
+   * Valida que el idioma solicitado sea válido para el sistema, haya sido elegido por el usuario
+   * en su perfil/configuración y pertenezca a los cupos activos de su suscripción.
    */
   async assertLanguageAllowed(userId: number, language: string): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     const lang = language.trim().toLowerCase();
-    if (!plan.allowedLanguages.includes(lang)) {
+
+    if (!isSupportedLanguageId(lang) || !plan.allowedLanguages.includes(lang)) {
       throw new AppHttpException(ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED, {
-        message: `Your current plan '${plan.name}' only allows texts in: ${plan.allowedLanguages.join(', ')}. Upgrade your subscription to access all languages.`,
+        message: `Language '${language}' is not supported. Supported languages: ${plan.allowedLanguages.join(', ')}.`,
         plan: plan.id,
         allowedLanguages: plan.allowedLanguages,
+        maxLanguages: plan.maxLanguages,
         requestedLanguage: language,
+      });
+    }
+
+    // Los planes con acceso total a los 4 idiomas (dolly_pro) no requieren selección ni bloqueo previo
+    if (plan.maxLanguages >= SUPPORTED_LANGUAGE_IDS.length) {
+      return;
+    }
+
+    const settingsRows = await this.db
+      .select({ selectedLanguages: userSettings.selectedLanguages })
+      .from(userSettings)
+      .where(eq(userSettings.userId, userId))
+      .limit(1);
+
+    const savedLanguages = sanitizeSelectedLanguages(settingsRows[0]?.selectedLanguages);
+    if (savedLanguages.length === 0) {
+      throw new AppHttpException(ErrorCode.LANGUAGE_NOT_SELECTED, {
+        message: `You must select up to ${plan.maxLanguages} study language(s) in settings before generating readings.`,
+        plan: plan.id,
+        maxLanguages: plan.maxLanguages,
+        allowedLanguages: plan.allowedLanguages,
+        requestedLanguage: lang,
+      });
+    }
+
+    const activeLanguages = resolveActiveLanguages(savedLanguages, plan.maxLanguages);
+    if (!activeLanguages.includes(lang)) {
+      throw new AppHttpException(ErrorCode.SUBSCRIPTION_LANGUAGE_NOT_ALLOWED, {
+        message: `Language '${lang}' is not among your active selected languages (${activeLanguages.join(', ')}) allowed by plan '${plan.name}' (limit: ${plan.maxLanguages}).`,
+        plan: plan.id,
+        maxLanguages: plan.maxLanguages,
+        activeLanguages,
+        configuredLanguages: savedLanguages,
+        requestedLanguage: lang,
       });
     }
   }
 
   /**
-   * Validates whether the user has remaining daily reading quota today.
+   * Valida si el usuario aún dispone de cuota diaria para generar una nueva lectura hoy.
    */
   async assertCanGenerateReading(userId: number): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     if (plan.dailyReadingsLimit === null) {
-      return; // Unlimited
+      return; // Sin límite diario en el plan actual
     }
 
     const startOfDay = getStartOfDayInTimeZone();
+    // Cuenta todas las lecturas generadas hoy, incluso eliminadas lógicamente, para evitar evasión del límite diario
     const result = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
-      .where(
-        and(
-          eq(readings.userId, userId),
-          gte(readings.createdAt, startOfDay),
-          isNull(readings.deletedAt),
-        ),
-      );
+      .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));
 
     const used = result[0]?.count ?? 0;
     if (used >= plan.dailyReadingsLimit) {
@@ -249,12 +291,12 @@ export class SubscriptionsService {
   }
 
   /**
-   * Validates whether the user has remaining daily reading explanation quota today.
+   * Valida si el usuario aún dispone de cuota diaria para solicitar explicaciones hoy.
    */
   async assertCanAskQuestion(userId: number): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     if (plan.dailyQuestionsLimit === null) {
-      return; // Unlimited
+      return; // Sin límite diario en el plan actual
     }
 
     const startOfDay = getStartOfDayInTimeZone();
@@ -277,22 +319,55 @@ export class SubscriptionsService {
   }
 
   /**
-   * Records a reading explanation question in reading_explanations.
+   * Registra una consulta de explicación sobre una lectura en `reading_explanations`.
+   * Acepta metadatos estructurados para la ayuda contextual y el glosario persistente.
    */
   async recordExplanation(input: {
     readingId: number;
     userId: number;
     word: string;
+    normalizedWord?: string;
+    entryType?: ExplanationEntryType;
+    language?: string;
+    difficulty?: string;
     context?: string;
+    literalMeaning?: string | null;
     explanation: string;
-  }): Promise<void> {
-    await this.db.insert(readingExplanations).values({
+    wordBreakdown?: WordBreakdownItem[];
+    otherWaysToSay?: AlternativeExpressionItem[];
+    otherContexts?: UsageContextItem[];
+  }): Promise<ReadingExplanation | undefined> {
+    const normalizedWord =
+      input.normalizedWord ?? input.word.trim().replace(/\s+/g, ' ').toLowerCase();
+    const entryType: ExplanationEntryType =
+      input.entryType ?? (normalizedWord.includes(' ') ? 'phrase' : 'word');
+    const now = new Date();
+    const query = this.db.insert(readingExplanations).values({
       readingId: input.readingId,
       userId: input.userId,
       word: input.word,
+      normalizedWord,
+      entryType,
+      language: input.language ?? 'en',
+      difficulty: input.difficulty ?? 'medium',
       context: input.context ?? null,
+      literalMeaning: input.literalMeaning ?? null,
       explanation: input.explanation,
-      createdAt: new Date(),
-    });
+      wordBreakdown: input.wordBreakdown ?? [],
+      otherWaysToSay: input.otherWaysToSay ?? [],
+      otherContexts: input.otherContexts ?? [],
+      createdAt: now,
+      updatedAt: now,
+    }) as unknown as {
+      returning?: () => Promise<ReadingExplanation[]>;
+    } & Promise<unknown>;
+
+    if (typeof query.returning === 'function') {
+      const rows = await query.returning();
+      return rows[0];
+    }
+
+    await query;
+    return undefined;
   }
 }

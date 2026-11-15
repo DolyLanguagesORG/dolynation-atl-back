@@ -33,20 +33,22 @@ describe('ContentController', () => {
 
   it('delegates generation to ContentService and envelops the response', async () => {
     const result = await controller.generate(user, {
+      language: 'es',
       category: 'technology',
       difficulty: 'medium',
     });
     expect(result.message).toBe('Reading generated successfully');
     expect(result.data).toEqual(reading);
     expect(content.generate).toHaveBeenCalledWith(42, {
+      language: 'es',
       category: 'technology',
       difficulty: 'medium',
     });
   });
 
-  it('accepts an empty body (all defaults)', async () => {
-    const result = await controller.generate(user, {});
+  it('forwards mandatory language when category, difficulty and size use defaults', async () => {
+    const result = await controller.generate(user, { language: 'fr' });
     expect(result.data).toEqual(reading);
-    expect(content.generate).toHaveBeenCalledWith(42, {});
+    expect(content.generate).toHaveBeenCalledWith(42, { language: 'fr' });
   });
 });

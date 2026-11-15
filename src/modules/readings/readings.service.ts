@@ -1,38 +1,74 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AIProviderFactory } from '../ia/providers/ai-provider.factory';
-import { PromptBuilderService } from './prompt-generation';
+import type { AIRequestOptions, ProviderName } from '../ia/providers/ai-provider.interface';
+import { GoogleDecisionsService } from '../ia/decisions/google-decisions.service';
+import { LANGUAGE_NAMES, PromptBuilderService, pickExplorationLens } from './prompt-generation';
 import type {
   DifficultyLevel,
-  EnrichedTopic,
+  GeneratedPrompt,
   RandomPromptParams,
+  RecentReadingSummary,
+  TextSize,
 } from './prompt-generation/catalog.types';
 import {
+  buildPurityCorrectionNote,
+  buildPurityFallbackSequence,
+  inspectTextsPurity,
+  scorePuritySeverity,
+} from './language-purity.guard';
+import {
   AiResponseParserService,
-  type GeneratedText,
   type EvaluationResult,
+  type GeneratedText,
 } from './ai-response-parser.service';
 import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
+import { MIN_USER_CATEGORIES } from '../settings/settings.constants';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CategoryModerationService } from '../moderation/category-moderation.service';
+import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { readings } from '../../database/drizzle/schema';
-import type { Reading, NewReading } from '../../database/drizzle/types';
-import { eq, and, isNull, desc } from 'drizzle-orm';
+import { readingExplanations, readings } from '../../database/drizzle/schema';
+import type {
+  ExplanationEntryType,
+  NewReading,
+  Reading,
+  ReadingExplanation,
+} from '../../database/drizzle/types';
+import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
+import type { ExplanationResultDto, GlossaryEntryDto } from '../../common/types/api-response.dto';
 import {
   GenerateReadingDto,
   READING_CEFR_LEVELS,
   READING_DIFFICULTIES,
   type EvaluateReadingDto,
+  type GlossaryQueryDto,
 } from './dto/readings.dto';
 
+/** Límite máximo de lecturas pendientes que un usuario puede acumular simultáneamente. */
 const MAX_PENDING = 3;
 
+/** Máximo de lecturas recientes en la categoría comparadas para evitar repetición. */
+const RECENT_READINGS_LIMIT = 10;
+
+/** Máximo de regeneraciones adicionales cuando Google Decisions detecta alta similitud semántica. */
+const MAX_SEMANTIC_REGENERATIONS = 2;
+
+/** Puntaje mínimo (escala 0..4) para considerar que la lectura expresa lo mismo que otra reciente. */
+const SEMANTIC_SIMILARITY_REJECT_SCORE = 2.35;
+
+/**
+ * Servicio principal de lecturas: coordina enriquecimiento dinámico por lectura,
+ * deduplicación semántica sobre las últimas 10 lecturas, guardia de pureza lingüística y evaluación.
+ */
 @Injectable()
 export class ReadingsService {
+  private readonly logger = new Logger(ReadingsService.name);
+
   constructor(
     private readonly factory: AIProviderFactory,
     private readonly promptGen: PromptBuilderService,
@@ -41,22 +77,36 @@ export class ReadingsService {
     private readonly users: UsersService,
     private readonly settings: SettingsService,
     private readonly subscriptions: SubscriptionsService,
+    private readonly moderation: CategoryModerationService,
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
+    @Optional() private readonly googleDecisions?: GoogleDecisionsService,
   ) {}
 
-  async generate(input: { userId: number; options: GenerateReadingDto }): Promise<Reading> {
+  /**
+   * Genera una nueva lectura adaptada a las preferencias, idioma y plan de suscripción del usuario.
+   */
+  async generate(input: {
+    userId: number;
+    options: GenerateReadingDto;
+    aiOptions?: AIRequestOptions;
+  }): Promise<Reading> {
     const user = await this.users.findById(input.userId);
     if (!user) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
     }
 
-    // Subscription & Daily Limits check
+    // Validación de suscripción activa y límites diarios del plan
     await this.subscriptions.assertSubscriptionActive(input.userId);
     await this.subscriptions.assertCanGenerateReading(input.userId);
 
-    // Target language validation against active subscription plan
+    // Validación estricta del idioma objetivo obligatorio frente a la selección activa del plan
     const targetLanguage =
-      input.options.language ?? (await this.settings.getLanguage(input.userId));
+      typeof input.options.language === 'string' ? input.options.language.trim().toLowerCase() : '';
+    if (!targetLanguage) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        message: 'Target reading language is required (es, en, fr, or it).',
+      });
+    }
     await this.subscriptions.assertLanguageAllowed(input.userId, targetLanguage);
 
     const pendingCount = await this.getPendingCount(input.userId);
@@ -64,12 +114,24 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.READING_PENDING_LIMIT_REACHED, { max: MAX_PENDING });
     }
 
-    // Dynamic Category Validation:
-    // The requested category MUST be among the user's preferred categories configured in their profile.
+    // Validación dinámica de categoría:
+    // La categoría solicitada DEBE estar dentro de las preferencias configuradas por el usuario.
     const userCategories = await this.settings.getCategories(input.userId);
+    if (userCategories.length < MIN_USER_CATEGORIES) {
+      throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+        category: input.options.category,
+        minCategories: MIN_USER_CATEGORIES,
+        currentCount: userCategories.length,
+        message: `You must configure at least ${MIN_USER_CATEGORIES} categories in your preferences before generating readings.`,
+        userCategories,
+      });
+    }
     const requestedCategory = input.options.category.trim();
+    const requestedKey = canonicalCategoryKey(requestedCategory);
     const isAllowed = userCategories.some(
-      (c) => c.trim().toLowerCase() === requestedCategory.toLowerCase(),
+      (c) =>
+        c.trim().toLowerCase() === requestedCategory.toLowerCase() ||
+        (requestedKey.length > 0 && canonicalCategoryKey(c) === requestedKey),
     );
 
     if (!isAllowed) {
@@ -80,90 +142,97 @@ export class ReadingsService {
       });
     }
 
-    // Retrieve recent reading titles in this category to prevent duplicate or repetitive content
-    const recentReadings = await this.db
-      .select({ title: readings.title })
-      .from(readings)
-      .where(
-        and(
-          eq(readings.userId, input.userId),
-          eq(readings.category, input.options.category),
-          isNull(readings.deletedAt),
-        ),
-      )
-      .orderBy(desc(readings.createdAt))
-      .limit(20);
-    const recentTitles = recentReadings.map((r) => r.title);
+    await this.moderation.assertCategoryAllowedForReading(requestedCategory);
+
+    // Recuperamos hasta las últimas 10 lecturas (título y descripción) para evitar repetición temática y semántica
+    const recentSummaries = await this.fetchRecentReadingSummaries(
+      input.userId,
+      input.options.category,
+      requestedCategory,
+    );
 
     const requestedDifficulty: DifficultyLevel = input.options.difficulty ?? 'medium';
+    const targetSize: TextSize = input.options.size ?? 'medium';
+    const decisionsEnabled =
+      recentSummaries.length > 0 && Boolean(this.googleDecisions?.isConfigured());
+    const maxAttempts = 1 + (decisionsEnabled ? MAX_SEMANTIC_REGENERATIONS : 0);
 
-    // Step 1: Intermediate Prompt — Brainstorming & Topic Enrichment
-    // Asks the AI for a novel, specific subtopic, perspective angle, and key concepts,
-    // explicitly providing the last up to 20 titles to forbid repetition.
-    const fallbackTopic = this.promptGen.buildFallbackEnrichedTopic(
-      input.options.category,
-      requestedDifficulty,
-    );
-    const enrichmentPrompt = this.promptGen.buildEnrichmentPrompt({
-      category: input.options.category,
-      difficulty: requestedDifficulty,
-      recentTitles,
-      language: targetLanguage,
-    });
+    const usedLensIds = new Set<string>();
+    const rejectedAngles: string[] = [];
+    let chosenPrompt: GeneratedPrompt | null = null;
+    let parsed: GeneratedText | null = null;
+    let lowestSimilarityScore = Number.POSITIVE_INFINITY;
 
-    let enrichedTopic: EnrichedTopic;
-    try {
-      const rawEnrichment = await this.factory.getFullResponse([
-        { role: 'system', content: enrichmentPrompt.systemPrompt },
-        { role: 'user', content: enrichmentPrompt.userPrompt },
-      ]);
-      enrichedTopic = this.promptGen.parseEnrichmentResponse(rawEnrichment, fallbackTopic);
-    } catch (_err) {
-      enrichedTopic = fallbackTopic;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const { prompt, lensId } = await this.buildDynamicReadingPrompt({
+        category: input.options.category,
+        difficulty: requestedDifficulty,
+        size: targetSize,
+        language: targetLanguage,
+        recentReadings: recentSummaries,
+        usedLensIds,
+        rejectedAngles,
+        ...(input.aiOptions !== undefined ? { aiOptions: input.aiOptions } : {}),
+      });
+      usedLensIds.add(lensId);
+
+      const candidate = await this.executeWithPurityGuard<GeneratedText>({
+        systemPrompt: prompt.systemPrompt,
+        userPrompt: prompt.userPrompt,
+        targetLanguage,
+        ...(input.aiOptions !== undefined ? { aiOptions: input.aiOptions } : {}),
+        parse: (raw) =>
+          this.parser.parseGeneratedText(raw, [input.options.category, ...userCategories]),
+        extractTexts: (item) => [item.title, item.description, item.content],
+        onPrimaryError: () => {
+          throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_chat' });
+        },
+        onParseError: async (err) => {
+          await this.promptLogs.logPromptError(
+            'text_generation_failed',
+            input.userId,
+            (err as Error).message,
+            prompt.seed,
+          );
+          throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_parse' });
+        },
+      });
+
+      const { repetitive, score } = await this.evaluateSemanticRepetition(
+        requestedCategory,
+        candidate,
+        recentSummaries,
+      );
+
+      if (!repetitive) {
+        chosenPrompt = prompt;
+        parsed = candidate;
+        break;
+      }
+
+      if (score < lowestSimilarityScore) {
+        lowestSimilarityScore = score;
+        chosenPrompt = prompt;
+        parsed = candidate;
+      }
+
+      rejectedAngles.push(
+        candidate.description
+          ? `"${candidate.title}" — ${candidate.description}`
+          : `"${candidate.title}"`,
+      );
+      this.logger.log(
+        `Regenerating reading for "${requestedCategory}" (attempt ${attempt + 1}/${maxAttempts}): Google Decisions similarity score ${score.toFixed(2)} >= ${SEMANTIC_SIMILARITY_REJECT_SCORE}`,
+      );
     }
 
-    // Step 2: Final Text Generation Prompt
-    // Builds the full generation prompt with pedagogical constraints (CEFR, vocabulary, grammar)
-    // and feeds the enriched subtopic and key concepts.
-    const params: RandomPromptParams = this.promptGen.generateRandomParams({
-      category: input.options.category,
-      difficulty: requestedDifficulty,
-      size: input.options.size ?? 'medium',
-      subcategories: [enrichedTopic.subtopic],
-      uniqueFocusElement: enrichedTopic.uniqueFocusElement,
-      keyConcepts: enrichedTopic.keyConcepts,
-      avoidTopics: recentTitles,
-      language: targetLanguage,
-    });
-    const prompt = this.promptGen.buildPrompt(params);
-
-    let rawResponse: string;
-    try {
-      rawResponse = await this.factory.getFullResponse([
-        { role: 'system', content: prompt.systemPrompt },
-        { role: 'user', content: prompt.userPrompt },
-      ]);
-    } catch (_err) {
+    if (!chosenPrompt || !parsed) {
       throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_chat' });
     }
 
-    let parsed: GeneratedText;
-    try {
-      parsed = this.parser.parseGeneratedText(rawResponse, [
-        input.options.category,
-        ...userCategories,
-      ]);
-    } catch (err) {
-      await this.promptLogs.logPromptError(
-        'text_generation_failed',
-        input.userId,
-        (err as Error).message,
-        prompt.seed,
-      );
-      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_parse' });
-    }
+    const prompt = chosenPrompt;
 
-    // Enforce the requested difficulty and category so database state stays consistent
+    // Forzamos la dificultad y categoría solicitadas para mantener consistencia en la base de datos
     if (parsed.difficulty !== requestedDifficulty) {
       const previousDifficulty = parsed.difficulty;
       parsed = { ...parsed, difficulty: requestedDifficulty };
@@ -186,6 +255,7 @@ export class ReadingsService {
       content: parsed.content,
       category: parsed.category,
       difficulty: parsed.difficulty,
+      language: targetLanguage,
       wordCount,
       status: 'pending',
       createdAt: new Date(),
@@ -202,6 +272,7 @@ export class ReadingsService {
       prompt.seed,
       {
         category: prompt.params.category,
+        language: targetLanguage,
         difficulty: prompt.params.difficulty,
         size: prompt.params.size,
         subcategories: prompt.params.subcategories,
@@ -209,12 +280,15 @@ export class ReadingsService {
         perspective: prompt.params.perspective,
         uniqueFocusElement: prompt.params.uniqueFocusElement,
         keyConcepts: prompt.params.keyConcepts,
-        enrichedSubtopic: enrichedTopic.subtopic,
+        enrichedSubtopic: prompt.params.subcategories[0],
       },
     );
     return inserted;
   }
 
+  /**
+   * Busca una lectura activa por identificador verificando pertenencia al usuario y suscripción vigente.
+   */
   async findById(id: number, userId: number): Promise<Reading> {
     await this.subscriptions.assertSubscriptionActive(userId);
     const rows = await this.db
@@ -229,6 +303,7 @@ export class ReadingsService {
     return reading;
   }
 
+  /** Lista las lecturas pendientes del usuario ordenadas de la más reciente a la más antigua. */
   async listPending(userId: number): Promise<Reading[]> {
     await this.subscriptions.assertSubscriptionActive(userId);
     return this.db
@@ -244,6 +319,7 @@ export class ReadingsService {
       .orderBy(desc(readings.createdAt));
   }
 
+  /** Lista las lecturas ya evaluadas y completadas por el usuario. */
   async listCompleted(userId: number): Promise<Reading[]> {
     await this.subscriptions.assertSubscriptionActive(userId);
     return this.db
@@ -260,10 +336,8 @@ export class ReadingsService {
   }
 
   /**
-   * Returns the static configuration the UI needs to populate its
-   * category/difficulty/size pickers. Backed by the prompt-generator's
-   * service-side catalogue so the UI can never offer a value that the
-   * backend can't render.
+   * Devuelve la configuración estática de opciones de lectura (dificultad, tamaño y niveles CEFR).
+   * No existen categorías predefinidas en el servidor; las categorías provienen de cada usuario.
    */
   getOptions(): {
     categories: { id: string; name: string; subcategories: { id: string; name: string }[] }[];
@@ -271,14 +345,9 @@ export class ReadingsService {
     sizes: { id: string; label: string; wordRange: string; readingTime: string }[];
     cefrLevels: string[];
   } {
-    const cats = this.promptGen.getAvailableCategories();
     const sizes = this.promptGen.getAvailableSizes();
     return {
-      categories: cats.map((c) => ({
-        id: c.id,
-        name: c.name,
-        subcategories: c.subcategories.map((sub) => ({ id: sub.id, name: sub.name })),
-      })),
+      categories: [],
       difficulties: [...READING_DIFFICULTIES],
       sizes: sizes.map((s) => ({
         id: s.label,
@@ -290,22 +359,29 @@ export class ReadingsService {
     };
   }
 
+  /**
+   * Evalúa con IA el resumen enviado por el usuario frente al texto original y marca la lectura como completada.
+   */
   async evaluate(
     id: number,
     userId: number,
     dto: EvaluateReadingDto,
+    aiOptions?: AIRequestOptions,
   ): Promise<EvaluationResult & { reading: Reading }> {
     const reading = await this.findById(id, userId);
     if (reading.status !== 'pending') {
       throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
     }
 
-    const systemPrompt = `You are an English comprehension evaluator for language learners.
-Your task is to evaluate if the user correctly understood the main idea of a given text.
+    const rawLang = reading.language as string | undefined;
+    const readingLanguage = (rawLang ?? 'en').toLowerCase();
+    const langLabel = LANGUAGE_NAMES[readingLanguage] ?? 'English';
+    const systemPrompt = `You are a ${langLabel} reading comprehension evaluator for language learners.
+Your task is to evaluate if the user correctly understood the main idea and key supporting details of a ${langLabel} text.
 You must respond ONLY with a JSON object in this exact format: {"score": <number>, "passed": <boolean>, "feedback": "<string>"}
 - "score" is a number from 0 to 100 representing how well the user understood the text
 - "passed" is true if score >= 80, false otherwise
-- "feedback" is a brief (1-2 sentences) explanation of the evaluation
+- "feedback" is a brief (1-2 sentences) constructive explanation written strictly in natural ${langLabel} (100% pure natural ${langLabel}: zero English words, zero bilingual camelCase splices, zero non-Latin scripts; use single quotes or «guillemets» instead of ASCII double quotes inside JSON strings)
 Do not include any other text, explanation, or formatting. Only the JSON object.`;
 
     const userPrompt = `Here is the original text the user read:
@@ -322,12 +398,14 @@ ${dto.userResponse}
 
 Evaluate how well the user understood the main idea of the text.`;
 
-    const raw = await this.factory.getFullResponse([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ]);
-
-    const result = this.parser.parseEvaluation(raw);
+    const result = await this.executeWithPurityGuard({
+      systemPrompt,
+      userPrompt,
+      targetLanguage: readingLanguage,
+      ...(aiOptions !== undefined ? { aiOptions } : {}),
+      parse: (raw) => this.parser.parseEvaluation(raw),
+      extractTexts: (item) => [item.feedback],
+    });
     const [updated] = await this.db
       .update(readings)
       .set({
@@ -344,8 +422,11 @@ Evaluate how well the user understood the main idea of the text.`;
     if (!updated) {
       throw new Error('Update returned no rows');
     }
-    // Spread the DB row last so anything the column write pinned (userResponse,
-    // feedback, updatedAt, status='completed') overrides matching keys.
+
+    await this.users.recordDailyActivity(userId);
+
+    // Se conservan explícitamente los valores recién escritos (userResponse, feedback, status='completed')
+    // junto con la fila actualizada devuelta por PostgreSQL.
     return {
       score: result.score,
       passed: result.passed,
@@ -355,54 +436,258 @@ Evaluate how well the user understood the main idea of the text.`;
     };
   }
 
+  /**
+   * Explica el significado contextual de una palabra u oración completa dentro de la lectura.
+   * Reutiliza la caché persistida en PostgreSQL por lectura y término normalizado antes de
+   * consumir cuota diaria o tokens de IA, salvo que `forceRefresh` sea verdadero.
+   */
   async explain(
     id: number,
     userId: number,
     word: string,
     context?: string,
-  ): Promise<{ explanation: string; reading: Reading }> {
+    forceRefresh = false,
+    aiOptions?: AIRequestOptions,
+  ): Promise<ExplanationResultDto> {
     await this.subscriptions.assertSubscriptionActive(userId);
-    await this.subscriptions.assertCanAskQuestion(userId);
     const reading = await this.findById(id, userId);
 
-    const systemPrompt = `You are an English vocabulary explainer for language learners.
-Given a word (and optionally its context in a sentence), respond ONLY with a JSON object:
-{"explanation": "<string>"}
-The explanation should be 1-2 sentences, simple enough for a B1-B2 learner.`;
-
-    const userPrompt = context
-      ? `Explain the word "${word}" as used in this context: "${context}".`
-      : `Explain the English word "${word}" in simple terms.`;
-
-    const raw = await this.factory.getFullResponse([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt },
-    ]);
-
-    let explanation: string;
-    try {
-      const parsed = JSON.parse(
-        raw
-          .replace(/```json\s*/g, '')
-          .replace(/```\s*/g, '')
-          .trim(),
-      ) as { explanation?: string };
-      explanation = String(parsed.explanation ?? raw.trim());
-    } catch {
-      explanation = raw.trim();
+    const { displayWord, normalizedWord, entryType } = normalizeLookupTerm(word);
+    if (!forceRefresh) {
+      const cached = await this.findCachedExplanation(id, userId, normalizedWord);
+      if (cached) {
+        return {
+          id: cached.id,
+          word: cached.word,
+          entryType: cached.entryType,
+          language: cached.language,
+          difficulty: cached.difficulty,
+          literalMeaning: cached.literalMeaning,
+          explanation: cached.explanation,
+          wordBreakdown: Array.isArray(cached.wordBreakdown) ? cached.wordBreakdown : [],
+          otherWaysToSay: Array.isArray(cached.otherWaysToSay) ? cached.otherWaysToSay : [],
+          otherContexts: Array.isArray(cached.otherContexts) ? cached.otherContexts : [],
+          isSaved: Boolean(cached.isSaved),
+          cached: true,
+          reading,
+        };
+      }
     }
 
-    await this.subscriptions.recordExplanation({
-      readingId: id,
-      userId,
-      word,
-      context,
-      explanation,
+    await this.subscriptions.assertCanAskQuestion(userId);
+
+    const rawLang = reading.language as string | undefined;
+    const readingLanguage = (rawLang ?? 'en').toLowerCase();
+    const readingLevel = (reading.difficulty as string | undefined) ?? 'medium';
+
+    const { systemPrompt, userPrompt } =
+      typeof this.promptGen.buildExplanationPrompt === 'function'
+        ? this.promptGen.buildExplanationPrompt({
+            word: displayWord,
+            entryType,
+            language: readingLanguage,
+            difficulty: readingLevel,
+            readingTitle: reading.title,
+            readingContent: reading.content,
+            context,
+          })
+        : buildFallbackExplanationPrompt(displayWord, readingLanguage, readingLevel, context);
+
+    const structured = await this.executeWithPurityGuard({
+      systemPrompt,
+      userPrompt,
+      targetLanguage: readingLanguage,
+      ...(aiOptions !== undefined ? { aiOptions } : {}),
+      parse: (raw) =>
+        typeof this.parser.parseStructuredExplanation === 'function'
+          ? this.parser.parseStructuredExplanation(raw, displayWord, entryType)
+          : {
+              literalMeaning: null,
+              explanation: this.parser.parseExplanation(raw),
+              wordBreakdown: [],
+              otherWaysToSay: [],
+              otherContexts: [],
+            },
+      extractTexts: (item) => [
+        item.literalMeaning,
+        item.explanation,
+        ...item.otherWaysToSay.flatMap((alt) => [alt.register, alt.note]),
+        ...item.otherContexts.flatMap((ctx) => [ctx.contextLabel, ctx.explanation, ctx.example]),
+      ],
     });
 
-    return { explanation, reading };
+    const persisted = await this.subscriptions.recordExplanation({
+      readingId: id,
+      userId,
+      word: displayWord,
+      normalizedWord,
+      entryType,
+      language: readingLanguage,
+      difficulty: readingLevel,
+      context,
+      literalMeaning: structured.literalMeaning,
+      explanation: structured.explanation,
+      wordBreakdown: structured.wordBreakdown,
+      otherWaysToSay: structured.otherWaysToSay,
+      otherContexts: structured.otherContexts,
+    });
+
+    return {
+      id: persisted?.id ?? null,
+      word: displayWord,
+      entryType,
+      language: readingLanguage,
+      difficulty: readingLevel,
+      literalMeaning: structured.literalMeaning,
+      explanation: structured.explanation,
+      wordBreakdown: structured.wordBreakdown,
+      otherWaysToSay: structured.otherWaysToSay,
+      otherContexts: structured.otherContexts,
+      isSaved: persisted?.isSaved ?? false,
+      cached: false,
+      reading,
+    };
   }
 
+  /**
+   * Lista las consultas/explicaciones guardadas o generadas sobre una lectura específica del usuario.
+   */
+  async listReadingExplanations(readingId: number, userId: number): Promise<GlossaryEntryDto[]> {
+    const reading = await this.findById(readingId, userId);
+    const rows = await this.db
+      .select()
+      .from(readingExplanations)
+      .where(
+        and(eq(readingExplanations.readingId, readingId), eq(readingExplanations.userId, userId)),
+      )
+      .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id));
+
+    const seen = new Set<string>();
+    const entries: GlossaryEntryDto[] = [];
+    for (const row of rows) {
+      const key = row.normalizedWord || row.word.trim().toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      entries.push(toGlossaryEntryDto(row, reading.title));
+    }
+    return entries;
+  }
+
+  /**
+   * Consulta el glosario personal y el historial de ayudas contextuales del usuario autenticado.
+   */
+  async listGlossary(userId: number, query: GlossaryQueryDto): Promise<GlossaryEntryDto[]> {
+    const conditions = [eq(readingExplanations.userId, userId)];
+
+    if (query.entryType) {
+      conditions.push(eq(readingExplanations.entryType, query.entryType));
+    }
+    if (query.language) {
+      conditions.push(eq(readingExplanations.language, query.language));
+    }
+    if (query.readingId) {
+      conditions.push(eq(readingExplanations.readingId, query.readingId));
+    }
+    if (query.savedOnly === true) {
+      conditions.push(eq(readingExplanations.isSaved, true));
+    }
+    const trimmedSearch = query.search?.trim();
+    if (trimmedSearch) {
+      const pattern = `%${trimmedSearch}%`;
+      const searchCondition = or(
+        ilike(readingExplanations.word, pattern),
+        ilike(readingExplanations.explanation, pattern),
+        ilike(readingExplanations.context, pattern),
+      );
+      if (searchCondition) {
+        conditions.push(searchCondition);
+      }
+    }
+
+    const rows = await this.db
+      .select({
+        entry: readingExplanations,
+        readingTitle: readings.title,
+      })
+      .from(readingExplanations)
+      .innerJoin(readings, eq(readingExplanations.readingId, readings.id))
+      .where(and(...conditions))
+      .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id));
+
+    return rows.map((row) => toGlossaryEntryDto(row.entry, row.readingTitle));
+  }
+
+  /**
+   * Marca o desmarca una explicación existente en el glosario personal sin eliminar el registro
+   * histórico (necesario para auditar la cuota diaria).
+   */
+  async toggleGlossarySave(
+    explanationId: number,
+    userId: number,
+    isSaved: boolean,
+  ): Promise<GlossaryEntryDto> {
+    const now = new Date();
+    const updatedRows = await this.db
+      .update(readingExplanations)
+      .set({
+        isSaved,
+        savedAt: isSaved ? now : null,
+        updatedAt: now,
+      })
+      .where(and(eq(readingExplanations.id, explanationId), eq(readingExplanations.userId, userId)))
+      .returning();
+
+    const updated = updatedRows[0] as ReadingExplanation | undefined;
+    if (!updated) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+        resource: 'ReadingExplanation',
+      });
+    }
+
+    const readingRows = await this.db
+      .select({ title: readings.title })
+      .from(readings)
+      .where(eq(readings.id, updated.readingId))
+      .limit(1);
+
+    return toGlossaryEntryDto(updated, readingRows[0]?.title ?? '');
+  }
+
+  /** Busca una explicación previamente persistida para evitar llamadas redundantes a la IA. */
+  private async findCachedExplanation(
+    readingId: number,
+    userId: number,
+    normalizedWord: string,
+  ): Promise<ReadingExplanation | null> {
+    const rows = await this.db
+      .select()
+      .from(readingExplanations)
+      .where(
+        and(
+          eq(readingExplanations.userId, userId),
+          eq(readingExplanations.readingId, readingId),
+          eq(readingExplanations.normalizedWord, normalizedWord),
+        ),
+      )
+      .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id))
+      .limit(1);
+
+    const candidate = rows[0] as ReadingExplanation | undefined;
+    if (
+      !candidate ||
+      typeof candidate.explanation !== 'string' ||
+      candidate.readingId !== readingId ||
+      candidate.userId !== userId ||
+      candidate.normalizedWord !== normalizedWord
+    ) {
+      return null;
+    }
+    return candidate;
+  }
+
+  /**
+   * Marca una lectura como eliminada lógicamente (`deletedAt`) tras validar propiedad y vigencia.
+   */
   async remove(id: number, userId: number): Promise<void> {
     await this.findById(id, userId);
     await this.db
@@ -411,8 +696,332 @@ The explanation should be 1-2 sentences, simple enough for a B1-B2 learner.`;
       .where(and(eq(readings.id, id), eq(readings.userId, userId)));
   }
 
+  /** Cuenta cuántas lecturas pendientes tiene actualmente el usuario. */
   private async getPendingCount(userId: number): Promise<number> {
     const pending = await this.listPending(userId);
     return pending.length;
   }
+
+  /**
+   * Recupera título y descripción de hasta las 10 lecturas activas más recientes del usuario en la categoría.
+   */
+  private async fetchRecentReadingSummaries(
+    userId: number,
+    rawCategory: string,
+    trimmedCategory: string,
+  ): Promise<RecentReadingSummary[]> {
+    const escapedCategory = escapeLikePattern(trimmedCategory);
+    const rows = await this.db
+      .select({ title: readings.title, description: readings.description })
+      .from(readings)
+      .where(
+        and(
+          eq(readings.userId, userId),
+          or(eq(readings.category, rawCategory), ilike(readings.category, escapedCategory)),
+          isNull(readings.deletedAt),
+        ),
+      )
+      .orderBy(desc(readings.createdAt))
+      .limit(RECENT_READINGS_LIMIT);
+
+    return rows
+      .map((row) => ({
+        title: typeof row.title === 'string' ? row.title.trim() : '',
+        description: typeof row.description === 'string' ? row.description.trim() : '',
+      }))
+      .filter((row) => row.title.length > 0);
+  }
+
+  /**
+   * Genera dinámicamente un ángulo versátil para esta lectura concreta mediante IA y construye
+   * el prompt final sin depender de un blueprint estático único por categoría.
+   */
+  private async buildDynamicReadingPrompt(options: {
+    category: string;
+    difficulty: DifficultyLevel;
+    size: TextSize;
+    language: string;
+    recentReadings: readonly RecentReadingSummary[];
+    usedLensIds: ReadonlySet<string>;
+    rejectedAngles: readonly string[];
+    aiOptions?: AIRequestOptions;
+  }): Promise<{ prompt: GeneratedPrompt; lensId: string }> {
+    const lens = pickExplorationLens(options.recentReadings, options.usedLensIds);
+    const recentTitles = options.recentReadings.map((entry) => entry.title);
+    const fallback = this.promptGen.buildFallbackEnrichedTopic(
+      options.category,
+      options.difficulty,
+    );
+
+    const enrichPrompt = this.promptGen.buildEnrichmentPrompt({
+      category: options.category,
+      difficulty: options.difficulty,
+      language: options.language,
+      recentTitles,
+      recentReadings: options.recentReadings,
+      lens,
+      randomAngle: lens.guidance,
+      ...(options.rejectedAngles.length > 0 ? { excludedAngles: options.rejectedAngles } : {}),
+    });
+
+    const enrichAiOptions: AIRequestOptions = {
+      ...(options.aiOptions ?? {}),
+      maxTokens: options.aiOptions?.maxTokens ?? 512,
+      temperature: options.aiOptions?.temperature ?? 0.9,
+      disableThinking: options.aiOptions?.disableThinking ?? true,
+    };
+
+    let enriched = fallback;
+    try {
+      const enrichRaw = await this.factory.getFullResponse(
+        [
+          { role: 'system', content: enrichPrompt.systemPrompt },
+          { role: 'user', content: enrichPrompt.userPrompt },
+        ],
+        enrichAiOptions,
+      );
+      enriched = this.promptGen.parseEnrichmentResponse(enrichRaw, fallback);
+    } catch (err) {
+      this.logger.warn(
+        `Dynamic enrichment step fell back cleanly for "${options.category}": ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const params: RandomPromptParams = this.promptGen.generateRandomParams({
+      category: options.category,
+      difficulty: options.difficulty,
+      size: options.size,
+      language: options.language,
+      subcategories: [enriched.subtopic],
+      uniqueFocusElement: enriched.uniqueFocusElement,
+      keyConcepts: enriched.keyConcepts,
+      editorialGuidance: lens.guidance,
+      avoidTopics: recentTitles,
+      ...(options.recentReadings.length > 0 ? { recentReadings: [...options.recentReadings] } : {}),
+    });
+
+    return {
+      prompt: this.promptGen.buildPrompt(params),
+      lensId: lens.id,
+    };
+  }
+
+  /**
+   * Evalúa mediante Google Decisions (`gemini-decision-1`) si el título y descripción de la nueva
+   * lectura expresan esencialmente lo mismo que alguna de las últimas 10 lecturas del usuario.
+   */
+  private async evaluateSemanticRepetition(
+    category: string,
+    candidate: GeneratedText,
+    recentReadings: readonly RecentReadingSummary[],
+  ): Promise<{ repetitive: boolean; score: number }> {
+    if (recentReadings.length === 0 || !this.googleDecisions?.isConfigured()) {
+      return { repetitive: false, score: 0 };
+    }
+
+    const input = [
+      `Category: ${JSON.stringify(category)}`,
+      'NEW CANDIDATE READING:',
+      `Title: ${JSON.stringify(candidate.title)}`,
+      `Description: ${JSON.stringify(candidate.description)}`,
+      '',
+      `RECENT READINGS IN THIS CATEGORY (${recentReadings.length}):`,
+      ...recentReadings.map((item, idx) =>
+        item.description
+          ? `${idx + 1}. Title: ${JSON.stringify(item.title)} | Description: ${JSON.stringify(item.description)}`
+          : `${idx + 1}. Title: ${JSON.stringify(item.title)}`,
+      ),
+    ].join('\n');
+
+    try {
+      const result = await this.googleDecisions.score({
+        input,
+        instructions:
+          'Evaluate whether the NEW CANDIDATE READING (title and description) expresses essentially the same core topic, historical narrative, thesis, or key examples as ANY of the listed RECENT READINGS in this category—even if phrased with different words. Ignore mere sharing of the broad category name.',
+        criteria: [
+          'Completely distinct angle, event, figure, work, or insight not covered in recent readings.',
+          'Low overlap: only broad category background overlaps while the main thesis and examples are fresh.',
+          'Moderate overlap: adjacent subtheme with noticeable framing differences and new takeaways.',
+          'High semantic similarity: expresses essentially the same core explanation, origins, or thesis as one of the recent readings.',
+          'Near duplicate: communicates virtually the exact same idea and message as a previous reading.',
+        ],
+      });
+
+      return {
+        repetitive: result.score >= SEMANTIC_SIMILARITY_REJECT_SCORE,
+        score: result.score,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Google Decisions semantic similarity check failed (fail-open): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return { repetitive: false, score: 0 };
+    }
+  }
+
+  /**
+   * Ejecuta una llamada de IA e inspecciona determinísticamente la pureza del idioma objetivo;
+   * si detecta CJK, fugas de razonamiento o mezcla con inglés, reintenta respetando el proveedor activo.
+   */
+  private async executeWithPurityGuard<T>(params: {
+    systemPrompt: string;
+    userPrompt: string;
+    targetLanguage: string;
+    aiOptions?: AIRequestOptions;
+    parse: (raw: string) => T;
+    extractTexts: (value: T) => (string | null | undefined)[];
+    onPrimaryError?: (err: unknown) => never;
+    onParseError?: (err: unknown) => Promise<never> | never;
+  }): Promise<T> {
+    const activeProvider: ProviderName =
+      params.aiOptions?.provider ??
+      (typeof this.factory.resolveProviderName === 'function'
+        ? this.factory.resolveProviderName()
+        : 'minimax');
+
+    let rawPrimary: string;
+    try {
+      const primaryMessages = [
+        { role: 'system' as const, content: params.systemPrompt },
+        { role: 'user' as const, content: params.userPrompt },
+      ];
+      rawPrimary =
+        params.aiOptions !== undefined
+          ? await this.factory.getFullResponse(primaryMessages, params.aiOptions)
+          : await this.factory.getFullResponse(primaryMessages);
+    } catch (err) {
+      if (params.onPrimaryError) {
+        return params.onPrimaryError(err);
+      }
+      throw err;
+    }
+
+    let bestCandidate: { value: T; reasons: string[]; severity: number } | null = null;
+    let lastParseError: unknown;
+
+    try {
+      const primaryResult = params.parse(rawPrimary);
+      const primaryReport = inspectTextsPurity(
+        params.extractTexts(primaryResult),
+        params.targetLanguage,
+      );
+      if (primaryReport.clean) {
+        return primaryResult;
+      }
+      bestCandidate = {
+        value: primaryResult,
+        reasons: primaryReport.reasons,
+        severity: scorePuritySeverity(primaryReport.reasons),
+      };
+    } catch (parseErr) {
+      lastParseError = parseErr;
+    }
+
+    const fallbackSequence = buildPurityFallbackSequence(activeProvider, params.aiOptions);
+    for (const [idx, fallbackOptions] of fallbackSequence.entries()) {
+      const reasons = bestCandidate ? bestCandidate.reasons : ['invalid_json_or_schema'];
+      this.logger.warn(
+        `Purity guard retry ${idx + 1}/${fallbackSequence.length} for ${params.targetLanguage} (${reasons.join(', ')}) via ${fallbackOptions.model ?? activeProvider}/${fallbackOptions.reasoningEffort ?? 'default'}`,
+      );
+      const correction = buildPurityCorrectionNote(params.targetLanguage, reasons);
+
+      try {
+        const retryRaw = await this.factory.getFullResponse(
+          [
+            { role: 'system', content: `${params.systemPrompt}\n${correction}` },
+            { role: 'user', content: `${params.userPrompt}\n${correction}` },
+          ],
+          fallbackOptions,
+        );
+        const retryResult = params.parse(retryRaw);
+        const retryReport = inspectTextsPurity(
+          params.extractTexts(retryResult),
+          params.targetLanguage,
+        );
+        if (retryReport.clean) {
+          return retryResult;
+        }
+        const retrySeverity = scorePuritySeverity(retryReport.reasons);
+        if (!bestCandidate || retrySeverity < bestCandidate.severity) {
+          bestCandidate = {
+            value: retryResult,
+            reasons: retryReport.reasons,
+            severity: retrySeverity,
+          };
+        }
+      } catch (err) {
+        lastParseError = err;
+        this.logger.warn(
+          `Purity guard retry ${idx + 1} failed (${err instanceof Error ? err.message : String(err)})`,
+        );
+      }
+    }
+
+    if (bestCandidate) {
+      return bestCandidate.value;
+    }
+    if (params.onParseError) {
+      return params.onParseError(lastParseError);
+    }
+    throw lastParseError instanceof Error ? lastParseError : new Error(String(lastParseError));
+  }
+}
+
+function escapeLikePattern(raw: string): string {
+  return raw.replace(/[\\%_]/g, '\\$&');
+}
+
+function normalizeLookupTerm(rawWord: string): {
+  displayWord: string;
+  normalizedWord: string;
+  entryType: ExplanationEntryType;
+} {
+  const displayWord = rawWord.trim().replace(/\s+/g, ' ');
+  if (!displayWord) {
+    throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+      field: 'word',
+      reason: 'Selected word or phrase must not be empty',
+    });
+  }
+  const normalizedWord = displayWord.toLowerCase();
+  const entryType: ExplanationEntryType = normalizedWord.includes(' ') ? 'phrase' : 'word';
+  return { displayWord, normalizedWord, entryType };
+}
+
+function buildFallbackExplanationPrompt(
+  word: string,
+  language: string,
+  difficulty: string,
+  context?: string,
+): { systemPrompt: string; userPrompt: string } {
+  const langLabel = LANGUAGE_NAMES[language.toLowerCase()] ?? 'English';
+  const systemPrompt = `You are a ${langLabel} vocabulary explainer for language learners (target level: ${difficulty}).
+Respond ONLY with a valid JSON object strictly in natural ${langLabel}.`;
+  const userPrompt = context
+    ? `Explain "${word}" in ${langLabel} within context: "${context}".`
+    : `Explain "${word}" in ${langLabel}.`;
+  return { systemPrompt, userPrompt };
+}
+
+function toGlossaryEntryDto(row: ReadingExplanation, readingTitle: string): GlossaryEntryDto {
+  return {
+    id: row.id,
+    readingId: row.readingId,
+    readingTitle,
+    word: row.word,
+    normalizedWord: row.normalizedWord,
+    entryType: row.entryType,
+    language: row.language,
+    difficulty: row.difficulty,
+    context: row.context ?? null,
+    literalMeaning: row.literalMeaning ?? null,
+    explanation: row.explanation,
+    wordBreakdown: Array.isArray(row.wordBreakdown) ? row.wordBreakdown : [],
+    otherWaysToSay: Array.isArray(row.otherWaysToSay) ? row.otherWaysToSay : [],
+    otherContexts: Array.isArray(row.otherContexts) ? row.otherContexts : [],
+    isSaved: Boolean(row.isSaved),
+    savedAt: row.savedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }

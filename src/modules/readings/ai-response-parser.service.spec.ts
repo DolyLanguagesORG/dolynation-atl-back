@@ -39,15 +39,58 @@ describe('AiResponseParserService', () => {
       expect(result.difficulty).toBe('medium');
     });
 
-    it('throws on invalid category', () => {
+    it('throws when category does not match allowed user categories', () => {
       const raw =
         '{"title":"X","description":"X","content":"X","category":"cooking","difficulty":"easy"}';
-      expect(() => parser.parseGeneratedText(raw)).toThrow();
+      expect(() => parser.parseGeneratedText(raw, ['Filosofía', 'Historia'])).toThrow();
     });
 
     it('throws on missing required fields', () => {
       const raw = '{"title":"X","description":"X"}';
       expect(() => parser.parseGeneratedText(raw)).toThrow();
+    });
+
+    it('matches dynamic user categories ignoring accents and separators', () => {
+      const raw = JSON.stringify({
+        title: 'La Música en Viena',
+        description: 'Sobre composición clásica.',
+        content: 'Un texto educativo.',
+        category: 'Musica Clasica',
+        difficulty: 'medium',
+      });
+      const result = parser.parseGeneratedText(raw, ['Música Clásica']);
+      expect(result.title).toBe('La Música en Viena');
+      expect(result.category).toBe('musica_clasica');
+    });
+
+    it('strips <think> reasoning tags before parsing JSON', () => {
+      const raw = `<think>First think {ignore: bad json}</think>\n\`\`\`json\n{"title":"Révolution","description":"Histoire","content":"Texte clair.","category":"history","difficulty":"easy"}\n\`\`\``;
+      const result = parser.parseGeneratedText(raw);
+      expect(result.title).toBe('Révolution');
+      expect(result.difficulty).toBe('easy');
+    });
+
+    it('repairs unescaped inner quotes and literal newlines inside Italian JSON readings', () => {
+      const raw = `{
+  "title": "L'arte del caffè italiano",
+  "description": "Come il termine "espresso": una bevanda rapida, ha definito una cultura.",
+  "content": "Nel cuore di Napoli, chiedere "un caffè", ovvero ["al banco", "al tavolo"], è un rito sociale.
+
+Molti baristi conservano la "crema perfetta in tazza.",
+  "category": "culture",
+  "difficulty": "hard"
+}`;
+      const result = parser.parseGeneratedText(raw);
+      expect(result.title).toBe("L'arte del caffè italiano");
+      expect(result.description).toContain('"espresso": una bevanda rapida');
+      expect(result.content).toContain('"un caffè"');
+      expect(result.content).toContain('"crema perfetta');
+      expect(result.category).toBe('culture');
+      expect(result.difficulty).toBe('hard');
+    });
+
+    it('still throws on genuinely truncated JSON without closing brace', () => {
+      expect(() => parser.parseGeneratedText('{"title":"Incompleto","content":"manca')).toThrow();
     });
   });
 
@@ -76,6 +119,97 @@ describe('AiResponseParserService', () => {
       const raw = '{"score": 50, "passed": true, "feedback": "x"}';
       const result = parser.parseEvaluation(raw);
       expect(result.passed).toBe(false);
+    });
+  });
+
+  describe('parseExplanation', () => {
+    it('extracts explanation JSON even when prefixed by provider control noise or <think> tags', () => {
+      const raw =
+        ']<]minimax[>[<tool_call> final answer JSON{"explanation":"La fermentation transforme les sucres."}';
+      expect(parser.parseExplanation(raw)).toBe('La fermentation transforme les sucres.');
+    });
+
+    it('falls back cleanly to trimmed text when no JSON object is present', () => {
+      expect(parser.parseExplanation('<think>note</think>Simple plain explanation.')).toBe(
+        'Simple plain explanation.',
+      );
+    });
+  });
+
+  describe('parseStructuredExplanation', () => {
+    it('parses structured breakdown, literal meaning, alternatives and other contexts', () => {
+      const raw = JSON.stringify({
+        literalMeaning: 'Que un rayo me golpee físicamente.',
+        explanation: 'En este pasaje, Juan usa la expresión como un lamento exagerado.',
+        wordBreakdown: [
+          {
+            token: 'que',
+            lemma: 'que',
+            partOfSpeech: 'conjunción',
+            literalDefinition: 'Introduce una exclamación o deseo.',
+            roleInPhrase: 'abre la expresión exclamativa',
+          },
+          {
+            token: 'rayo',
+            lemma: 'rayo',
+            partOfSpeech: 'sustantivo',
+            literalDefinition: 'Descarga eléctrica natural de una tormenta.',
+          },
+        ],
+        otherWaysToSay: [
+          {
+            expression: '¡Qué mala suerte tengo!',
+            register: 'coloquial',
+            note: 'Expresa frustración cotidiana sin sonar brusco.',
+          },
+        ],
+        otherContexts: [
+          {
+            contextLabel: 'Algo muy improbable',
+            explanation: 'Se dice cuando alguien duda muchísimo de que algo vaya a suceder.',
+            example: 'Si ese equipo gana hoy, que me parta un rayo.',
+          },
+        ],
+      });
+
+      const result = parser.parseStructuredExplanation(raw, 'que me parta un rayo', 'phrase');
+      expect(result.literalMeaning).toBe('Que un rayo me golpee físicamente.');
+      expect(result.explanation).toContain('lamento exagerado');
+      expect(result.wordBreakdown).toHaveLength(2);
+      expect(result.wordBreakdown[0]?.roleInPhrase).toBe('abre la expresión exclamativa');
+      expect(result.otherWaysToSay).toEqual([
+        {
+          expression: '¡Qué mala suerte tengo!',
+          register: 'coloquial',
+          note: 'Expresa frustración cotidiana sin sonar brusco.',
+        },
+      ]);
+      expect(result.otherContexts).toHaveLength(1);
+    });
+
+    it('stays backward compatible when only {"explanation": "..."} is returned', () => {
+      const result = parser.parseStructuredExplanation(
+        '{"explanation":"La fermentation transforme les sucres."}',
+        'fermentation',
+        'word',
+      );
+      expect(result).toEqual({
+        literalMeaning: null,
+        explanation: 'La fermentation transforme les sucres.',
+        wordBreakdown: [],
+        otherWaysToSay: [],
+        otherContexts: [],
+      });
+    });
+
+    it('falls back cleanly when plain text is returned', () => {
+      const result = parser.parseStructuredExplanation(
+        '<think>ok</think>Simple contextual help.',
+        'ubiquitous',
+        'word',
+      );
+      expect(result.explanation).toBe('Simple contextual help.');
+      expect(result.wordBreakdown).toEqual([]);
     });
   });
 });

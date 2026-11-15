@@ -1,36 +1,37 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString } from 'class-validator';
-import {
-  READING_CATEGORIES,
-  READING_DIFFICULTIES,
-  READING_TEXT_SIZES,
-} from '../../readings/prompt-generation';
-import type {
-  CategoryId,
-  DifficultyLevel,
-  TextSize,
-} from '../../readings/prompt-generation/catalog.types';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
+import { READING_DIFFICULTIES, READING_TEXT_SIZES } from '../../readings/prompt-generation';
+import type { DifficultyLevel, TextSize } from '../../readings/prompt-generation/catalog.types';
+
+const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
 /**
- * Request body for POST /content/generate. All fields are optional:
- * missing values fall back to the user's saved preferences (from
- * /settings/categories), and ultimately to the system defaults.
+ * Cuerpo de la petición `POST /content/generate`. `language` es obligatorio y debe coincidir
+ * con un idioma activo en la selección del usuario; el resto de parámetros son opcionales.
  */
 export class GenerateContentDto {
+  @ApiProperty({
+    description:
+      'Target language for the generated reading (es, en, fr, it). Required; must be active in your configured languages and allowed by your subscription plan.',
+    enum: LANGUAGE_IDS,
+    example: 'es',
+  })
+  @IsString()
+  @IsIn(LANGUAGE_IDS)
+  language!: LanguageId;
   @ApiPropertyOptional({
     description:
-      'Topic category for the generated reading. If omitted, a category from the ' +
-      'user’s saved preferences is used (or picked at random when none is saved).',
-    enum: READING_CATEGORIES,
+      'Categoría temática de la lectura generada (predefinida o personalizada configurada en `/settings/categories`). Si se omite, se selecciona una de las preferencias guardadas del usuario.',
     example: 'technology',
   })
   @IsOptional()
   @IsString()
-  @IsIn(READING_CATEGORIES as readonly string[])
-  category?: CategoryId;
+  @Length(2, 50)
+  category?: string;
 
   @ApiPropertyOptional({
-    description: 'Target English level. Defaults to `medium` (B1-B2).',
+    description: 'Nivel objetivo de inglés. Por defecto `medium` (B1-B2).',
     enum: READING_DIFFICULTIES,
     example: 'medium',
   })
@@ -39,7 +40,7 @@ export class GenerateContentDto {
   difficulty?: DifficultyLevel;
 
   @ApiPropertyOptional({
-    description: 'Reading length. Defaults to `medium`.',
+    description: 'Longitud de la lectura. Por defecto `medium`.',
     enum: READING_TEXT_SIZES,
     example: 'medium',
   })

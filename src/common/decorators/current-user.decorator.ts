@@ -3,10 +3,10 @@ import { createParamDecorator } from '@nestjs/common';
 import type { Request } from 'express';
 
 /**
- * @CurrentUser() — extracts the authenticated user attached by JwtAuthGuard.
- * In a controller method:
- *   @CurrentUser() user: AuthUser
- *   @CurrentUser('id') userId: number
+ * `@CurrentUser()` — extrae el usuario autenticado adjuntado por `JwtAuthGuard`.
+ * Ejemplos de uso en un método de controlador:
+ *   `@CurrentUser() user: AuthUser`
+ *   `@CurrentUser('id') userId: number`
  */
 export interface AuthUser {
   id: number;
@@ -14,6 +14,7 @@ export interface AuthUser {
   fullName: string;
 }
 
+/** Decorador de parámetro para leer al usuario autenticado (o un campo suyo) desde la petición. */
 export const CurrentUser = createParamDecorator(
   (
     field: keyof AuthUser | undefined,

@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
 import { ReadingsService } from './readings.service';
 import { AIProviderFactory } from '../ia/providers/ai-provider.factory';
 import { PromptBuilderService } from './prompt-generation';
@@ -9,11 +10,15 @@ import { PromptLogService } from './prompt-logs';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { CategoryModerationService } from '../moderation/category-moderation.service';
+import { GoogleDecisionsService } from '../ia/decisions/google-decisions.service';
 import { DRIZZLE } from '../../database/database.tokens';
 
 describe('ReadingsService', () => {
   let service: ReadingsService;
-  let factory: jest.Mocked<Pick<AIProviderFactory, 'getFullResponse'>>;
+  let factory: jest.Mocked<Pick<AIProviderFactory, 'getFullResponse'>> & {
+    resolveProviderName?: jest.Mock;
+  };
   let promptGen: jest.Mocked<
     Pick<
       PromptBuilderService,
@@ -22,12 +27,20 @@ describe('ReadingsService', () => {
       | 'buildEnrichmentPrompt'
       | 'parseEnrichmentResponse'
       | 'buildFallbackEnrichedTopic'
+      | 'buildExplanationPrompt'
+    >
+  > & {
+    buildParamsFromBlueprint?: jest.Mock;
+  };
+  let parser: jest.Mocked<
+    Pick<
+      AiResponseParserService,
+      'parseGeneratedText' | 'parseEvaluation' | 'parseExplanation' | 'parseStructuredExplanation'
     >
   >;
-  let parser: jest.Mocked<Pick<AiResponseParserService, 'parseGeneratedText' | 'parseEvaluation'>>;
   let logs: jest.Mocked<Pick<PromptLogService, 'logPromptSuccess' | 'logPromptError'>>;
-  let users: jest.Mocked<Pick<UsersService, 'findById'>>;
-  let settings: jest.Mocked<Pick<SettingsService, 'getCategories' | 'getLanguage'>>;
+  let users: jest.Mocked<Pick<UsersService, 'findById' | 'recordDailyActivity'>>;
+  let settings: jest.Mocked<Pick<SettingsService, 'getCategories'>>;
   let subscriptions: {
     assertSubscriptionActive: jest.Mock;
     assertCanGenerateReading: jest.Mock;
@@ -35,6 +48,16 @@ describe('ReadingsService', () => {
     assertCanAskQuestion: jest.Mock;
     recordExplanation: jest.Mock;
   };
+  let moderation: {
+    assertCategoryAllowedForReading: jest.Mock;
+    getOrBuildCategoryBlueprint?: jest.Mock;
+  };
+  let googleDecisions:
+    | {
+        isConfigured: jest.Mock;
+        score: jest.Mock;
+      }
+    | undefined;
   let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock; delete: jest.Mock };
 
   const buildModuleWithDb = async (dbMock: typeof db): Promise<ReadingsService> => {
@@ -48,6 +71,10 @@ describe('ReadingsService', () => {
         { provide: UsersService, useValue: users },
         { provide: SettingsService, useValue: settings },
         { provide: SubscriptionsService, useValue: subscriptions },
+        { provide: CategoryModerationService, useValue: moderation },
+        ...(googleDecisions
+          ? [{ provide: GoogleDecisionsService, useValue: googleDecisions }]
+          : []),
         { provide: DRIZZLE, useValue: dbMock },
       ],
     }).compile();
@@ -56,6 +83,8 @@ describe('ReadingsService', () => {
 
   beforeEach(() => {
     factory = { getFullResponse: jest.fn() };
+    googleDecisions = undefined;
+    const realPromptBuilder = new PromptBuilderService();
     promptGen = {
       buildPrompt: jest.fn(),
       generateRandomParams: jest.fn(),
@@ -76,10 +105,16 @@ describe('ReadingsService', () => {
         uniqueFocusElement: 'its impact on daily life',
         keyConcepts: [],
       }),
+      buildExplanationPrompt: jest.fn((p) => realPromptBuilder.buildExplanationPrompt(p)),
     };
+    const realParser = new AiResponseParserService();
     parser = {
       parseGeneratedText: jest.fn(),
       parseEvaluation: jest.fn(),
+      parseExplanation: jest.fn((raw: string) => realParser.parseExplanation(raw)),
+      parseStructuredExplanation: jest.fn((raw: string, fallback: string, entryType) =>
+        realParser.parseStructuredExplanation(raw, fallback, entryType),
+      ),
     };
     logs = { logPromptSuccess: jest.fn(), logPromptError: jest.fn() };
     subscriptions = {
@@ -89,8 +124,10 @@ describe('ReadingsService', () => {
       assertCanAskQuestion: jest.fn().mockResolvedValue(undefined),
       recordExplanation: jest.fn().mockResolvedValue(undefined),
     };
+    moderation = {
+      assertCategoryAllowedForReading: jest.fn().mockResolvedValue(undefined),
+    };
     settings = {
-      getLanguage: jest.fn().mockResolvedValue('en'),
       getCategories: jest
         .fn()
         .mockResolvedValue([
@@ -114,6 +151,7 @@ describe('ReadingsService', () => {
         deletedAt: null,
         password: 'hash',
       }),
+      recordDailyActivity: jest.fn().mockResolvedValue(undefined),
     };
 
     const insertedReading = {
@@ -232,7 +270,7 @@ describe('ReadingsService', () => {
 
       const result = await service.generate({
         userId: 42,
-        options: { category: 'history', difficulty: 'medium', size: 'medium' },
+        options: { category: 'history', difficulty: 'medium', size: 'medium', language: 'en' },
       });
 
       expect(promptGen.generateRandomParams).toHaveBeenCalledWith(
@@ -291,7 +329,7 @@ describe('ReadingsService', () => {
 
       await service.generate({
         userId: 42,
-        options: { category: 'programming', difficulty: 'hard', size: 'medium' },
+        options: { category: 'programming', difficulty: 'hard', size: 'medium', language: 'fr' },
       });
 
       // buildPrompt receives the user-chosen category/difficulty/size inside
@@ -345,7 +383,7 @@ describe('ReadingsService', () => {
       const localDb = makeDbReturning(returned);
       service = await buildModuleWithDb(localDb);
 
-      await service.generate({ userId: 42, options: { category: 'culture' } });
+      await service.generate({ userId: 42, options: { category: 'culture', language: 'es' } });
 
       expect(promptGen.buildPrompt).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -377,16 +415,53 @@ describe('ReadingsService', () => {
       });
       service = await buildModuleWithDb(db);
       await expect(
-        service.generate({ userId: 42, options: { category: 'history', difficulty: 'medium' } }),
+        service.generate({
+          userId: 42,
+          options: { category: 'history', difficulty: 'medium', language: 'en' },
+        }),
       ).rejects.toBeInstanceOf(AppHttpException);
     });
 
-    it('rejects with RESOURCE_FORBIDDEN if category is not in user preferences', async () => {
-      settings.getCategories.mockResolvedValue(['technology', 'history']);
+    it('rejects with VALIDATION_ERROR when target language is missing', async () => {
       service = await buildModuleWithDb(db);
 
       await expect(
-        service.generate({ userId: 42, options: { category: 'gastronomy', difficulty: 'medium' } }),
+        service.generate({
+          userId: 42,
+          options: { category: 'history' } as never,
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+      });
+      expect(subscriptions.assertLanguageAllowed).not.toHaveBeenCalled();
+    });
+
+    it('rejects with RESOURCE_FORBIDDEN when user has fewer than 3 configured categories (e.g. skipped onboarding)', async () => {
+      settings.getCategories.mockResolvedValue([]);
+      service = await buildModuleWithDb(db);
+
+      await expect(
+        service.generate({
+          userId: 42,
+          options: { category: 'technology', difficulty: 'medium', language: 'en' },
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'RESOURCE_FORBIDDEN',
+          details: expect.objectContaining({ minCategories: 3, currentCount: 0 }),
+        }),
+      });
+    });
+
+    it('rejects with RESOURCE_FORBIDDEN if category is not in user preferences', async () => {
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'education']);
+      service = await buildModuleWithDb(db);
+
+      await expect(
+        service.generate({
+          userId: 42,
+          options: { category: 'gastronomy', difficulty: 'medium', language: 'en' },
+        }),
       ).rejects.toMatchObject({
         response: expect.objectContaining({
           code: 'RESOURCE_FORBIDDEN',
@@ -395,7 +470,7 @@ describe('ReadingsService', () => {
     });
 
     it('supports custom dynamic categories if they are in user preferences', async () => {
-      settings.getCategories.mockResolvedValue(['quantum_physics']);
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'quantum_physics']);
       const params: RandomPromptParams = {
         category: 'quantum_physics',
         difficulty: 'hard',
@@ -438,18 +513,25 @@ describe('ReadingsService', () => {
 
       const result = await service.generate({
         userId: 42,
-        options: { category: 'quantum_physics', difficulty: 'hard', size: 'long' },
+        options: { category: 'quantum_physics', difficulty: 'hard', size: 'long', language: 'it' },
       });
 
       expect(result.category).toBe('quantum_physics');
-      expect(promptGen.buildEnrichmentPrompt).toHaveBeenCalledWith(
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(2);
+      expect(promptGen.generateRandomParams).toHaveBeenCalledWith(
         expect.objectContaining({ category: 'quantum_physics' }),
       );
     });
 
-    it('passes recent titles to the enrichment prompt to prevent repetition', async () => {
-      const recentReading1 = { title: 'Steam Engine Revolution' };
-      const recentReading2 = { title: 'Printing Press Evolution' };
+    it('passes up to 10 recent titles and descriptions to dynamic enrichment and prompt builders', async () => {
+      const recentReading1 = {
+        title: 'Steam Engine Revolution',
+        description: 'How coal-fired turbines transformed railways.',
+      };
+      const recentReading2 = {
+        title: 'Printing Press Evolution',
+        description: 'How movable metal type reshaped literacy.',
+      };
       const queryResult = [recentReading1, recentReading2];
       const orderByChain: any = Promise.resolve(queryResult);
       orderByChain.limit = jest.fn().mockResolvedValue(queryResult);
@@ -504,16 +586,25 @@ describe('ReadingsService', () => {
 
       await service.generate({
         userId: 42,
-        options: { category: 'history', difficulty: 'medium' },
+        options: { category: 'history', difficulty: 'medium', language: 'en' },
       });
 
+      expect(orderByChain.limit).toHaveBeenCalledWith(10);
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(2);
       expect(promptGen.buildEnrichmentPrompt).toHaveBeenCalledWith(
         expect.objectContaining({
           category: 'history',
-          recentTitles: expect.arrayContaining([
+          recentReadings: [recentReading1, recentReading2],
+        }),
+      );
+      expect(promptGen.generateRandomParams).toHaveBeenCalledWith(
+        expect.objectContaining({
+          category: 'history',
+          avoidTopics: expect.arrayContaining([
             'Steam Engine Revolution',
             'Printing Press Evolution',
           ]),
+          recentReadings: [recentReading1, recentReading2],
         }),
       );
     });
@@ -567,6 +658,7 @@ describe('ReadingsService', () => {
       expect(result.score).toBe(85);
       expect(result.passed).toBe(true);
       expect(db.update).toHaveBeenCalled();
+      expect(users.recordDailyActivity).toHaveBeenCalledWith(42);
     });
 
     it('persists the user response and the AI feedback on the reading row', async () => {
@@ -725,6 +817,7 @@ describe('ReadingsService', () => {
           { provide: UsersService, useValue: users },
           { provide: SettingsService, useValue: settings },
           { provide: SubscriptionsService, useValue: subscriptions },
+          { provide: CategoryModerationService, useValue: moderation },
           { provide: DRIZZLE, useValue: dbWithCapture },
         ],
       }).compile();
@@ -741,6 +834,1156 @@ describe('ReadingsService', () => {
         userResponse: 'My detailed summary.',
         feedback: 'Excellent summary.',
       });
+    });
+  });
+
+  describe('generate — category moderation enforcement', () => {
+    it('calls assertCategoryAllowedForReading and rejects without calling AI generation when moderation fails', async () => {
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'Muertos']);
+      moderation.assertCategoryAllowedForReading.mockRejectedValue(
+        new AppHttpException(ErrorCode.CATEGORY_MODERATION_REJECTED, {
+          rejected: [
+            {
+              category: 'Muertos',
+              layer: 'blacklist',
+              reason: 'sensitive_death_or_violence_term',
+            },
+          ],
+        }),
+      );
+      const localService = await buildModuleWithDb(db);
+
+      let caught: AppHttpException | null = null;
+      try {
+        await localService.generate({
+          userId: 42,
+          options: { category: 'Muertos', language: 'es' },
+        });
+      } catch (err) {
+        caught = err as AppHttpException;
+      }
+
+      expect(caught).toBeInstanceOf(AppHttpException);
+      expect(caught?.getStatus()).toBe(400);
+      expect(caught?.getResponse()).toMatchObject({
+        code: ErrorCode.CATEGORY_MODERATION_REJECTED,
+      });
+
+      expect(moderation.assertCategoryAllowedForReading).toHaveBeenCalledWith('Muertos');
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('matches user preference by canonical key (case/accent-insensitive) before checking moderation', async () => {
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'Día de Muertos']);
+      moderation.assertCategoryAllowedForReading.mockRejectedValue(
+        new AppHttpException(ErrorCode.CATEGORY_MODERATION_REJECTED),
+      );
+      const localService = await buildModuleWithDb(db);
+
+      await expect(
+        localService.generate({
+          userId: 42,
+          options: { category: 'dia de muertos', language: 'es' },
+        }),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: ErrorCode.CATEGORY_MODERATION_REJECTED,
+        }),
+      });
+
+      expect(moderation.assertCategoryAllowedForReading).toHaveBeenCalledWith('dia de muertos');
+    });
+  });
+
+  describe('multilingual generate, evaluate and explain (es, en, fr, it)', () => {
+    it('persists target language in readings row & prompt logs and uses it in evaluate/explain prompts', async () => {
+      const frenchReading = {
+        id: 19,
+        userId: 42,
+        status: 'pending',
+        title: 'La Révolution Culinaire',
+        description: 'Les techniques modernes de fermentation.',
+        content: 'La fermentation transforme les saveurs.',
+        category: 'gastronomie',
+        difficulty: 'medium',
+        language: 'fr',
+        wordCount: 5,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'gastronomie']);
+      parser.parseGeneratedText.mockReturnValue({
+        title: frenchReading.title,
+        description: frenchReading.description,
+        content: frenchReading.content,
+        category: 'gastronomie',
+        difficulty: 'medium',
+      });
+      const genParams: RandomPromptParams = {
+        category: 'gastronomie',
+        difficulty: 'medium',
+        size: 'medium',
+        language: 'fr',
+        subcategories: ['fermentation'],
+        contentType: 'how_it_works',
+        perspective: 'process',
+        uniqueFocusElement: 'bactéries lactiques',
+      };
+      promptGen.generateRandomParams.mockReturnValue(genParams);
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys',
+        userPrompt: 'usr',
+        seed: 'seed-fr',
+        params: genParams,
+      });
+
+      const insertedValues = jest.fn().mockReturnValue({
+        returning: jest.fn().mockResolvedValue([frenchReading]),
+      });
+      const localDb = {
+        ...db,
+        insert: jest.fn().mockReturnValue({ values: insertedValues }),
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockImplementation(() => ({
+              orderBy: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue([]),
+              }),
+              limit: jest.fn().mockResolvedValue([frenchReading]),
+            })),
+          }),
+        }),
+        update: jest.fn().mockReturnValue({
+          set: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([{ ...frenchReading, status: 'completed' }]),
+            }),
+          }),
+        }),
+      };
+      service = await buildModuleWithDb(localDb);
+
+      await service.generate({
+        userId: 42,
+        options: { category: 'gastronomie', difficulty: 'medium', size: 'medium', language: 'fr' },
+      });
+      expect(insertedValues).toHaveBeenCalledWith(expect.objectContaining({ language: 'fr' }));
+      expect(logs.logPromptSuccess).toHaveBeenCalledWith(
+        'text_generated',
+        42,
+        19,
+        'seed-fr',
+        expect.objectContaining({ language: 'fr' }),
+      );
+
+      factory.getFullResponse.mockResolvedValueOnce(
+        '<think>Evaluation en cours</think>{"explanation":"La fermentation transforme les aliments."}',
+      );
+      const explained = await service.explain(19, 42, 'fermentation', frenchReading.content);
+      expect(explained.explanation).toBe('La fermentation transforme les aliments.');
+      expect(factory.getFullResponse).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('French vocabulary explainer'),
+          }),
+        ]),
+      );
+
+      parser.parseEvaluation.mockReturnValue({
+        score: 90,
+        passed: true,
+        feedback: 'Très bonne compréhension.',
+      });
+      await service.evaluate(19, 42, { userResponse: 'La fermentation change les saveurs.' });
+      expect(factory.getFullResponse).toHaveBeenLastCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('French reading comprehension evaluator'),
+          }),
+        ]),
+      );
+    });
+  });
+
+  describe('contextual help cache, structured breakdown & glossary management', () => {
+    it('explains a full Spanish phrase grounded in the reading, records breakdown & alternatives', async () => {
+      const spanishReading = {
+        id: 21,
+        userId: 42,
+        status: 'pending' as const,
+        title: 'La tarde de Juan',
+        description: 'Un imprevisto en casa',
+        content: 'Juan perdió las llaves bajo la lluvia y gritó que me parta un rayo.',
+        category: 'culture',
+        difficulty: 'easy' as const,
+        language: 'es',
+        wordCount: 14,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        evaluatedAt: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      const localDb = {
+        ...db,
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockImplementation(() => ({
+              limit: jest.fn().mockResolvedValue([spanishReading]),
+              orderBy: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue([]),
+              }),
+            })),
+          }),
+        }),
+      };
+      subscriptions.recordExplanation.mockResolvedValueOnce({
+        id: 77,
+        readingId: 21,
+        userId: 42,
+        word: 'que me parta un rayo',
+        normalizedWord: 'que me parta un rayo',
+        entryType: 'phrase',
+        language: 'es',
+        difficulty: 'easy',
+        context: spanishReading.content,
+        literalMeaning: 'Que caiga un rayo sobre mí.',
+        explanation: 'En la lectura, Juan expresa mucha frustración al quedar bajo la lluvia.',
+        wordBreakdown: [
+          {
+            token: 'rayo',
+            lemma: 'rayo',
+            partOfSpeech: 'sustantivo',
+            literalDefinition: 'Descarga eléctrica de una tormenta.',
+          },
+        ],
+        otherWaysToSay: [
+          { expression: '¡Qué mala suerte!', register: 'cotidiano', note: 'Frustración diaria.' },
+        ],
+        otherContexts: [
+          {
+            contextLabel: 'Algo muy improbable',
+            explanation: 'Se dice cuando dudas mucho de que algo ocurra.',
+            example: 'Si llega temprano, que me parta un rayo.',
+          },
+        ],
+        isSaved: false,
+        savedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+      factory.getFullResponse.mockResolvedValueOnce(
+        JSON.stringify({
+          literalMeaning: 'Que caiga un rayo sobre mí.',
+          explanation: 'En la lectura, Juan expresa mucha frustración al quedar bajo la lluvia.',
+          wordBreakdown: [
+            {
+              token: 'rayo',
+              lemma: 'rayo',
+              partOfSpeech: 'sustantivo',
+              literalDefinition: 'Descarga eléctrica de una tormenta.',
+            },
+          ],
+          otherWaysToSay: [
+            {
+              expression: '¡Qué mala suerte!',
+              register: 'cotidiano',
+              note: 'Frustración diaria.',
+            },
+          ],
+          otherContexts: [
+            {
+              contextLabel: 'Algo muy improbable',
+              explanation: 'Se dice cuando dudas mucho de que algo ocurra.',
+              example: 'Si llega temprano, que me parta un rayo.',
+            },
+          ],
+        }),
+      );
+
+      service = await buildModuleWithDb(localDb);
+      const res = await service.explain(
+        21,
+        42,
+        '  que   me   parta un rayo ',
+        spanishReading.content,
+      );
+
+      expect(res.id).toBe(77);
+      expect(res.entryType).toBe('phrase');
+      expect(res.language).toBe('es');
+      expect(res.difficulty).toBe('easy');
+      expect(res.cached).toBe(false);
+      expect(res.wordBreakdown).toHaveLength(1);
+      expect(res.otherWaysToSay).toHaveLength(1);
+      expect(res.otherContexts).toHaveLength(1);
+      expect(subscriptions.assertCanAskQuestion).toHaveBeenCalledTimes(1);
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns cached explanation on repeat lookup without checking quota or calling AI', async () => {
+      const reading = {
+        id: 21,
+        userId: 42,
+        status: 'pending' as const,
+        title: 'La tarde de Juan',
+        description: 'Un imprevisto en casa',
+        content: 'Juan gritó que me parta un rayo.',
+        category: 'culture',
+        difficulty: 'medium' as const,
+        language: 'es',
+        wordCount: 8,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        evaluatedAt: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      const cachedRow = {
+        id: 88,
+        readingId: 21,
+        userId: 42,
+        word: 'que me parta un rayo',
+        normalizedWord: 'que me parta un rayo',
+        entryType: 'phrase',
+        language: 'es',
+        difficulty: 'medium',
+        context: reading.content,
+        literalMeaning: 'Que caiga un rayo.',
+        explanation: 'Expresión de queja en el texto.',
+        wordBreakdown: [
+          {
+            token: 'rayo',
+            lemma: 'rayo',
+            partOfSpeech: 'sustantivo',
+            literalDefinition: 'Chispa eléctrica.',
+          },
+        ],
+        otherWaysToSay: [],
+        otherContexts: [],
+        isSaved: true,
+        savedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const localDb = {
+        ...db,
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockImplementation(() => ({
+              limit: jest.fn().mockResolvedValue([reading]),
+              orderBy: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue([cachedRow]),
+              }),
+            })),
+          }),
+        }),
+      };
+
+      service = await buildModuleWithDb(localDb);
+      const res = await service.explain(21, 42, 'QUE ME PARTA UN RAYO');
+
+      expect(res.cached).toBe(true);
+      expect(res.id).toBe(88);
+      expect(res.isSaved).toBe(true);
+      expect(res.explanation).toBe('Expresión de queja en el texto.');
+      expect(subscriptions.assertCanAskQuestion).not.toHaveBeenCalled();
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+      expect(subscriptions.recordExplanation).not.toHaveBeenCalled();
+    });
+
+    it('toggles glossary bookmark state and throws RESOURCE_NOT_FOUND when missing', async () => {
+      const updatedRow = {
+        id: 90,
+        readingId: 21,
+        userId: 42,
+        word: 'rayo',
+        normalizedWord: 'rayo',
+        entryType: 'word',
+        language: 'es',
+        difficulty: 'easy',
+        context: null,
+        literalMeaning: 'Descarga eléctrica.',
+        explanation: 'En este pasaje es parte de una exclamación.',
+        wordBreakdown: [],
+        otherWaysToSay: [],
+        otherContexts: [],
+        isSaved: true,
+        savedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const localDb = {
+        ...db,
+        update: jest
+          .fn()
+          .mockReturnValueOnce({
+            set: jest.fn().mockReturnValue({
+              where: jest.fn().mockReturnValue({
+                returning: jest.fn().mockResolvedValue([updatedRow]),
+              }),
+            }),
+          })
+          .mockReturnValueOnce({
+            set: jest.fn().mockReturnValue({
+              where: jest.fn().mockReturnValue({
+                returning: jest.fn().mockResolvedValue([]),
+              }),
+            }),
+          }),
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ title: 'La tarde de Juan' }]),
+            }),
+          }),
+        }),
+      };
+
+      service = await buildModuleWithDb(localDb);
+      const toggled = await service.toggleGlossarySave(90, 42, true);
+      expect(toggled.isSaved).toBe(true);
+      expect(toggled.readingTitle).toBe('La tarde de Juan');
+
+      let missingError: AppHttpException | null = null;
+      try {
+        await service.toggleGlossarySave(999, 42, true);
+      } catch (err) {
+        missingError = err as AppHttpException;
+      }
+      expect(missingError).toBeInstanceOf(AppHttpException);
+      expect(missingError?.getResponse()).toMatchObject({
+        code: ErrorCode.RESOURCE_NOT_FOUND,
+        details: { resource: 'ReadingExplanation' },
+      });
+    });
+  });
+
+  describe('Dynamic per-reading enrichment, semantic deduplication & Language Purity Guard fallback', () => {
+    const makeBlueprintDb = (
+      returned: Record<string, unknown>,
+      recentRows: Array<{ title: string; description: string }> = [],
+    ) => ({
+      insert: jest.fn().mockReturnValue({
+        values: jest.fn().mockReturnValue({
+          returning: jest.fn().mockResolvedValue([returned]),
+        }),
+      }),
+      select: jest.fn().mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([]),
+            orderBy: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue(recentRows),
+            }),
+          }),
+        }),
+      }),
+      update: jest.fn(),
+      delete: jest.fn(),
+    });
+
+    it('dynamically enriches each reading in Step 1 + Step 2 without calling registration blueprints', async () => {
+      const realBuilder = new PromptBuilderService();
+      promptGen.buildEnrichmentPrompt = jest.fn((p) => realBuilder.buildEnrichmentPrompt(p));
+      promptGen.parseEnrichmentResponse = jest.fn((raw, fb) =>
+        realBuilder.parseEnrichmentResponse(raw, fb),
+      );
+      promptGen.generateRandomParams = jest.fn((p) => realBuilder.generateRandomParams(p));
+      promptGen.buildPrompt.mockImplementation((p) => realBuilder.buildPrompt(p));
+      moderation.getOrBuildCategoryBlueprint = jest.fn();
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'Día de Muertos']);
+
+      const generatedRow = {
+        id: 201,
+        userId: 42,
+        status: 'pending',
+        title: 'Cómo Coco llevó el Xantolo y los alebrijes al cine global',
+        description: 'Un análisis sobre la fidelidad cultural de la película animada.',
+        content:
+          'La película examinó detalles regionales de los altares sin simplificar la tradición.',
+        category: 'Día de Muertos',
+        difficulty: 'easy' as const,
+        language: 'es',
+        wordCount: 13,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      factory.getFullResponse
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            subtopic: 'La representación en la película Coco',
+            perspective: 'impacto en cultura popular',
+            uniqueFocusElement: 'qué detalles regionales acertó el cine animado',
+            keyConcepts: ['altar', 'cempasúchil', 'tradición'],
+          }),
+        )
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            title: generatedRow.title,
+            description: generatedRow.description,
+            content: generatedRow.content,
+            category: 'Día de Muertos',
+            difficulty: 'easy',
+          }),
+        );
+      parser.parseGeneratedText.mockReturnValueOnce({
+        title: generatedRow.title,
+        description: generatedRow.description,
+        content: generatedRow.content,
+        category: 'Día de Muertos',
+        difficulty: 'easy',
+      });
+
+      const localDb = makeBlueprintDb(generatedRow);
+      service = await buildModuleWithDb(localDb);
+      const res = await service.generate({
+        userId: 42,
+        options: { category: 'Día de Muertos', difficulty: 'easy', size: 'short', language: 'es' },
+      });
+
+      expect(res.title).toBe(generatedRow.title);
+      expect(moderation.getOrBuildCategoryBlueprint).not.toHaveBeenCalled();
+      expect(promptGen.buildEnrichmentPrompt).toHaveBeenCalledTimes(1);
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(2);
+    });
+
+    it('automatically retries with MiniMax-M3 when primary reading contains CJK or mixed English', async () => {
+      const cleanFrench = {
+        id: 202,
+        userId: 42,
+        status: 'pending',
+        title: "L'histoire du fromage artisanal",
+        description: 'Une découverte claire des méthodes traditionnelles.',
+        content: 'Les artisans français préparent le fromage avec patience et savoir-faire.',
+        category: 'culture',
+        difficulty: 'medium' as const,
+        language: 'fr',
+        wordCount: 10,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys-fr',
+        userPrompt: 'usr-fr',
+        seed: 'seed-purity',
+        params: {
+          category: 'culture',
+          difficulty: 'medium',
+          size: 'short',
+          language: 'fr',
+          subcategories: ['Gastronomy'],
+          contentType: 'how_it_works',
+          perspective: 'process',
+          uniqueFocusElement: 'traditions locales',
+        },
+      });
+      factory.getFullResponse
+        .mockResolvedValueOnce(
+          '{"subtopic":"Fromage","perspective":"process","uniqueFocusElement":"traditions","keyConcepts":["affinage"]}',
+        )
+        .mockResolvedValueOnce('dirty-cjk')
+        .mockResolvedValueOnce('clean-fr');
+      parser.parseGeneratedText
+        .mockReturnValueOnce({
+          title: 'Histoire mezclada',
+          description: 'Les techniques 通常 because with old habits.',
+          content: 'Le processus avec 通常 et d’autres mots.',
+          category: 'culture',
+          difficulty: 'medium',
+        })
+        .mockReturnValueOnce({
+          title: cleanFrench.title,
+          description: cleanFrench.description,
+          content: cleanFrench.content,
+          category: 'culture',
+          difficulty: 'medium',
+        });
+
+      const localDb = makeBlueprintDb(cleanFrench);
+      service = await buildModuleWithDb(localDb);
+      const result = await service.generate({
+        userId: 42,
+        options: { category: 'culture', difficulty: 'medium', size: 'short', language: 'fr' },
+      });
+
+      expect(result.title).toBe(cleanFrench.title);
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(3);
+      expect(factory.getFullResponse).toHaveBeenNthCalledWith(
+        3,
+        expect.any(Array),
+        expect.objectContaining({
+          model: 'MiniMax-M3',
+          reasoningEffort: 'minimal',
+          maxTokens: 8192,
+        }),
+      );
+    });
+
+    it('recovers via MiniMax-M3 retry when primary reading emits unrecoverable JSON', async () => {
+      const cleanItalian = {
+        id: 203,
+        userId: 42,
+        status: 'pending',
+        title: 'La cultura del caffè italiano',
+        description: 'Un racconto chiaro delle tradizioni italiane.',
+        content: 'Il caffè rappresenta un momento di incontro quotidiano nelle città italiane.',
+        category: 'culture',
+        difficulty: 'hard' as const,
+        language: 'it',
+        wordCount: 11,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys-it',
+        userPrompt: 'usr-it',
+        seed: 'seed-it-repair',
+        params: {
+          category: 'culture',
+          difficulty: 'hard',
+          size: 'medium',
+          language: 'it',
+          subcategories: ['Traditions'],
+          contentType: 'how_it_works',
+          perspective: 'process',
+          uniqueFocusElement: 'espresso ritual',
+        },
+      });
+      factory.getFullResponse
+        .mockResolvedValueOnce(
+          '{"subtopic":"Caffè italiano","perspective":"process","uniqueFocusElement":"espresso ritual","keyConcepts":["tostatura"]}',
+        )
+        .mockResolvedValueOnce('{"broken":')
+        .mockResolvedValueOnce('clean-it');
+      parser.parseGeneratedText
+        .mockImplementationOnce(() => {
+          throw new SyntaxError('Expected comma or closing brace');
+        })
+        .mockReturnValueOnce({
+          title: cleanItalian.title,
+          description: cleanItalian.description,
+          content: cleanItalian.content,
+          category: 'culture',
+          difficulty: 'hard',
+        });
+
+      const localDb = makeBlueprintDb(cleanItalian);
+      service = await buildModuleWithDb(localDb);
+      const result = await service.generate({
+        userId: 42,
+        options: { category: 'culture', difficulty: 'hard', size: 'medium', language: 'it' },
+      });
+
+      expect(result.title).toBe(cleanItalian.title);
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(3);
+      expect(factory.getFullResponse).toHaveBeenNthCalledWith(
+        3,
+        expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('invalid_json_or_schema'),
+          }),
+        ]),
+        expect.objectContaining({ model: 'MiniMax-M3', maxTokens: 8192 }),
+      );
+    });
+
+    it('retries Spanish evaluation with MiniMax-M3 when feedback leaks English or camelCase splices', async () => {
+      const pendingSpanish = {
+        id: 204,
+        userId: 42,
+        status: 'pending' as const,
+        title: 'La alfarería tradicional',
+        description: 'Sobre el barro negro.',
+        content: 'Los artesanos moldean piezas con técnicas ancestrales.',
+        category: 'culture',
+        difficulty: 'easy' as const,
+        language: 'es',
+        wordCount: 7,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        evaluatedAt: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      const localDb = {
+        ...db,
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockImplementation(() => ({
+              limit: jest.fn().mockResolvedValue([pendingSpanish]),
+            })),
+          }),
+        }),
+        update: jest.fn().mockReturnValue({
+          set: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([
+                {
+                  ...pendingSpanish,
+                  status: 'completed',
+                  score: 88,
+                  passed: true,
+                  feedback: 'Captaste muy bien el proceso artesanal.',
+                },
+              ]),
+            }),
+          }),
+        }),
+      };
+      factory.getFullResponse
+        .mockResolvedValueOnce('dirty-eval')
+        .mockResolvedValueOnce('clean-eval');
+      parser.parseEvaluation
+        .mockReturnValueOnce({
+          score: 85,
+          passed: true,
+          feedback: 'Buena elaboration artesanal; podrías deepen más en cadaPreparation.',
+        })
+        .mockReturnValueOnce({
+          score: 88,
+          passed: true,
+          feedback: 'Captaste muy bien el proceso artesanal.',
+        });
+
+      service = await buildModuleWithDb(localDb);
+      const evaluated = await service.evaluate(204, 42, {
+        userResponse: 'Los artesanos crean vasijas tradicionales con barro negro.',
+      });
+
+      expect(evaluated.feedback).toBe('Captaste muy bien el proceso artesanal.');
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(2);
+      expect(factory.getFullResponse).toHaveBeenNthCalledWith(
+        2,
+        expect.any(Array),
+        expect.objectContaining({
+          model: 'MiniMax-M3',
+          reasoningEffort: 'minimal',
+          maxTokens: 8192,
+        }),
+      );
+    });
+
+    it('escalates to second MiniMax-M3 low retry when primary and minimal retry both leak CJK', async () => {
+      const cleanFrench = {
+        id: 205,
+        userId: 42,
+        status: 'pending',
+        title: 'Les marchés traditionnels',
+        description: 'Un regard clair sur la vie locale.',
+        content: 'Les marchés rassemblent des producteurs locaux chaque matin.',
+        category: 'culture',
+        difficulty: 'easy' as const,
+        language: 'fr',
+        wordCount: 9,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys-fr',
+        userPrompt: 'usr-fr',
+        seed: 'seed-escalation',
+        params: {
+          category: 'culture',
+          difficulty: 'easy',
+          size: 'short',
+          language: 'fr',
+          subcategories: ['Markets'],
+          contentType: 'how_it_works',
+          perspective: 'process',
+          uniqueFocusElement: 'local producers',
+        },
+      });
+      factory.getFullResponse
+        .mockResolvedValueOnce(
+          '{"subtopic":"Marchés locaux","perspective":"process","uniqueFocusElement":"local producers","keyConcepts":["étals"]}',
+        )
+        .mockResolvedValueOnce('dirty-1')
+        .mockResolvedValueOnce('dirty-2')
+        .mockResolvedValueOnce('clean-3');
+      parser.parseGeneratedText
+        .mockReturnValueOnce({
+          title: 'Les marchés 多种',
+          description: 'Desc',
+          content: 'Texte court.',
+          category: 'culture',
+          difficulty: 'easy',
+        })
+        .mockReturnValueOnce({
+          title: 'Les marchés 出来',
+          description: 'Desc',
+          content: 'Texte court.',
+          category: 'culture',
+          difficulty: 'easy',
+        })
+        .mockReturnValueOnce({
+          title: cleanFrench.title,
+          description: cleanFrench.description,
+          content: cleanFrench.content,
+          category: 'culture',
+          difficulty: 'easy',
+        });
+
+      const localDb = makeBlueprintDb(cleanFrench);
+      service = await buildModuleWithDb(localDb);
+      const result = await service.generate({
+        userId: 42,
+        options: { category: 'culture', difficulty: 'easy', size: 'short', language: 'fr' },
+      });
+
+      expect(result.title).toBe(cleanFrench.title);
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(4);
+      expect(factory.getFullResponse).toHaveBeenNthCalledWith(
+        4,
+        expect.any(Array),
+        expect.objectContaining({ model: 'MiniMax-M3', reasoningEffort: 'low', maxTokens: 8192 }),
+      );
+    });
+
+    it('keeps purity guard retries on Google without MiniMax-M3 when Google is active or selected in code', async () => {
+      const cleanSpanish = {
+        id: 206,
+        userId: 42,
+        status: 'pending',
+        title: 'La historia del café de altura',
+        description: 'Un recorrido claro por el cultivo tradicional.',
+        content: 'Los caficultores cosechan los granos maduros en las montañas húmedas.',
+        category: 'culture',
+        difficulty: 'easy' as const,
+        language: 'es',
+        wordCount: 10,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      promptGen.buildPrompt.mockReturnValue({
+        systemPrompt: 'sys-es',
+        userPrompt: 'usr-es',
+        seed: 'seed-google',
+        params: {
+          category: 'culture',
+          difficulty: 'easy',
+          size: 'short',
+          language: 'es',
+          subcategories: ['Coffee'],
+          contentType: 'how_it_works',
+          perspective: 'process',
+          uniqueFocusElement: 'mountain harvest',
+        },
+      });
+      factory.resolveProviderName = jest.fn().mockReturnValue('google');
+      factory.getFullResponse
+        .mockResolvedValueOnce(
+          '{"subtopic":"Café de altura","perspective":"process","uniqueFocusElement":"mountain harvest","keyConcepts":["cosecha"]}',
+        )
+        .mockResolvedValueOnce('dirty-es')
+        .mockResolvedValueOnce('clean-es');
+      parser.parseGeneratedText
+        .mockReturnValueOnce({
+          title: 'El café 出来',
+          description: 'Desc',
+          content: 'Texto corto.',
+          category: 'culture',
+          difficulty: 'easy',
+        })
+        .mockReturnValueOnce({
+          title: cleanSpanish.title,
+          description: cleanSpanish.description,
+          content: cleanSpanish.content,
+          category: 'culture',
+          difficulty: 'easy',
+        });
+
+      const localDb = makeBlueprintDb(cleanSpanish);
+      service = await buildModuleWithDb(localDb);
+      const result = await service.generate({
+        userId: 42,
+        options: { category: 'culture', difficulty: 'easy', size: 'short', language: 'es' },
+        aiOptions: { provider: 'google' },
+      });
+
+      expect(result.title).toBe(cleanSpanish.title);
+      expect(factory.getFullResponse).toHaveBeenNthCalledWith(2, expect.any(Array), {
+        provider: 'google',
+      });
+      expect(factory.getFullResponse).toHaveBeenNthCalledWith(3, expect.any(Array), {
+        provider: 'google',
+        reasoningEffort: 'minimal',
+        temperature: 0.7,
+        maxTokens: 8192,
+      });
+    });
+
+    it('uses Google Decisions semantic score to detect equivalent title+description and regenerate with a new angle', async () => {
+      const recentHistory = [
+        {
+          title: 'El origen sincrético del Día de Muertos',
+          description:
+            'Mezcla entre raíces indígenas y tradición católica española con papel picado.',
+        },
+      ];
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'Día de Muertos']);
+
+      const realBuilder = new PromptBuilderService();
+      promptGen.buildEnrichmentPrompt = jest.fn((p) => realBuilder.buildEnrichmentPrompt(p));
+      promptGen.parseEnrichmentResponse = jest.fn((raw, fb) =>
+        realBuilder.parseEnrichmentResponse(raw, fb),
+      );
+      promptGen.generateRandomParams = jest.fn((p) => realBuilder.generateRandomParams(p));
+      promptGen.buildPrompt.mockImplementation((p) => realBuilder.buildPrompt(p));
+
+      const acceptedRow = {
+        id: 299,
+        userId: 42,
+        status: 'pending',
+        title: 'El Xantolo en la Huasteca frente a los altares del norte',
+        description: 'Contraste regional en música, danzas y rituales del Día de Muertos.',
+        content: 'En la Huasteca los arcos florales y las cuadrillas marcan un ritmo propio.',
+        category: 'Día de Muertos',
+        difficulty: 'medium' as const,
+        language: 'es',
+        wordCount: 13,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+
+      const scoreMock = jest
+        .fn()
+        .mockResolvedValueOnce({
+          score: 3.15,
+          probabilities: { '3': 0.85, '4': 0.15 },
+          legend: {},
+          confidence: 0.9,
+        })
+        .mockResolvedValueOnce({
+          score: 0.35,
+          probabilities: { '0': 0.65, '1': 0.35 },
+          legend: {},
+          confidence: 0.95,
+        });
+
+      googleDecisions = {
+        isConfigured: jest.fn().mockReturnValue(true),
+        score: scoreMock,
+      };
+
+      factory.getFullResponse
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            subtopic: 'Altares tradicionales y raíces coloniales',
+            perspective: 'origins',
+            uniqueFocusElement: 'fusión cultural básica',
+            keyConcepts: ['altar', 'papel picado'],
+          }),
+        )
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            title: 'Historia del sincretismo en los altares de noviembre',
+            description: 'Explicación de la unión indígena y católica junto al papel picado.',
+            content: 'El Día de Muertos combina símbolos prehispánicos con elementos españoles.',
+            category: 'Día de Muertos',
+            difficulty: 'medium',
+          }),
+        )
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            subtopic: 'Xantolo en la Huasteca frente al norte',
+            perspective: 'comparison',
+            uniqueFocusElement: 'diferencias regionales poco conocidas',
+            keyConcepts: ['Xantolo', 'arcos', 'cuadrillas'],
+          }),
+        )
+        .mockResolvedValueOnce(
+          JSON.stringify({
+            title: acceptedRow.title,
+            description: acceptedRow.description,
+            content: acceptedRow.content,
+            category: 'Día de Muertos',
+            difficulty: 'medium',
+          }),
+        );
+
+      parser.parseGeneratedText
+        .mockReturnValueOnce({
+          title: 'Historia del sincretismo en los altares de noviembre',
+          description: 'Explicación de la unión indígena y católica junto al papel picado.',
+          content: 'El Día de Muertos combina símbolos prehispánicos con elementos españoles.',
+          category: 'Día de Muertos',
+          difficulty: 'medium',
+        })
+        .mockReturnValueOnce({
+          title: acceptedRow.title,
+          description: acceptedRow.description,
+          content: acceptedRow.content,
+          category: 'Día de Muertos',
+          difficulty: 'medium',
+        });
+
+      const localDb = makeBlueprintDb(acceptedRow, recentHistory);
+      service = await buildModuleWithDb(localDb);
+
+      const saved = await service.generate({
+        userId: 42,
+        options: {
+          category: 'Día de Muertos',
+          difficulty: 'medium',
+          size: 'short',
+          language: 'es',
+        },
+      });
+
+      expect(saved.title).toBe(acceptedRow.title);
+      expect(scoreMock).toHaveBeenCalledTimes(2);
+      expect(scoreMock.mock.calls[0]?.[0]?.input).toContain(
+        'Mezcla entre raíces indígenas y tradición católica española con papel picado.',
+      );
+      expect(promptGen.buildEnrichmentPrompt).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          excludedAngles: expect.arrayContaining([
+            expect.stringContaining('Historia del sincretismo en los altares de noviembre'),
+          ]),
+        }),
+      );
+    });
+
+    it('keeps the lowest-similarity candidate if all retries remain above threshold and fails open on Decisions errors', async () => {
+      const recentHistory = [
+        { title: 'Platón y las ideas', description: 'Introducción al mundo de las ideas.' },
+      ];
+      settings.getCategories.mockResolvedValue(['technology', 'history', 'Filosofía']);
+      const realBuilder = new PromptBuilderService();
+      promptGen.generateRandomParams = jest.fn((p) => realBuilder.generateRandomParams(p));
+      promptGen.buildPrompt.mockImplementation((p) => realBuilder.buildPrompt(p));
+
+      const attempt2Row = {
+        id: 302,
+        userId: 42,
+        status: 'pending',
+        title: 'Nietzsche y el eterno retorno en la vida cotidiana',
+        description: 'Cómo la filosofía moderna cuestiona el valor de cada decisión.',
+        content: 'El eterno retorno plantea vivir cada instante como si se repitiera siempre.',
+        category: 'Filosofía',
+        difficulty: 'medium' as const,
+        language: 'es',
+        wordCount: 13,
+        score: null,
+        passed: null,
+        userResponse: null,
+        feedback: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+
+      const scoreMock = jest
+        .fn()
+        .mockResolvedValueOnce({ score: 3.6, probabilities: {}, legend: {}, confidence: 0.9 })
+        .mockResolvedValueOnce({ score: 2.4, probabilities: {}, legend: {}, confidence: 0.9 })
+        .mockResolvedValueOnce({ score: 3.1, probabilities: {}, legend: {}, confidence: 0.9 });
+      googleDecisions = {
+        isConfigured: jest.fn().mockReturnValue(true),
+        score: scoreMock,
+      };
+
+      factory.getFullResponse.mockResolvedValue('candidate-raw');
+      parser.parseGeneratedText
+        .mockReturnValueOnce({
+          title: 'Platón y la cueva',
+          description: 'Misma explicación general.',
+          content: 'Texto uno en español correcto.',
+          category: 'Filosofía',
+          difficulty: 'medium',
+        })
+        .mockReturnValueOnce({
+          title: attempt2Row.title,
+          description: attempt2Row.description,
+          content: attempt2Row.content,
+          category: 'Filosofía',
+          difficulty: 'medium',
+        })
+        .mockReturnValueOnce({
+          title: 'Platón otra vez',
+          description: 'Resumen repetido.',
+          content: 'Texto tres en español correcto.',
+          category: 'Filosofía',
+          difficulty: 'medium',
+        });
+
+      const localDb = makeBlueprintDb(attempt2Row, recentHistory);
+      const insertValuesSpy = localDb.insert;
+      service = await buildModuleWithDb(localDb);
+
+      const saved = await service.generate({
+        userId: 42,
+        options: { category: 'Filosofía', difficulty: 'medium', size: 'short', language: 'es' },
+      });
+
+      expect(scoreMock).toHaveBeenCalledTimes(3);
+      expect(saved.title).toBe(attempt2Row.title);
+      expect(insertValuesSpy).toHaveBeenCalled();
+
+      // Fail-open si Google Decisions lanza error de red
+      scoreMock.mockRejectedValueOnce(new Error('Decisions timeout'));
+      parser.parseGeneratedText.mockReturnValueOnce({
+        title: attempt2Row.title,
+        description: attempt2Row.description,
+        content: attempt2Row.content,
+        category: 'Filosofía',
+        difficulty: 'medium',
+      });
+      const failOpenSaved = await service.generate({
+        userId: 42,
+        options: { category: 'Filosofía', difficulty: 'medium', size: 'short', language: 'es' },
+      });
+      expect(failOpenSaved.title).toBe(attempt2Row.title);
     });
   });
 });

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { MIN_USER_CATEGORIES } from '../settings.constants';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -7,20 +8,20 @@ import {
   IsString,
   Length,
 } from 'class-validator';
-import { READING_CATEGORIES } from '../../readings/prompt-generation/catalog.constants';
 
-const CATEGORY_IDS = [...READING_CATEGORIES];
-
+/**
+ * DTO de entrada para actualizar las categorías preferidas del usuario.
+ */
 export class UpdateCategoriesDto {
   @ApiProperty({
     type: [String],
+    minItems: MIN_USER_CATEGORIES,
     example: ['technology', 'history', 'quantum physics'],
     description:
-      'Category names or IDs to persist as the user’s selection; must be unique and non-empty (2-50 chars each)',
-    enum: CATEGORY_IDS,
+      'Nombres o IDs de categorías (predefinidas o personalizadas) a guardar como selección del usuario; mínimo 3 únicas y de 2 a 50 caracteres cada una',
   })
   @IsArray()
-  @ArrayMinSize(1)
+  @ArrayMinSize(MIN_USER_CATEGORIES)
   @ArrayMaxSize(50)
   @ArrayUnique()
   @IsString({ each: true })

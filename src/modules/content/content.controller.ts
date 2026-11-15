@@ -2,6 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiForbiddenResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -14,26 +15,42 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { ContentService } from './content.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
 
+/**
+ * Controlador de generación de contenido (`/content`).
+ */
 @ApiTags('content')
 @ApiBearerAuth('access-token')
 @Controller('content')
 export class ContentController {
   constructor(private readonly content: ContentService) {}
 
+  /**
+   * Genera una nueva lectura usando las preferencias del usuario y el proveedor de IA activo.
+   */
   @Post('generate')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Generate a reading using the user’s saved preferences and the active AI provider',
+    summary:
+      'Generar una lectura usando el idioma elegido, las preferencias del usuario y el proveedor de IA activo',
     description:
-      'Omitted fields fall back to the user’s saved settings (/settings/categories), ' +
-      'then to a random pick from the catalog. Delegates generation and persistence to the readings module.',
+      'Exige explícitamente `language` (es, en, fr o it) dentro de los idiomas activos del plan del usuario. ' +
+      'Los campos opcionales toman las preferencias guardadas (/settings/categories) o una selección aleatoria del catálogo.',
   })
   @ApiCreatedResponseOf(ReadingDto)
   @ApiBadRequestResponse({
-    description: 'Pending limit reached, AI provider failed, or validation error',
+    description:
+      'Falta el idioma obligatorio, se alcanzó el límite de lecturas pendientes, falló el proveedor de IA o hubo un error de validación',
     type: ApiErrorDto,
   })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid auth', type: ApiErrorDto })
+  @ApiForbiddenResponse({
+    description:
+      'Suscripción requerida, sin idiomas seleccionados (LANGUAGE_NOT_SELECTED) o idioma fuera de los cupos activos del plan (SUBSCRIPTION_LANGUAGE_NOT_ALLOWED)',
+    type: ApiErrorDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
   async generate(
     @CurrentUser() current: AuthUser,
     @Body() dto: GenerateContentDto,

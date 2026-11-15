@@ -1,10 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsPositive, IsString, Length } from 'class-validator';
 
+/**
+ * DTO de entrada para enviar el resumen de una lectura a evaluar.
+ */
 export class SubmitEvaluationDto {
   @ApiProperty({
     example: 42,
-    description: 'Id of the reading being evaluated (owned by the authenticated user)',
+    description: 'ID de la lectura a evaluar (debe pertenecer al usuario autenticado)',
   })
   @IsInt()
   @IsPositive()
@@ -14,7 +17,7 @@ export class SubmitEvaluationDto {
     minLength: 20,
     example:
       'The reading was about the Industrial Revolution and how steam engines changed manufacturing.',
-    description: 'The user’s summary of the reading. Must be at least 20 characters.',
+    description: 'Resumen de la lectura escrito por el usuario. Debe tener al menos 20 caracteres.',
   })
   @IsString()
   @Length(20)

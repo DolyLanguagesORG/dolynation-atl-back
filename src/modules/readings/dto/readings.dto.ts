@@ -1,32 +1,42 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, Length } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
 import {
   CEFR_BY_DIFFICULTY,
-  READING_CATEGORIES,
   READING_CEFR_LEVELS,
   READING_DIFFICULTIES,
   READING_TEXT_SIZES,
 } from '../prompt-generation';
 import type { CefrLevel, DifficultyLevel, TextSize } from '../prompt-generation/catalog.types';
 
+const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
+
 /**
- * GenerateReadingDto is the client-facing input for the readings endpoint.
+ * `GenerateReadingDto` es el DTO de entrada expuesto al cliente para el endpoint de generación de lecturas.
  *
- * The user explicitly chooses three things:
- *   - category  : which topic sub-area to write about
- *   - difficulty: which target English level + CEFR mapping (A1-A2 / B1-B2 / C1-C2)
- *   - size      : how long the reading should be (80-120, 150-220, or 250-350 words)
+ * El usuario elige explícitamente tres parámetros:
+ *   - `category`  : área temática sobre la que se escribirá la lectura
+ *   - `difficulty`: nivel objetivo y mapeo CEFR (`A1-A2` / `B1-B2` / `C1-C2`)
+ *   - `size`      : longitud deseada de la lectura (`80-120`, `150-220` o `250-350` palabras)
  *
- * The system fills in subcategory, content type, perspective, and unique
- * focus element so every reading comes out at a non-trivial angle and the
- * LLM doesn't get stale responses.
+ * El sistema completa subcategoría, tipo de contenido, perspectiva y foco único
+ * para que cada lectura aborde un ángulo distinto y evitar respuestas repetitivas del LLM.
  */
 export class GenerateReadingDto {
   @ApiProperty({
     description:
-      'Topic category for the generated reading. Must match one of the user’s configured study categories.',
-    enum: READING_CATEGORIES,
-    example: 'technology',
+      'Categoría temática de la lectura generada. Debe coincidir con una de las categorías de estudio configuradas por el usuario.',
+    example: 'Día de Muertos',
   })
   @IsString()
   @Length(2, 50)
@@ -34,9 +44,8 @@ export class GenerateReadingDto {
 
   @ApiProperty({
     description:
-      'Target English level — drives both the vocabulary and grammar ' +
-      'guidelines in the LLM prompt. Defaults to `medium` ' +
-      '(B1-B2, intermediate).',
+      'Nivel objetivo de inglés — guía tanto el vocabulario como las reglas gramaticales ' +
+      'del prompt enviado al LLM. Por defecto `medium` (B1-B2, intermedio).',
     enum: READING_DIFFICULTIES,
     default: 'medium',
     example: 'medium',
@@ -48,8 +57,8 @@ export class GenerateReadingDto {
 
   @ApiProperty({
     description:
-      'How long the reading should be. `short` (~1 min), `medium` (~2 min), ' +
-      'or `long` (~3 min). Defaults to `medium`.',
+      'Longitud deseada de la lectura: `short` (~1 min), `medium` (~2 min) ' +
+      'o `long` (~3 min). Por defecto `medium`.',
     enum: READING_TEXT_SIZES,
     default: 'medium',
     example: 'medium',
@@ -61,24 +70,27 @@ export class GenerateReadingDto {
 
   @ApiProperty({
     description:
-      'Target language for the generated reading (e.g. en, es, fr, pt, de). Defaults to the user’s preferred study language.',
-    example: 'en',
-    required: false,
+      'Target language for the generated reading (es, en, fr, it). Required; must be active in your configured languages and allowed by your subscription plan.',
+    enum: LANGUAGE_IDS,
+    example: 'es',
   })
-  @IsOptional()
   @IsString()
-  language?: string;
+  @IsIn(LANGUAGE_IDS)
+  language!: LanguageId;
 
-  /** Lookup kept around for /readings/options; not exposed in the API. */
+  /** Consulta auxiliar conservada para `/readings/options`; no se expone en el esquema público. */
   static cefrLevelsForDifficulty(difficulty: DifficultyLevel): readonly CefrLevel[] {
     return CEFR_BY_DIFFICULTY[difficulty];
   }
 }
 
+/**
+ * DTO de entrada para evaluar el resumen escrito por el usuario sobre una lectura.
+ */
 export class EvaluateReadingDto {
   @ApiProperty({
     minLength: 20,
-    description: 'The user’s summary of the reading. Must be at least 20 chars.',
+    description: 'Resumen de la lectura escrito por el usuario. Debe tener al menos 20 caracteres.',
     example:
       'The reading was about the Industrial Revolution and how steam engines changed manufacturing.',
   })
@@ -87,19 +99,107 @@ export class EvaluateReadingDto {
   userResponse!: string;
 }
 
+/**
+ * DTO de entrada para solicitar la explicación contextual de una palabra u oración dentro de una lectura.
+ */
 export class CreateExplanationDto {
-  @ApiProperty({ description: 'Word to explain', example: 'ubiquitous' })
+  @ApiProperty({
+    description: 'Word, expression, or sentence selected inside the reading to explain',
+    example: 'que me parta un rayo',
+  })
   @IsString()
+  @Length(1, 500)
   word!: string;
 
   @ApiProperty({
     required: false,
-    description: 'Optional sentence where the word appears, for disambiguation',
-    example: 'Smartphones have become ubiquitous in modern life.',
+    description: 'Optional surrounding excerpt from the reading used to disambiguate meaning',
+    example: 'Juan miró la tormenta y dijo que me parta un rayo si vuelve a olvidar el paraguas.',
   })
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   context?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'When true, bypasses the cached explanation for this reading and regenerates via AI',
+    example: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  forceRefresh?: boolean;
 }
 
-export { READING_CATEGORIES, READING_DIFFICULTIES, READING_TEXT_SIZES, READING_CEFR_LEVELS };
+/**
+ * Parámetros de consulta para filtrar las entradas del glosario del usuario.
+ */
+export class GlossaryQueryDto {
+  @ApiProperty({
+    required: false,
+    enum: ['word', 'phrase'],
+    description: 'Filter by entry type (single word vs. sentence/phrase)',
+    example: 'phrase',
+  })
+  @IsOptional()
+  @IsIn(['word', 'phrase'])
+  entryType?: 'word' | 'phrase';
+
+  @ApiProperty({
+    required: false,
+    enum: LANGUAGE_IDS,
+    description: 'Filter entries by target language code',
+    example: 'es',
+  })
+  @IsOptional()
+  @IsIn(LANGUAGE_IDS)
+  language?: LanguageId;
+
+  @ApiProperty({
+    required: false,
+    description: 'When true, returns only entries bookmarked/saved in the user glossary',
+    example: true,
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  savedOnly?: boolean;
+
+  @ApiProperty({
+    required: false,
+    description: 'Filter consultations belonging to a specific reading id',
+    example: 42,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  readingId?: number;
+
+  @ApiProperty({
+    required: false,
+    description: 'Case-insensitive text filter matched against word, explanation, or context',
+    example: 'rayo',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  search?: string;
+}
+
+/**
+ * DTO de entrada para marcar o desmarcar una explicación en el glosario personal.
+ */
+export class ToggleGlossarySaveDto {
+  @ApiProperty({
+    description: 'Target bookmark state in the user personal glossary',
+    example: true,
+  })
+  @IsBoolean()
+  isSaved!: boolean;
+}
+
+export { READING_DIFFICULTIES, READING_TEXT_SIZES, READING_CEFR_LEVELS };

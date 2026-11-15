@@ -9,14 +9,17 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
 
 /**
- * Allows the request through only when the authenticated user has a row in
- * the `admins` table. Must run AFTER the global JwtAuthGuard so `req.user`
- * is populated. Returns RESOURCE_FORBIDDEN when the check fails.
+ * Permite el paso de la solicitud únicamente cuando el usuario autenticado tiene un
+ * registro en la tabla `admins`. Debe ejecutarse DESPUÉS del `JwtAuthGuard` global para
+ * que `req.user` ya esté poblado. Devuelve `RESOURCE_FORBIDDEN` si falla la validación.
  */
 @Injectable()
 export class AdminGuard implements CanActivate {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
+  /**
+   * Verifica si el usuario autenticado pertenece a la tabla de administradores.
+   */
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
     const user = req.user;

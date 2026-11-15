@@ -74,4 +74,20 @@ describe('AiDegradedService', () => {
       expect(body.code).toBe(ErrorCode.SERVICE_UNAVAILABLE);
     }
   });
+
+  it('forwards explicit provider, model, and aiOptions to AIProviderFactory', async () => {
+    factory.getFullResponse.mockResolvedValue('google-ok');
+
+    const result = await service.getFullResponse([{ role: 'user', content: 'hola' }], {
+      provider: 'google',
+      aiOptions: { temperature: 0.3, maxTokens: 1024 },
+    });
+
+    expect(result).toBe('google-ok');
+    expect(factory.getFullResponse).toHaveBeenCalledWith([{ role: 'user', content: 'hola' }], {
+      provider: 'google',
+      temperature: 0.3,
+      maxTokens: 1024,
+    });
+  });
 });

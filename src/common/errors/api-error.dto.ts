@@ -2,42 +2,40 @@ import { ApiProperty } from '@nestjs/swagger';
 import { IsObject, IsOptional } from 'class-validator';
 
 /**
- * Documented in OpenAPI. Represents a per-field validation error inside
+ * Documentado en OpenAPI. Representa un error de validación por campo dentro de
  * `ApiErrorDto.details.fields`.
  */
 export class ValidationFieldErrorDto {
   @ApiProperty({
-    description: 'Field name in the request body, or "_root" for general errors',
+    description: 'Nombre del campo en el cuerpo de la petición, o "_root" para errores generales',
     example: 'email',
   })
   field!: string;
 
   @ApiProperty({
-    description: 'Human-readable error message for this field',
+    description: 'Mensaje legible del error para este campo',
     example: 'must be a valid email',
   })
   message!: string;
 }
 
 /**
- * The `error` field shape inside any error response envelope. Used as the
- * type for `@ApiResponse({ type: ApiErrorResponseDto })` decorators.
+ * Forma del campo `error` dentro de cualquier sobre de error de la API.
+ * Se utiliza como tipo en los decoradores `@ApiResponse({ type: ApiErrorDto })`.
  *
- * The full envelope (with `message` and `data: null`) is the same shape as
- * the success envelope, so we don't need a separate wrapper class — that
- * is what caused a circular dependency. Controllers document the
- * error response with the same ApiResponse shape used for success, just
- * with `type: ApiErrorDto` on the error field.
+ * El sobre completo (con `message` y `data: null`) comparte estructura con el
+ * sobre de éxito, evitando crear clases envoltorio separadas que generaban
+ * dependencias circulares en el generador de esquemas OpenAPI.
  */
 export class ApiErrorDto {
   @ApiProperty({
-    description: 'Stable machine-readable error code (see ErrorCode enum)',
+    description: 'Código estable legible por máquina (consultar el enum ErrorCode)',
     example: 'RESOURCE_NOT_FOUND',
   })
   code!: string;
 
   @ApiProperty({
-    description: 'Human-readable error message, safe to display to end users',
+    description: 'Mensaje de error legible y seguro para mostrar al usuario final',
     example: 'The requested resource was not found',
   })
   message!: string;
@@ -45,7 +43,7 @@ export class ApiErrorDto {
   @ApiProperty({
     required: false,
     description:
-      'Optional context. For VALIDATION_ERROR contains a `fields` array of { field, message } objects.',
+      'Contexto adicional opcional. Para VALIDATION_ERROR incluye un arreglo `fields` de objetos { field, message }.',
     type: Object,
     additionalProperties: true,
     example: { fields: [{ field: 'email', message: 'must be a valid email' }] },

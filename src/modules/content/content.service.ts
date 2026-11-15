@@ -1,39 +1,67 @@
 import { Injectable } from '@nestjs/common';
+import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
+import type { AIRequestOptions } from '../ia/providers/ai-provider.interface';
 import { ReadingsService } from '../readings/readings.service';
-import { READING_CATEGORIES } from '../readings/prompt-generation';
-import type { CategoryId } from '../readings/prompt-generation/catalog.types';
+import { MIN_USER_CATEGORIES } from '../settings/settings.constants';
+import { SettingsService } from '../settings/settings.service';
 import type { Reading } from '../../database/drizzle/types';
 import type { GenerateContentDto } from './dto/generate-content.dto';
 
+/**
+ * Servicio de orquestación para la generación de lecturas bajo demanda (`/content`).
+ */
 @Injectable()
 export class ContentService {
-  constructor(private readonly readings: ReadingsService) {}
+  constructor(
+    private readonly readings: ReadingsService,
+    private readonly settings: SettingsService,
+  ) {}
 
   /**
-   * Resolve the category passed to the readings generator.
+   * Resuelve la categoría que se enviará al generador de lecturas.
    *
-   * Today: explicit DTO value, else a random category from the catalog.
-   * A follow-up (depends on PR #35 landing) will consult the user's saved
-   * preferences from the settings module before falling back to random.
+   * Toma el valor explícito del DTO, o si se omite, elige una de las categorías
+   * escritas y configuradas por el usuario en `/settings/categories`.
    */
-  resolveCategory(requested?: CategoryId): CategoryId {
-    if (requested) return requested;
-    return pickRandom(READING_CATEGORIES);
+  async resolveCategory(userId: number, requested?: string): Promise<string> {
+    if (requested && requested.trim().length > 0) {
+      return requested.trim();
+    }
+    const preferred = await this.settings.getCategories(userId);
+    if (preferred.length > 0) {
+      return pickRandom(preferred);
+    }
+    throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+      minCategories: MIN_USER_CATEGORIES,
+      configuredCategories: 0,
+      message: `You must configure at least ${MIN_USER_CATEGORIES} categories in your preferences before generating readings.`,
+    });
   }
 
-  async generate(userId: number, dto: GenerateContentDto): Promise<Reading> {
-    const category = this.resolveCategory(dto.category);
+  /**
+   * Genera y persiste una lectura para el usuario aplicando los valores por defecto cuando corresponda.
+   */
+  async generate(
+    userId: number,
+    dto: GenerateContentDto,
+    aiOptions?: AIRequestOptions,
+  ): Promise<Reading> {
+    const category = await this.resolveCategory(userId, dto.category);
     return this.readings.generate({
       userId,
       options: {
         category,
+        language: dto.language,
         ...(dto.difficulty !== undefined ? { difficulty: dto.difficulty } : {}),
         ...(dto.size !== undefined ? { size: dto.size } : {}),
       },
+      ...(aiOptions !== undefined ? { aiOptions } : {}),
     });
   }
 }
 
+/** Selecciona un elemento aleatorio de un arreglo no vacío. */
 function pickRandom<T>(items: readonly T[]): T {
   const idx = Math.floor(Math.random() * items.length);
   const picked = items[idx];

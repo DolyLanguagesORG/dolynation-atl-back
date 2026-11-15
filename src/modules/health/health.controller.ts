@@ -15,6 +15,9 @@ import { appVersion } from '../../common/version';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 
+/**
+ * Controlador de sondas de disponibilidad y estado del servicio (`/health`).
+ */
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
@@ -24,10 +27,13 @@ export class HealthController {
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
   ) {}
 
+  /**
+   * Verifica que el proceso Node/NestJS responda correctamente.
+   */
   @Public()
   @Get('live')
   @HealthCheck({ swaggerDocumentation: false })
-  @ApiOperation({ summary: 'Liveness probe — process is up' })
+  @ApiOperation({ summary: 'Sonda de vida (liveness) — indica si el proceso está activo' })
   @ApiOkResponseOf(HealthCheckResultDto)
   live(): Promise<ApiResponse<HealthCheckResult>> {
     return this.health
@@ -35,10 +41,15 @@ export class HealthController {
       .then((result) => apiOk('Liveness', result));
   }
 
+  /**
+   * Verifica conectividad básica contra PostgreSQL y el estado de la aplicación.
+   */
   @Public()
   @Get('ready')
   @HealthCheck({ swaggerDocumentation: false })
-  @ApiOperation({ summary: 'Readiness probe — DB is reachable' })
+  @ApiOperation({
+    summary: 'Sonda de disponibilidad (readiness) — verifica conexión con la base de datos',
+  })
   @ApiOkResponseOf(HealthCheckResultDto)
   ready(): Promise<ApiResponse<HealthCheckResult>> {
     return this.health
