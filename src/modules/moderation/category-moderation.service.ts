@@ -21,7 +21,7 @@ const MAX_CATEGORY_LENGTH = 50;
  * Servicio orquestador de moderación de categorías dinámicas en tres capas:
  *   1. Blacklist normalizada (minúsculas, sin acentos/diéresis, sin espacios/leetspeak).
  *   2. Expresiones regulares (gibberish, spam, prompt injection, evasiones).
- *   3. API gratuita de moderación (OpenAI / Perspective) e IA del sistema en batch con caché.
+ *   3. API gratuita de moderación (OpenAI) y Decisions API de Google, más IA del sistema en batch con caché.
  */
 @Injectable()
 export class CategoryModerationService {

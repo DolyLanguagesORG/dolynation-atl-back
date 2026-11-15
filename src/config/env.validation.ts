@@ -9,7 +9,7 @@ const emptyToUndefined = (value: unknown): unknown =>
  * Lo importa AppModule en ConfigModule para validar `process.env` al arrancar.
  * Si falta una variable obligatoria o es inválida, aborta el arranque con el detalle.
  */
-const envSchema = z.object({
+const baseEnvSchema = z.object({
   // ===== Aplicación =====
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3333),
@@ -137,12 +137,6 @@ const envSchema = z.object({
     z.string().default('omni-moderation-latest'),
   ),
 
-  // Google Perspective API (cuota gratuita; opcional)
-  PERSPECTIVE_API_KEY: z
-    .string()
-    .optional()
-    .transform((v) => (v && v.trim().length > 0 ? v.trim() : undefined)),
-
   // ===== Correo transaccional (SMTP) =====
   // Opcionales: sin ellas la app arranca igual y el envío falla con un mensaje
   // claro ("falta SMTP_HOST/SMTP_USER") cuando se intenta enviar un correo.
@@ -180,6 +174,23 @@ const envSchema = z.object({
       .optional()
       .transform((v) => v === 'true' || v === '1'),
   ),
+});
+
+/**
+ * El provider de Google lanza `GOOGLE_API_KEY is not configured` en runtime.
+ * Sin esta regla, la app arrancaba igual y **cada** generacion de lectura
+ * fallaba en silencio (el `AiDegradedService` la atrapaba y degradaba).
+ * Con la regla, la app no arranca y el error dice exactamente que falta.
+ */
+const envSchema = baseEnvSchema.superRefine((env, ctx) => {
+  if (env.AI_DEFAULT_PROVIDER === 'google' && !env.GOOGLE_API_KEY) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['GOOGLE_API_KEY'],
+      message:
+        'GOOGLE_API_KEY es obligatoria cuando AI_DEFAULT_PROVIDER=google: sin ella el proveedor lanza "GOOGLE_API_KEY is not configured" en cada generacion de lectura',
+    });
+  }
 });
 
 export type EnvSchema = z.infer<typeof envSchema>;

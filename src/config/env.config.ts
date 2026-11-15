@@ -209,7 +209,6 @@ export class AppConfigService {
     openaiApiKey: string | undefined;
     openaiEndpoint: string;
     openaiModel: string;
-    perspectiveApiKey: string | undefined;
   } {
     const rawEnabled: unknown = this.config.get('CATEGORY_MODERATION_ENABLED', { infer: true });
     const rawAiEnabled: unknown = this.config.get('CATEGORY_MODERATION_AI_ENABLED', {
@@ -231,7 +230,6 @@ export class AppConfigService {
       infer: true,
     });
     const rawOpenaiModel: unknown = this.config.get('OPENAI_MODERATION_MODEL', { infer: true });
-    const rawPerspectiveKey: unknown = this.config.get('PERSPECTIVE_API_KEY', { infer: true });
 
     const normalizedProvider =
       typeof rawAiProvider === 'string' ? rawAiProvider.trim().toLowerCase() : '';
@@ -256,7 +254,6 @@ export class AppConfigService {
       openaiApiKey: optionalTrimmedString(rawOpenaiKey),
       openaiEndpoint: nonEmptyString(rawOpenaiEndpoint, 'https://api.openai.com/v1/moderations'),
       openaiModel: nonEmptyString(rawOpenaiModel, 'omni-moderation-latest'),
-      perspectiveApiKey: optionalTrimmedString(rawPerspectiveKey),
     };
   }
 }

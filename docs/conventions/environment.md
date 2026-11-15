@@ -51,7 +51,6 @@ Política de configuración por variables de entorno. La fuente de verdad es
 | `OPENAI_API_KEY`      | No        | string  | -                                            | Clave opcional para OpenAI Moderation API (gratuita)        |
 | `OPENAI_MODERATION_ENDPOINT` | No | url | `https://api.openai.com/v1/moderations`      | URL de OpenAI Moderation API                                |
 | `OPENAI_MODERATION_MODEL` | No    | string  | `omni-moderation-latest`                     | Modelo de OpenAI Moderation API                             |
-| `PERSPECTIVE_API_KEY` | No        | string  | -                                            | Clave opcional para Google Perspective API (cuota gratuita) |
 | `SMTP_HOST`         | No        | string  | -                                            | Host del servidor SMTP (Mailtrap Sandbox en dev, Brevo en staging/prod) |
 | `SMTP_PORT`         | No        | int     | `587`                                       | Puerto del servidor SMTP (587 STARTTLS, 465 TLS implícito, 2525 Mailtrap) |
 | `SMTP_USER`         | No        | string  | -                                            | Usuario de autenticación SMTP. En Brevo es el login de la cuenta o `<id>@smtp-brevo.com` |

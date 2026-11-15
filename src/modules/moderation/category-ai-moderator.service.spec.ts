@@ -28,7 +28,6 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
       openaiApiKey: undefined,
       openaiEndpoint: 'https://api.openai.com/v1/moderations',
       openaiModel: 'omni-moderation-latest',
-      perspectiveApiKey: undefined,
     };
 
     configMock = {
@@ -92,33 +91,6 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
-  });
-
-  it('uses Perspective API when configured and rejects categories exceeding score threshold', async () => {
-    modConfig.perspectiveApiKey = 'persp-test-key';
-    modConfig.aiEnabled = false;
-
-    const fetchMock = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          attributeScores: {
-            TOXICITY: { summaryScore: { value: 0.88 } },
-          },
-        }),
-    });
-    global.fetch = fetchMock;
-
-    const result = await service.moderateBatch(['Insulto sutil']);
-    expect(result).toEqual([
-      {
-        category: 'Insulto sutil',
-        allowed: false,
-        layer: 'perspective_api',
-        reason: 'perspective_toxicity',
-      },
-    ]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('batches uncached categories through the existing system AI, strips think tags, and caches results', async () => {

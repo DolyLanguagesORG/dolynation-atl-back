@@ -47,14 +47,6 @@ interface OpenAiModerationResponse {
   results?: OpenAiModerationResult[];
 }
 
-interface PerspectiveAttributeScore {
-  summaryScore?: { value?: number };
-}
-
-interface PerspectiveResponse {
-  attributeScores?: Record<string, PerspectiveAttributeScore>;
-}
-
 interface AiModerationItem {
   category?: unknown;
   allowed?: unknown;
@@ -77,8 +69,6 @@ const CRITICAL_OPENAI_CATEGORIES = new Set<string>([
   'illicit/violent',
 ]);
 
-const PERSPECTIVE_ENDPOINT = 'https://commentanalyzer.googleapis.com/v1alpha1/comments:analyze';
-
 /**
  * Ejecuta el **Filtro 3 (Moderación gratuita con APIs externas e IA del sistema)**
  * sobre categorías que ya superaron blacklist y expresiones regulares.
@@ -88,10 +78,9 @@ const PERSPECTIVE_ENDPOINT = 'https://commentanalyzer.googleapis.com/v1alpha1/co
  *   2. Caché permanente en PostgreSQL (`moderated_categories`) por clave canónica (0 tokens globales).
  *   3. OpenAI Moderation API (`omni-moderation-latest` en `/v1/moderations`, gratuita `$0.00`).
  *      Cuando OpenAI emite veredicto definitivo (`allowed: true` o `false`), se guarda en caché y detiene el flujo.
- *   4. Google Perspective API (modo `auto`, cuota gratuita si `PERSPECTIVE_API_KEY` existe).
- *   5. Google Decisions API (`gemini-decision-1`, 0 tokens de salida y cuota Free Tier independiente)
+ *   4. Google Decisions API (`gemini-decision-1`, 0 tokens de salida y cuota Free Tier independiente)
  *      en modos `auto` o `google-decisions` si `GOOGLE_API_KEY` está configurada: 1 llamada aislada por categoría.
- *   6. IA del sistema (`AIProviderFactory`) como respaldo generativo para censura + blueprint
+ *   5. IA del sistema (`AIProviderFactory`) como respaldo generativo para censura + blueprint
  *      cuando no aplica Decisions API (`minimax` / `google` o sin claves de moderación dedicadas).
  *
  * Ante fallos transitorios o timeouts aplica fail-open controlado SIN contaminar el caché permanente.
@@ -354,7 +343,6 @@ export class CategoryAiModeratorService {
     const providerMode = modConfig.aiProvider;
     const explicitProvider = options?.aiOptions?.provider;
     const allowOpenAi = providerMode === 'auto' || providerMode === 'openai';
-    const allowPerspective = providerMode === 'auto';
     const decisionsReady = Boolean(this.googleDecisions?.isConfigured());
     const allowGoogleDecisions =
       (providerMode === 'auto' || providerMode === 'google-decisions') &&
@@ -382,27 +370,7 @@ export class CategoryAiModeratorService {
       }
     }
 
-    // 3B. Google Perspective API (modo `auto`, cuota gratuita opcional)
-    if (remaining.length > 0 && allowPerspective && modConfig.perspectiveApiKey) {
-      const perspectiveMap = new Map<string, CategoryModerationDecision>();
-      for (const category of remaining) {
-        const d = await this.checkPerspectiveApi(category, modConfig);
-        if (d) {
-          perspectiveMap.set(category, d);
-        }
-      }
-      if (perspectiveMap.size > 0) {
-        remaining = await this.applyBatchVerdicts(
-          remaining,
-          perspectiveMap,
-          decisions,
-          'perspective',
-          modConfig.cacheTtlMs,
-        );
-      }
-    }
-
-    // 3C. Google Decisions API (`gemini-decision-1`): 1 llamada aislada por categoría, 0 tokens de salida
+    // 3B. Google Decisions API (`gemini-decision-1`): 1 llamada aislada por categoría, 0 tokens de salida
     let attemptedGoogleDecisions = false;
     if (remaining.length > 0 && allowGoogleDecisions) {
       if (decisionsReady && this.googleDecisions) {
@@ -754,70 +722,6 @@ export class CategoryAiModeratorService {
       return map;
     } catch (err) {
       this.logger.warn(`OpenAI Moderation API failed (fail-open): ${describeError(err)}`);
-      return null;
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  private async checkPerspectiveApi(
-    category: string,
-    modConfig: AppConfigService['moderation'],
-  ): Promise<CategoryModerationDecision | null> {
-    if (!modConfig.perspectiveApiKey) return null;
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), modConfig.timeoutMs);
-
-    try {
-      const url = `${PERSPECTIVE_ENDPOINT}?key=${encodeURIComponent(modConfig.perspectiveApiKey)}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          comment: { text: category },
-          requestedAttributes: {
-            TOXICITY: {},
-            SEVERE_TOXICITY: {},
-            SEXUALLY_EXPLICIT: {},
-            THREAT: {},
-            PROFANITY: {},
-            INSULT: {},
-          },
-          doNotStore: true,
-        }),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        this.logger.warn(`Perspective API responded with HTTP ${res.status}; skipping layer`);
-        return null;
-      }
-
-      const payload = (await res.json()) as PerspectiveResponse;
-      const scores = payload.attributeScores ?? {};
-      const severeThreshold = Math.min(modConfig.scoreThreshold, 0.35);
-
-      for (const [attr, entry] of Object.entries(scores)) {
-        const value = entry.summaryScore?.value;
-        if (typeof value !== 'number') continue;
-        const limit =
-          attr === 'SEVERE_TOXICITY' || attr === 'SEXUALLY_EXPLICIT'
-            ? severeThreshold
-            : modConfig.scoreThreshold;
-        if (value >= limit) {
-          return {
-            category,
-            allowed: false,
-            layer: 'perspective_api',
-            reason: `perspective_${attr.toLowerCase()}`,
-          };
-        }
-      }
-
-      return { category, allowed: true };
-    } catch (err) {
-      this.logger.warn(`Perspective API failed (fail-open): ${describeError(err)}`);
       return null;
     } finally {
       clearTimeout(timer);
@@ -1196,7 +1100,6 @@ function toModerationLayer(raw: string | null): ModerationLayer | undefined {
     case 'blacklist':
     case 'regex':
     case 'openai_moderation':
-    case 'perspective_api':
     case 'ai_moderation':
       return raw;
     default:

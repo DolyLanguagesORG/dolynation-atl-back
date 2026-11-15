@@ -2,7 +2,7 @@ import type { AIRequestOptions } from '../ia/providers/ai-provider.interface';
 
 /** Capas secuenciales del pipeline de moderación de categorías dinámicas. */
 export type ModerationLayer =
-  'format' | 'blacklist' | 'regex' | 'openai_moderation' | 'perspective_api' | 'ai_moderation';
+  'format' | 'blacklist' | 'regex' | 'openai_moderation' | 'ai_moderation';
 
 /** Resultado de moderación para una categoría candidata individual. */
 export interface CategoryModerationDecision {

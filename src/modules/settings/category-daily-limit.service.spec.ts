@@ -58,7 +58,6 @@ describe('CategoryDailyLimitService', () => {
         openaiApiKey: undefined,
         openaiEndpoint: 'https://api.openai.com/v1/moderations',
         openaiModel: 'omni-moderation-latest',
-        perspectiveApiKey: undefined,
       },
     } as unknown as AppConfigService;
 

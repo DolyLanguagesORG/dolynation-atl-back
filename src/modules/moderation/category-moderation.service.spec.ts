@@ -22,7 +22,6 @@ describe('CategoryModerationService (3-layer pipeline)', () => {
       openaiApiKey: undefined,
       openaiEndpoint: 'https://api.openai.com/v1/moderations',
       openaiModel: 'omni-moderation-latest',
-      perspectiveApiKey: undefined,
     };
 
     configMock = {
