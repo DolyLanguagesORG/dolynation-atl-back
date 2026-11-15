@@ -26,6 +26,24 @@ describe('Mail templates', () => {
       expect(mail.text).toContain(confirmationUrl);
     });
 
+    it('renders the French copy when the locale is fr', () => {
+      const mail = renderAccountConfirmation('fr', { fullName: 'Elena Rostova', confirmationUrl });
+
+      expect(mail.subject).toBe('Confirmez votre DolyCompte — DolyNation');
+      expect(mail.html).toContain('Confirmer mon compte');
+      expect(mail.html).toContain('Édition académique');
+      expect(mail.text).toContain(confirmationUrl);
+    });
+
+    it('renders the Italian copy when the locale is it', () => {
+      const mail = renderAccountConfirmation('it', { fullName: 'Elena Rostova', confirmationUrl });
+
+      expect(mail.subject).toBe('Conferma il tuo DolyAccount — DolyNation');
+      expect(mail.html).toContain('Conferma il mio account');
+      expect(mail.html).toContain('Edizione accademica');
+      expect(mail.text).toContain(confirmationUrl);
+    });
+
     it('greets without a name when the account has no full name', () => {
       const mail = renderAccountConfirmation('es', { fullName: null, confirmationUrl });
 
@@ -72,12 +90,32 @@ describe('Mail templates', () => {
       expect(mail.html).toContain(resetUrl);
     });
 
+    it('renders the French copy when the locale is fr', () => {
+      const mail = renderPasswordReset('fr', { fullName: 'Elena Rostova', resetUrl });
+
+      expect(mail.subject).toBe('Réinitialisez votre mot de passe — DolyNation');
+      expect(mail.html).toContain('Réinitialiser le mot de passe');
+      expect(mail.html).toContain(resetUrl);
+    });
+
+    it('renders the Italian copy when the locale is it', () => {
+      const mail = renderPasswordReset('it', { fullName: 'Elena Rostova', resetUrl });
+
+      expect(mail.subject).toBe('Reimposta la tua password — DolyNation');
+      expect(mail.html).toContain('Reimposta password');
+      expect(mail.html).toContain(resetUrl);
+    });
+
     it('mentions that the link is single use and time limited', () => {
       const es = renderPasswordReset('es', { fullName: null, resetUrl });
       const en = renderPasswordReset('en', { fullName: null, resetUrl });
+      const fr = renderPasswordReset('fr', { fullName: null, resetUrl });
+      const it = renderPasswordReset('it', { fullName: null, resetUrl });
 
       expect(es.html).toContain('60 minutos');
       expect(en.html).toContain('60 minutes');
+      expect(fr.html).toContain('60 minutes');
+      expect(it.html).toContain('60 minuti');
     });
   });
 
@@ -97,8 +135,9 @@ describe('isMailLocale', () => {
   it('accepts the supported locales and rejects anything else', () => {
     expect(isMailLocale('es')).toBe(true);
     expect(isMailLocale('en')).toBe(true);
-    expect(isMailLocale('fr')).toBe(false);
-    expect(isMailLocale('it')).toBe(false);
+    expect(isMailLocale('fr')).toBe(true);
+    expect(isMailLocale('it')).toBe(true);
+    expect(isMailLocale('de')).toBe(false);
     expect(isMailLocale(undefined)).toBe(false);
     expect(isMailLocale('')).toBe(false);
   });

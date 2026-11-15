@@ -109,6 +109,33 @@ const CONFIRMATION_COPY: Record<MailLocale, TemplateCopy> = {
     note: 'If you did not create this account, ignore this message.',
     footer: 'DolyNation Editorial · Academic support · Terms of use · Privacy',
   },
+  fr: {
+    subject: 'Confirmez votre DolyCompte — DolyNation',
+    eyebrow: 'Édition académique',
+    headline: 'Confirmez votre DolyCompte',
+    greeting: 'Bonjour',
+    body:
+      'confirmez votre adresse e-mail pour activer votre DolyCompte et commencer à lire des textes ' +
+      'adaptés par intelligence artificielle à votre niveau linguistique et à vos objectifs.',
+    cta: 'Confirmer mon compte',
+    fallback: 'Si le bouton ne fonctionne pas, copiez cette adresse dans votre navigateur :',
+    note: "Si vous n'avez pas créé ce compte, ignorez ce message.",
+    footer:
+      "DolyNation Éditorial · Support académique · Conditions d'utilisation · Confidentialité",
+  },
+  it: {
+    subject: 'Conferma il tuo DolyAccount — DolyNation',
+    eyebrow: 'Edizione accademica',
+    headline: 'Conferma il tuo DolyAccount',
+    greeting: 'Ciao',
+    body:
+      'conferma la tua email per attivare il tuo DolyAccount e iniziare a leggere testi ' +
+      "adattati dall'intelligenza artificiale al tuo livello linguistico e ai tuoi obiettivi.",
+    cta: 'Conferma il mio account',
+    fallback: 'Se il pulsante non funziona, copia questo indirizzo nel tuo browser:',
+    note: 'Se non hai creato questo account, ignora questo messaggio.',
+    footer: "DolyNation Editoriale · Supporto accademico · Termini d'uso · Privacy",
+  },
 };
 
 const PASSWORD_RESET_COPY: Record<MailLocale, TemplateCopy> = {
@@ -137,6 +164,37 @@ const PASSWORD_RESET_COPY: Record<MailLocale, TemplateCopy> = {
     fallback: 'If the button does not work, copy this address into your browser:',
     note: 'If you did not request this change, ignore this message: your password will remain the same.',
     footer: 'DolyNation Editorial · Academic support · Terms of use · Privacy',
+  },
+  fr: {
+    subject: 'Réinitialisez votre mot de passe — DolyNation',
+    eyebrow: 'Édition académique',
+    headline: 'Réinitialisez votre mot de passe',
+    greeting: 'Bonjour',
+    body:
+      'nous avons reçu une demande de réinitialisation du mot de passe de votre DolyCompte. ' +
+      "Ce lien est valable pendant 60 minutes et ne peut être utilisé qu'une seule fois.",
+    cta: 'Réinitialiser le mot de passe',
+    fallback: 'Si le bouton ne fonctionne pas, copiez cette adresse dans votre navigateur :',
+    note:
+      "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message : " +
+      'votre mot de passe restera inchangé.',
+    footer:
+      "DolyNation Éditorial · Support académique · Conditions d'utilisation · Confidentialité",
+  },
+  it: {
+    subject: 'Reimposta la tua password — DolyNation',
+    eyebrow: 'Edizione accademica',
+    headline: 'Reimposta la tua password',
+    greeting: 'Ciao',
+    body:
+      'abbiamo ricevuto una richiesta per reimpostare la password del tuo DolyAccount. ' +
+      'Questo link è valido per 60 minuti e può essere utilizzato una sola volta.',
+    cta: 'Reimposta password',
+    fallback: 'Se il pulsante non funziona, copia questo indirizzo nel tuo browser:',
+    note:
+      'Se non hai richiesto questa modifica, ignora questo messaggio: ' +
+      'la tua password resterà invariata.',
+    footer: "DolyNation Editoriale · Supporto accademico · Termini d'uso · Privacy",
   },
 };
 
