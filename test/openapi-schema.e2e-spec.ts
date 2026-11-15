@@ -255,6 +255,10 @@ describe('OpenAPI schema documentation', () => {
       expect(expProps['literalMeaning']).toBeDefined();
       expect(expProps['isSaved']).toBeDefined();
       expect(expProps['cached']).toBeDefined();
+
+      const glossaryProps = (glossarySchema.properties ?? {}) as Record<string, unknown>;
+      expect(glossaryProps['readingAvailable']).toBeDefined();
+      expect(glossaryProps['readingTitle']).toBeDefined();
     });
   });
 });

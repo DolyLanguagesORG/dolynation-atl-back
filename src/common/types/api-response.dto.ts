@@ -563,6 +563,12 @@ export class GlossaryEntryDto {
   readingTitle!: string;
 
   @ApiProperty({
+    example: true,
+    description: 'Indicates whether the source reading is still active and available to open',
+  })
+  readingAvailable!: boolean;
+
+  @ApiProperty({
     example: 'que me parta un rayo',
     description: 'Original selected word, phrase, or sentence',
   })
