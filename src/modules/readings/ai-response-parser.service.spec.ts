@@ -39,10 +39,10 @@ describe('AiResponseParserService', () => {
       expect(result.difficulty).toBe('medium');
     });
 
-    it('throws on invalid category', () => {
+    it('throws when category does not match allowed user categories', () => {
       const raw =
         '{"title":"X","description":"X","content":"X","category":"cooking","difficulty":"easy"}';
-      expect(() => parser.parseGeneratedText(raw)).toThrow();
+      expect(() => parser.parseGeneratedText(raw, ['Filosofía', 'Historia'])).toThrow();
     });
 
     it('throws on missing required fields', () => {
@@ -68,6 +68,29 @@ describe('AiResponseParserService', () => {
       const result = parser.parseGeneratedText(raw);
       expect(result.title).toBe('Révolution');
       expect(result.difficulty).toBe('easy');
+    });
+
+    it('repairs unescaped inner quotes and literal newlines inside Italian JSON readings', () => {
+      const raw = `{
+  "title": "L'arte del caffè italiano",
+  "description": "Come il termine "espresso": una bevanda rapida, ha definito una cultura.",
+  "content": "Nel cuore di Napoli, chiedere "un caffè", ovvero ["al banco", "al tavolo"], è un rito sociale.
+
+Molti baristi conservano la "crema perfetta in tazza.",
+  "category": "culture",
+  "difficulty": "hard"
+}`;
+      const result = parser.parseGeneratedText(raw);
+      expect(result.title).toBe("L'arte del caffè italiano");
+      expect(result.description).toContain('"espresso": una bevanda rapida');
+      expect(result.content).toContain('"un caffè"');
+      expect(result.content).toContain('"crema perfetta');
+      expect(result.category).toBe('culture');
+      expect(result.difficulty).toBe('hard');
+    });
+
+    it('still throws on genuinely truncated JSON without closing brace', () => {
+      expect(() => parser.parseGeneratedText('{"title":"Incompleto","content":"manca')).toThrow();
     });
   });
 

@@ -14,8 +14,6 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import { ApiOkResponseOf } from '../../common/types/api-envelope.decorators';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
-import { READING_CATEGORIES } from '../readings/prompt-generation/catalog.constants';
-import { getCategoryConfig } from '../readings/prompt-generation/catalog.helpers';
 import { CategoriesSettingsDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import { UpdateCategoriesDto } from './dto/update-categories.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
@@ -56,9 +54,8 @@ export class SettingsController {
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<CategoriesSettingsDto>> {
     await this.subscriptions.assertSubscriptionActive(current.id);
-    const catalog = READING_CATEGORIES.map((id) => ({ id, name: getCategoryConfig(id).name }));
     const selected = await this.settings.getCategories(current.id);
-    return apiOk('Categories settings', { catalog, selected });
+    return apiOk('Categories settings', { catalog: [], selected });
   }
 
   /**
@@ -99,8 +96,7 @@ export class SettingsController {
     }
     await this.subscriptions.assertCategoryLimit(current.id, normalized.length);
     const selected = await this.settings.setCategories(current.id, normalized);
-    const catalog = READING_CATEGORIES.map((id) => ({ id, name: getCategoryConfig(id).name }));
-    return apiOk('Categories updated', { catalog, selected });
+    return apiOk('Categories updated', { catalog: [], selected });
   }
 
   /**

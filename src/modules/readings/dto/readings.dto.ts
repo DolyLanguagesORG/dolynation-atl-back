@@ -13,7 +13,6 @@ import {
 import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings.constants';
 import {
   CEFR_BY_DIFFICULTY,
-  READING_CATEGORIES,
   READING_CEFR_LEVELS,
   READING_DIFFICULTIES,
   READING_TEXT_SIZES,
@@ -27,7 +26,7 @@ const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
  *
  * El usuario elige explícitamente tres parámetros:
  *   - `category`  : área temática sobre la que se escribirá la lectura
- *   - `difficulty`: nivel objetivo de inglés y mapeo CEFR (`A1-A2` / `B1-B2` / `C1-C2`)
+ *   - `difficulty`: nivel objetivo y mapeo CEFR (`A1-A2` / `B1-B2` / `C1-C2`)
  *   - `size`      : longitud deseada de la lectura (`80-120`, `150-220` o `250-350` palabras)
  *
  * El sistema completa subcategoría, tipo de contenido, perspectiva y foco único
@@ -37,8 +36,7 @@ export class GenerateReadingDto {
   @ApiProperty({
     description:
       'Categoría temática de la lectura generada. Debe coincidir con una de las categorías de estudio configuradas por el usuario.',
-    enum: READING_CATEGORIES,
-    example: 'technology',
+    example: 'Día de Muertos',
   })
   @IsString()
   @Length(2, 50)
@@ -204,4 +202,4 @@ export class ToggleGlossarySaveDto {
   isSaved!: boolean;
 }
 
-export { READING_CATEGORIES, READING_DIFFICULTIES, READING_TEXT_SIZES, READING_CEFR_LEVELS };
+export { READING_DIFFICULTIES, READING_TEXT_SIZES, READING_CEFR_LEVELS };

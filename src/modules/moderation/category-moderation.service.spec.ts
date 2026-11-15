@@ -45,13 +45,16 @@ describe('CategoryModerationService (3-layer pipeline)', () => {
     );
   });
 
-  it('short-circuits official catalog categories without calling Layer 3 AI', async () => {
-    const decisions = await service.evaluateCategories(['Technology', 'history']);
+  it('evaluates all dynamic categories through moderation layers including Layer 3 AI', async () => {
+    const decisions = await service.evaluateCategories(['Astronomía Moderna', 'Filosofía Antigua']);
     expect(decisions).toEqual([
-      { category: 'Technology', allowed: true },
-      { category: 'history', allowed: true },
+      { category: 'Astronomía Moderna', allowed: true },
+      { category: 'Filosofía Antigua', allowed: true },
     ]);
-    expect(aiModeratorMock.moderateBatch).not.toHaveBeenCalled();
+    expect(aiModeratorMock.moderateBatch).toHaveBeenCalledWith(
+      ['Astronomía Moderna', 'Filosofía Antigua'],
+      undefined,
+    );
   });
 
   it('rejects length out of bounds, Layer 1 blacklist across system languages, and Layer 2 regex/non-Latin scripts without calling Layer 3', async () => {
@@ -107,13 +110,13 @@ describe('CategoryModerationService (3-layer pipeline)', () => {
     }
   });
 
-  it('returns cleaned and deduplicated categories when all pass', async () => {
+  it('returns cleaned and deduplicated categories preserving user casing when all pass', async () => {
     const result = await service.assertCategoriesAllowed([
       '  Technology ',
       'technology',
       'Astronomía   Moderna',
     ]);
-    expect(result).toEqual(['technology', 'Astronomía Moderna']);
+    expect(result).toEqual(['Technology', 'Astronomía Moderna']);
   });
 
   it('forwards skipAiFallback: true for assertCategoryAllowedForReading', async () => {
@@ -146,5 +149,42 @@ describe('CategoryModerationService (3-layer pipeline)', () => {
     const decisions = await service.evaluateCategories(badInputs);
     expect(decisions.every((d) => d.allowed === false)).toBe(true);
     expect(aiModeratorMock.moderateBatch).not.toHaveBeenCalled();
+  });
+
+  it('resolves dynamic category blueprints through custom AI profile lookup without predefined catalog shortcuts', async () => {
+    const getOrCreateCategoryProfile = jest.fn();
+    const extendedService = new CategoryModerationService(configMock, {
+      ...aiModeratorMock,
+      getOrCreateCategoryProfile,
+    } as unknown as CategoryAiModeratorService);
+
+    const customProfile = {
+      displayName: 'Día de Muertos',
+      editorialGuidance: 'Cultural meaning and history',
+      subtopics: ['Altars'],
+      uniqueFocusAngles: ['symbols'],
+      coreConcepts: ['ofrenda'],
+      generatedAt: '2026-11-14T00:00:00.000Z',
+    };
+    getOrCreateCategoryProfile.mockResolvedValueOnce(customProfile);
+    const dynamicResult = await extendedService.getOrBuildCategoryBlueprint('Día de Muertos');
+    expect(dynamicResult).toEqual(customProfile);
+    expect(getOrCreateCategoryProfile).toHaveBeenCalledWith('Día de Muertos');
+  });
+
+  it('runs moderation filter ONLY on registration without invoking ensureBlueprintsForApproved', async () => {
+    const ensureBlueprintsForApproved = jest.fn();
+    const registrationService = new CategoryModerationService(configMock, {
+      ...aiModeratorMock,
+      ensureBlueprintsForApproved,
+    } as unknown as CategoryAiModeratorService);
+
+    const saved = await registrationService.assertCategoriesAllowed([
+      'Día de Muertos',
+      'Filosofía',
+    ]);
+    expect(saved).toEqual(['Día de Muertos', 'Filosofía']);
+    expect(aiModeratorMock.moderateBatch).toHaveBeenCalledTimes(1);
+    expect(ensureBlueprintsForApproved).not.toHaveBeenCalled();
   });
 });

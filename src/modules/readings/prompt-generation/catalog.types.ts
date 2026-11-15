@@ -1,6 +1,5 @@
-/** Identificadores base de las categorías predefinidas en el catálogo. */
-export type CategoryId =
-  'technology' | 'history' | 'education' | 'programming' | 'culture' | 'pop_culture';
+/** Identificador textual de categoría temática escrita por el usuario. */
+export type CategoryId = string;
 
 /** Niveles de dificultad aceptados al solicitar una lectura. */
 export type DifficultyLevel = 'easy' | 'medium' | 'hard';
@@ -28,10 +27,28 @@ export type ContentPerspective =
 /** Regiones geográficas utilizadas para diversificar ejemplos y contexto cultural. */
 export type GeographicRegion = 'global' | 'europe' | 'asia' | 'americas' | 'africa' | 'oceania';
 
-/** Definición de una categoría junto con su lista de subcategorías. */
+/** Resumen breve de una lectura previa del usuario usado para evitar repetición semántica. */
+export interface RecentReadingSummary {
+  title: string;
+  description: string;
+}
+
+/** Dimensión versátil para abordar una categoría desde ángulos distintos en cada lectura. */
+export interface ExplorationLens {
+  id: string;
+  label: string;
+  guidance: string;
+  weight: number;
+  /** Si es `true`, solo se considera cuando no hay lecturas recientes o introductorias. */
+  requiresFreshBasics?: boolean;
+}
+
+/** Definición de una categoría junto con su lista de subcategorías y guía editorial base. */
 export interface CategoryConfig {
   id: CategoryId;
   name: string;
+  editorialGuidance?: string;
+  coreConcepts?: string[];
   subcategories: { id: string; name: string }[];
 }
 
@@ -66,10 +83,14 @@ export interface RandomPromptParams {
   perspective: ContentPerspective;
   /** Gancho narrativo único que explorará el LLM (ej. su impacto en la vida diaria). */
   uniqueFocusElement: string;
-  /** Conceptos clave, hechos o vocabulario sugerido por el paso previo de enriquecimiento. */
+  /** Conceptos clave, hechos o vocabulario sugerido por el blueprint de la categoría. */
   keyConcepts?: string[];
+  /** Guía editorial reutilizable proveniente del blueprint de la categoría. */
+  editorialGuidance?: string;
   /** Títulos de lecturas recientes que deben evitarse para prevenir repeticiones. */
   avoidTopics?: string[];
+  /** Títulos y descripciones recientes (hasta 10) para evitar repetición temática/semántica. */
+  recentReadings?: RecentReadingSummary[];
   /** Código de idioma objetivo (ej. `"en"`, `"es"`, `"fr"`, `"pt"`, `"de"`). Por defecto `"en"`. */
   language?: string;
 }
@@ -80,6 +101,7 @@ export interface EnrichedTopic {
   perspective: string;
   uniqueFocusElement: string;
   keyConcepts: string[];
+  lensId?: string;
 }
 
 /** Parámetros de entrada para generar el prompt intermedio de enriquecimiento. */
@@ -87,6 +109,9 @@ export interface EnrichmentPromptParams {
   category: string;
   difficulty: DifficultyLevel;
   recentTitles?: string[];
+  recentReadings?: readonly RecentReadingSummary[];
+  excludedAngles?: readonly string[];
+  lens?: ExplorationLens;
   randomAngle?: string;
   language?: string;
 }

@@ -1,10 +1,22 @@
-import type { CategoryConfig, CategoryId, CefrLevel, DifficultyLevel } from './catalog.types';
+import type { CategoryPromptProfile } from '../../../database/drizzle/types';
+import type {
+  CategoryConfig,
+  CefrLevel,
+  DifficultyLevel,
+  ExplorationLens,
+  RecentReadingSummary,
+} from './catalog.types';
 import {
   CEFR_BY_DIFFICULTY,
-  CATEGORIES,
-  UNIQUE_FOCUS_BY_CATEGORY,
   GENERIC_UNIQUE_FOCUS,
+  VERSATILE_EXPLORATION_LENSES,
 } from './catalog.constants';
+
+export interface SelectedBlueprintTopic {
+  subtopic: string;
+  uniqueFocusElement: string;
+  keyConcepts: string[];
+}
 
 /** Selecciona aleatoriamente un elemento de un arreglo no vacío. */
 export function pickRandom<T>(arr: readonly T[]): T {
@@ -39,27 +51,129 @@ export function formatCategoryName(raw: string): string {
     .join(' ');
 }
 
-/** Obtiene la configuración de una categoría del catálogo o construye una dinámica si es personalizada. */
+/** Obtiene la configuración dinámica de una categoría escrita por el usuario. */
 export function getCategoryConfig(id: string): CategoryConfig {
   const normalized = id.trim().toLowerCase();
-  const cfg = CATEGORIES.find((c) => c.id.toLowerCase() === normalized);
-  if (cfg) {
-    return cfg;
-  }
   const formatted = formatCategoryName(id);
   return {
-    id: normalized as CategoryId,
+    id: normalized,
     name: formatted,
     subcategories: [{ id: normalized, name: formatted }],
   };
 }
 
-/** Devuelve la lista de enfoques narrativos únicos asociados a una categoría. */
-export function getUniqueFocusForCategory(category: string): readonly string[] {
-  const normalized = category.trim().toLowerCase() as CategoryId;
-  const list = UNIQUE_FOCUS_BY_CATEGORY[normalized];
-  if (list && list.length > 0) {
-    return list;
-  }
+/** Devuelve la lista de enfoques narrativos genéricos para cualquier categoría dinámica. */
+export function getUniqueFocusForCategory(_category: string): readonly string[] {
   return GENERIC_UNIQUE_FOCUS;
+}
+
+function tokenizeSignificantWords(text: string): string[] {
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 4);
+}
+
+function scoreOverlap(candidate: string, recentTokens: ReadonlySet<string>): number {
+  if (recentTokens.size === 0) return 0;
+  let hits = 0;
+  for (const token of tokenizeSignificantWords(candidate)) {
+    if (recentTokens.has(token)) hits += 1;
+  }
+  return hits;
+}
+
+function pickLeastRepeatedItem(
+  candidates: readonly string[],
+  recentTokens: ReadonlySet<string>,
+): string {
+  const scored = candidates.map((item) => ({ item, overlap: scoreOverlap(item, recentTokens) }));
+  const minOverlap = Math.min(...scored.map((entry) => entry.overlap));
+  const bestPool = scored
+    .filter((entry) => entry.overlap === minOverlap)
+    .map((entry) => entry.item);
+  return pickRandom(bestPool);
+}
+
+function pickFreshConcepts(
+  concepts: readonly string[],
+  recentTokens: ReadonlySet<string>,
+  limit = 4,
+): string[] {
+  if (concepts.length === 0) return [];
+  const shuffled = [...concepts].sort(() => Math.random() - 0.5);
+  return shuffled
+    .map((item, idx) => ({ item, overlap: scoreOverlap(item, recentTokens), idx }))
+    .sort((a, b) => a.overlap - b.overlap || a.idx - b.idx)
+    .slice(0, limit)
+    .map((entry) => entry.item);
+}
+
+const RECENT_BASICS_PATTERN =
+  /\b(que\s+es|what\s+is|qu['’]?est[- ]ce|cos['’]?e|origen(?:es)?|origins?|introduccion|introduction|sincretismo|syncretism|fusion|definicion(?:es)?|definitions?|overview|basico?s?|basic|fundamentos?|fundamentals?|histoire\s+generale|storia\s+generale)\b/i;
+
+function foldAccentsForMatch(text: string): string {
+  return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Selecciona ponderadamente una dimensión versátil para evitar repetir intros básicas o ángulos fallidos.
+ */
+export function pickExplorationLens(
+  recentReadings: readonly RecentReadingSummary[] = [],
+  excludedLensIds?: ReadonlySet<string>,
+): ExplorationLens {
+  const hasBasicsOrHistory =
+    recentReadings.length >= 2 ||
+    recentReadings.some((item) =>
+      RECENT_BASICS_PATTERN.test(foldAccentsForMatch(`${item.title} ${item.description}`)),
+    );
+
+  const baseCandidates = VERSATILE_EXPLORATION_LENSES.filter(
+    (lens) => !(lens.requiresFreshBasics && hasBasicsOrHistory),
+  );
+  const nonExcluded = excludedLensIds?.size
+    ? baseCandidates.filter((lens) => !excludedLensIds.has(lens.id))
+    : baseCandidates;
+  const pool =
+    nonExcluded.length > 0
+      ? nonExcluded
+      : baseCandidates.length > 0
+        ? baseCandidates
+        : VERSATILE_EXPLORATION_LENSES;
+
+  const totalWeight = pool.reduce((sum, lens) => sum + Math.max(1, lens.weight), 0);
+  let cursor = Math.random() * totalWeight;
+  for (const lens of pool) {
+    cursor -= Math.max(1, lens.weight);
+    if (cursor <= 0) {
+      return lens;
+    }
+  }
+  return pickRandom(pool);
+}
+
+/**
+ * Selecciona en memoria subtema, enfoque narrativo y conceptos clave de un blueprint global
+ * evitando solapamientos léxicos con hasta las 10 lecturas recientes del usuario.
+ */
+export function selectBlueprintTopic(
+  blueprint: CategoryPromptProfile,
+  recentTitles: readonly string[] = [],
+): SelectedBlueprintTopic {
+  const recentTokens = new Set<string>(
+    recentTitles.slice(0, 10).flatMap((title) => tokenizeSignificantWords(title)),
+  );
+  const subtopicPool =
+    blueprint.subtopics.length > 0 ? blueprint.subtopics : [blueprint.displayName];
+  const focusPool =
+    blueprint.uniqueFocusAngles.length > 0 ? blueprint.uniqueFocusAngles : GENERIC_UNIQUE_FOCUS;
+
+  return {
+    subtopic: pickLeastRepeatedItem(subtopicPool, recentTokens),
+    uniqueFocusElement: pickLeastRepeatedItem(focusPool, recentTokens),
+    keyConcepts: pickFreshConcepts(blueprint.coreConcepts, recentTokens, 4),
+  };
 }

@@ -1,5 +1,3 @@
-import { CATEGORIES } from '../readings/prompt-generation/catalog.constants';
-
 /** Variantes normalizadas de una categoría para detectar evasiones de formato o caracteres. */
 export interface NormalizedCategoryVariants {
   cleaned: string;
@@ -62,13 +60,6 @@ const LEET_MAP: Record<string, string> = {
   '+': 't',
   '|': 'i',
 };
-
-const CATALOG_ID_BY_CANONICAL = new Map<string, string>(
-  CATEGORIES.flatMap((c) => [
-    [canonicalCategoryKeyRaw(c.id), c.id],
-    [canonicalCategoryKeyRaw(c.name), c.id],
-  ]),
-);
 
 /**
  * Limpia espacios extremos, caracteres invisibles y múltiples espacios internos
@@ -138,14 +129,9 @@ export function canonicalCategoryKey(raw: string): string {
   return canonicalCategoryKeyRaw(raw);
 }
 
-/** Indica si el valor corresponde a una categoría oficial predefinida del catálogo. */
-export function isOfficialCatalogCategory(raw: string): boolean {
-  return CATALOG_ID_BY_CANONICAL.has(canonicalCategoryKey(raw));
-}
-
 /**
  * Limpia y deduplica un listado de categorías conservando el orden de aparición
- * y unificando duplicados por su clave canónica.
+ * y preservando el formato escrito por el usuario tras deduplicar por su clave canónica.
  */
 export function normalizeCategoryNames(categories: readonly string[]): string[] {
   const seen = new Set<string>();
@@ -158,9 +144,7 @@ export function normalizeCategoryNames(categories: readonly string[]): string[] 
       continue;
     }
     seen.add(key);
-
-    const catalogId = CATALOG_ID_BY_CANONICAL.get(key);
-    normalized.push(catalogId ?? cleaned);
+    normalized.push(cleaned);
   }
 
   return normalized;

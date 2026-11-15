@@ -6,7 +6,7 @@ import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { categoryDailyUsage } from '../../database/drizzle/schema';
-import { canonicalCategoryKey, isOfficialCatalogCategory } from '../moderation/category-normalizer';
+import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { getDateKeyInTimeZone, TIMEZONE_RESET } from '../subscriptions/subscriptions.constants';
 
 const MAX_CANONICAL_KEY_LENGTH = 120;
@@ -29,8 +29,8 @@ export class CategoryDailyLimitService {
   }
 
   /**
-   * Extrae las claves canónicas de categorías personalizadas nuevas respecto a la selección previa.
-   * Excluye el catálogo oficial del sistema (costo $0), reordenamientos y eliminaciones.
+   * Extrae las claves canónicas de categorías nuevas respecto a la selección previa.
+   * Excluye reordenamientos y eliminaciones de categorías ya configuradas.
    */
   extractNewCustomCategoryKeys(
     candidateCategories: readonly string[],
@@ -46,7 +46,6 @@ export class CategoryDailyLimitService {
     const newKeys: string[] = [];
 
     for (const rawCategory of candidateCategories) {
-      if (isOfficialCatalogCategory(rawCategory)) continue;
       const key = canonicalCategoryKey(rawCategory).slice(0, MAX_CANONICAL_KEY_LENGTH);
       if (!key || existingKeys.has(key) || seenInRequest.has(key)) continue;
       seenInRequest.add(key);

@@ -3,7 +3,6 @@ import { desc, isNull } from 'drizzle-orm';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { users } from '../../database/drizzle/schema';
-import { CATEGORIES } from '../readings/prompt-generation/catalog.constants';
 import type { AdminCategoryDto, AdminUserRowDto } from './dto/admin-category.dto';
 
 /** Cantidad máxima de usuarios devueltos por consulta en el panel de administración. */
@@ -17,14 +16,10 @@ export class AdminService {
   constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
 
   /**
-   * Lista el catálogo global de categorías y sus subcategorías configuradas.
+   * Sin categorías predefinidas en el sistema: las categorías son dinámicas y definidas por cada usuario.
    */
   listCategories(): AdminCategoryDto[] {
-    return CATEGORIES.map((c) => ({
-      id: c.id,
-      name: c.name,
-      subcategories: c.subcategories.map((s) => s.name),
-    }));
+    return [];
   }
 
   /**

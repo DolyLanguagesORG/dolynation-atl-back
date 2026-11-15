@@ -2,7 +2,6 @@ import {
   buildModerationVariants,
   canonicalCategoryKey,
   cleanCategoryDisplayName,
-  isOfficialCatalogCategory,
   normalizeCategoryNames,
   stripDiacriticsAndHomoglyphs,
 } from './category-normalizer';
@@ -26,19 +25,15 @@ describe('category-normalizer', () => {
     });
   });
 
-  describe('canonicalCategoryKey & isOfficialCatalogCategory', () => {
-    it('generates accent/case-insensitive keys and recognizes official catalog categories', () => {
+  describe('canonicalCategoryKey', () => {
+    it('generates accent/case-insensitive keys', () => {
       expect(canonicalCategoryKey('  History  ')).toBe('history');
       expect(canonicalCategoryKey('Día_de-Muertos')).toBe('dia de muertos');
-      expect(isOfficialCatalogCategory('Technology')).toBe(true);
-      expect(isOfficialCatalogCategory('POP_CULTURE')).toBe(true);
-      expect(isOfficialCatalogCategory('Pop Culture')).toBe(true);
-      expect(isOfficialCatalogCategory('Quantum Computing')).toBe(false);
     });
   });
 
   describe('normalizeCategoryNames', () => {
-    it('cleans whitespace, normalizes official catalog IDs and deduplicates case/accent variants', () => {
+    it('cleans whitespace, preserves user casing and deduplicates case/accent variants', () => {
       const normalized = normalizeCategoryNames([
         '  Technology ',
         'technology',
@@ -47,7 +42,7 @@ describe('category-normalizer', () => {
         'Día de Muertos',
       ]);
 
-      expect(normalized).toEqual(['technology', 'Música Clásica', 'Día de Muertos']);
+      expect(normalized).toEqual(['Technology', 'Música Clásica', 'Día de Muertos']);
     });
   });
 

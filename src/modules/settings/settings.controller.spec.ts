@@ -71,11 +71,11 @@ describe('SettingsController', () => {
   });
 
   describe('GET /settings/categories', () => {
-    it('returns the catalog and the current selection', async () => {
-      settings.getCategories.mockResolvedValue(['technology']);
+    it('returns an empty predefined catalog and the current user selection', async () => {
+      settings.getCategories.mockResolvedValue(['Astronomía Moderna']);
       const result = await controller.getCategories(user);
-      expect(result.data.selected).toEqual(['technology']);
-      expect(result.data.catalog.length).toBeGreaterThan(0);
+      expect(result.data.selected).toEqual(['Astronomía Moderna']);
+      expect(result.data.catalog).toEqual([]);
       expect(settings.getCategories).toHaveBeenCalledWith(42);
     });
   });
@@ -101,7 +101,7 @@ describe('SettingsController', () => {
       expect(settings.setCategories).not.toHaveBeenCalled();
     });
 
-    it('normalizes whitespace and deduplicates case/accent variants before enforcing limit and saving', async () => {
+    it('normalizes whitespace and deduplicates case/accent variants preserving user casing', async () => {
       const result = await controller.updateCategories(user, {
         categories: [
           '  Technology  ',
@@ -114,11 +114,12 @@ describe('SettingsController', () => {
 
       expect(subscriptions.assertCategoryLimit).toHaveBeenCalledWith(42, 3);
       expect(settings.setCategories).toHaveBeenCalledWith(42, [
-        'technology',
+        'Technology',
         'Música Clásica',
         'history',
       ]);
-      expect(result.data.selected).toEqual(['technology', 'Música Clásica', 'history']);
+      expect(result.data.selected).toEqual(['Technology', 'Música Clásica', 'history']);
+      expect(result.data.catalog).toEqual([]);
     });
   });
 

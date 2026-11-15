@@ -65,14 +65,14 @@ describe('CategoryDailyLimitService', () => {
     service = new CategoryDailyLimitService(dbMock as unknown as DrizzleDb, configMock);
   });
 
-  it('does not consume daily quota when keeping, reordering, deleting or choosing official catalog categories', async () => {
+  it('does not consume daily quota when keeping, reordering or removing already configured user categories', async () => {
     usedKeysInDb = Array.from({ length: 20 }, (_, i) => `used-${i + 1}`);
 
     await expect(
       service.assertAndRecordDailyQuota(
         7,
-        ['history', 'Astronomía Moderna', 'Technology'],
-        ['Astronomía Moderna', 'Café & Arte'],
+        ['Café & Arte', 'Astronomía Moderna'],
+        ['Astronomía Moderna', 'Café & Arte', 'Filosofía'],
       ),
     ).resolves.toBeUndefined();
 

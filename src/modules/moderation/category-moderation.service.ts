@@ -2,12 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { AppConfigService } from '../../config/env.config';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import type { CategoryPromptProfile } from '../../database/drizzle/types';
+import type { AIRequestOptions } from '../ia/providers/ai-provider.interface';
 import { checkCategoryBlacklist } from './category-blacklist';
-import {
-  cleanCategoryDisplayName,
-  isOfficialCatalogCategory,
-  normalizeCategoryNames,
-} from './category-normalizer';
+import { cleanCategoryDisplayName, normalizeCategoryNames } from './category-normalizer';
 import { checkCategoryRegex } from './category-regex';
 import { CategoryAiModeratorService } from './category-ai-moderator.service';
 import type {
@@ -66,12 +64,6 @@ export class CategoryModerationService {
           layer: 'format',
           reason: 'category_length_out_of_bounds',
         });
-        continue;
-      }
-
-      // 0b. Las categorías oficiales del catálogo se aprueban de inmediato sin consumo externo
-      if (isOfficialCatalogCategory(category)) {
-        preliminary.set(i, { category, allowed: true });
         continue;
       }
 
@@ -146,6 +138,28 @@ export class CategoryModerationService {
     }
 
     return normalized;
+  }
+
+  /**
+   * Resuelve el blueprint editorial global cacheado o generado bajo demanda para una categoría
+   * escrita por el usuario, construyendo lecturas en una sola llamada de IA.
+   */
+  async getOrBuildCategoryBlueprint(
+    category: string,
+    aiOptions?: AIRequestOptions,
+  ): Promise<CategoryPromptProfile | null> {
+    const cleaned = cleanCategoryDisplayName(category);
+    if (!cleaned) {
+      return null;
+    }
+
+    if (typeof this.aiModerator.getOrCreateCategoryProfile === 'function') {
+      return aiOptions !== undefined
+        ? this.aiModerator.getOrCreateCategoryProfile(cleaned, aiOptions)
+        : this.aiModerator.getOrCreateCategoryProfile(cleaned);
+    }
+
+    return null;
   }
 
   /**

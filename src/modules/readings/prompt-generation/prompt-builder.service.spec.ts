@@ -1,4 +1,4 @@
-import { PromptBuilderService } from './prompt-builder.service';
+import { PromptBuilderService, pickExplorationLens } from './index';
 import type {
   DifficultyLevel,
   GeneratedPrompt,
@@ -194,16 +194,73 @@ describe('PromptBuilderService', () => {
       expect(seed).toContain('enrich_');
     });
 
-    it('limits anti-repetition list to at most 20 titles', () => {
-      const manyTitles = Array.from({ length: 30 }, (_, i) => `Title ${i + 1}`);
+    it('limits anti-repetition list to at most 10 readings and includes descriptions when provided', () => {
+      const manyReadings = Array.from({ length: 20 }, (_, i) => ({
+        title: `Title ${i + 1}`,
+        description: `Summary ${i + 1}`,
+      }));
       const { userPrompt } = service.buildEnrichmentPrompt({
-        category: 'technology',
+        category: 'Día de Muertos',
         difficulty: 'medium',
-        recentTitles: manyTitles,
+        recentReadings: manyReadings,
       });
 
-      expect(userPrompt).toContain('Title 20');
-      expect(userPrompt).not.toContain('Title 21');
+      expect(userPrompt).toContain('Title 10');
+      expect(userPrompt).toContain('Summary 10');
+      expect(userPrompt).not.toContain('Title 11');
+    });
+
+    it('includes excluded angles and anti-cliché rules during enrichment and final prompt construction', () => {
+      const { systemPrompt, userPrompt } = service.buildEnrichmentPrompt({
+        category: 'Filosofía',
+        difficulty: 'hard',
+        language: 'es',
+        recentReadings: [
+          {
+            title: '¿Qué es la filosofía?',
+            description: 'Explicación general sobre el amor a la sabiduría.',
+          },
+        ],
+        excludedAngles: ['"Origen griego" — Historia básica de la filosofía'],
+      });
+
+      expect(systemPrompt).toContain('NEVER propose a generic "What is X" definition');
+      expect(userPrompt).toContain('Explicación general sobre el amor a la sabiduría.');
+      expect(userPrompt).toContain('REJECTED SIMILAR ANGLES');
+      expect(userPrompt).toContain('"Origen griego"');
+
+      const finalPrompt = service.buildPrompt({
+        category: 'Filosofía',
+        difficulty: 'hard',
+        size: 'medium',
+        language: 'es',
+        subcategories: ['La alegoría de la caverna de Platón'],
+        contentType: 'comparison',
+        perspective: 'effects',
+        uniqueFocusElement: 'cómo Platón cuestiona las apariencias en la política moderna',
+        recentReadings: [
+          {
+            title: '¿Qué es la filosofía?',
+            description: 'Explicación general sobre el amor a la sabiduría.',
+          },
+        ],
+      });
+
+      expect(finalPrompt.userPrompt).toContain('TOPICAL FOCUS & OPENING RULE');
+      expect(finalPrompt.userPrompt).toContain('Explicación general sobre el amor a la sabiduría.');
+      expect(finalPrompt.systemPrompt.toLowerCase()).toContain('conversational-informative');
+    });
+
+    it('pickExplorationLens avoids repeating foundational lenses when history already covers basics', () => {
+      for (let i = 0; i < 20; i += 1) {
+        const picked = pickExplorationLens([
+          {
+            title: 'Orígenes del Día de Muertos',
+            description: 'Unión entre cultura indígena y católica.',
+          },
+        ]);
+        expect(picked.id).not.toBe('fresh_foundational_angle');
+      }
     });
 
     it('omits anti-repetition section if recent titles array is empty', () => {
@@ -327,6 +384,46 @@ describe('PromptBuilderService', () => {
         expect(built.userPrompt).toContain('AVOID REPETITION');
         expect(built.userPrompt).toContain('Cocina Tradicional');
       }
+    });
+
+    it('isolates CEFR style guides per difficulty level without leaking higher-tier instructions into easy prompts', () => {
+      const easyFr = service.buildPrompt(
+        service.buildParamsFromBlueprint({
+          category: 'Gastronomía Francesa',
+          difficulty: 'easy',
+          size: 'short',
+          language: 'fr',
+          blueprint: null,
+          recentTitles: ['French Bread Traditions in Lyon'],
+        }),
+      );
+
+      expect(easyFr.userPrompt).toContain('A1-A2 level');
+      expect(easyFr.userPrompt).toContain('passé composé');
+      expect(easyFr.userPrompt).not.toContain('subjonctif');
+      expect(easyFr.userPrompt).toContain('Gastronomía Francesa');
+    });
+
+    it('uses custom CategoryPromptProfile blueprints and avoids repeating recent titles in TypeScript', () => {
+      const params = service.buildParamsFromBlueprint({
+        category: 'Día de Muertos',
+        difficulty: 'medium',
+        size: 'medium',
+        language: 'es',
+        blueprint: {
+          displayName: 'Día de Muertos',
+          editorialGuidance: 'Explain cultural symbolism of altars and regional traditions.',
+          subtopics: ['Marigold Petals Symbolism', 'Sugar Skulls Craftsmanship'],
+          uniqueFocusAngles: ['how altars preserve family memory'],
+          coreConcepts: ['cempasúchil', 'ofrenda', 'calaverita'],
+          generatedAt: '2026-11-14T00:00:00.000Z',
+        },
+        recentTitles: ['Sugar Skulls Craftsmanship Across Regions'],
+      });
+
+      expect(params.subcategories).toEqual(['Marigold Petals Symbolism']);
+      expect(params.editorialGuidance).toContain('altars');
+      expect(params.avoidTopics).toEqual(['Sugar Skulls Craftsmanship Across Regions']);
     });
   });
 

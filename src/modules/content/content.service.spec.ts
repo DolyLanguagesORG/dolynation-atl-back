@@ -1,7 +1,7 @@
+import { ErrorCode } from '../../common/errors/error-codes';
 import { ContentService } from './content.service';
 import type { ReadingsService } from '../readings/readings.service';
 import type { SettingsService } from '../settings/settings.service';
-import { READING_CATEGORIES } from '../readings/prompt-generation';
 
 describe('ContentService', () => {
   let service: ContentService;
@@ -27,9 +27,13 @@ describe('ContentService', () => {
       await expect(service.resolveCategory(42)).resolves.toBe('Astronomía Observacional');
     });
 
-    it('falls back to a value from the catalog when user has no saved categories', async () => {
-      const result = await service.resolveCategory(42);
-      expect(READING_CATEGORIES).toContain(result);
+    it('throws RESOURCE_FORBIDDEN when requested category is omitted and user has no saved categories', async () => {
+      await expect(service.resolveCategory(42)).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({
+          code: ErrorCode.RESOURCE_FORBIDDEN,
+        }),
+      });
     });
   });
 

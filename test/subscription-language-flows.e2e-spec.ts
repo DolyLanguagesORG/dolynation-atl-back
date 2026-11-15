@@ -11,6 +11,7 @@ import type { DrizzleDb } from '../src/database/database.module';
 import { moderatedCategories, userSettings } from '../src/database/drizzle/schema';
 import { AIProviderFactory } from '../src/modules/ia/providers/ai-provider.factory';
 import type { ChatMessage } from '../src/modules/ia/providers/ai-provider.interface';
+import { GoogleDecisionsService } from '../src/modules/ia/decisions/google-decisions.service';
 import { CategoryAiModeratorService } from '../src/modules/moderation/category-ai-moderator.service';
 import { canonicalCategoryKey } from '../src/modules/moderation/category-normalizer';
 import { MailService } from '../src/modules/mail/mail.service';
@@ -175,6 +176,13 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     process.env.JWT_REFRESH_TTL = '30d';
     process.env.LOG_LEVEL = 'silent';
     process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
+    process.env.CATEGORY_MODERATION_ENABLED = 'true';
+    process.env.CATEGORY_MODERATION_AI_ENABLED = 'true';
+    process.env.CATEGORY_MODERATION_AI_PROVIDER = 'minimax';
+    process.env.AI_DEFAULT_PROVIDER = 'minimax';
+    process.env.MINIMAX_API_KEY = 'test-key';
+    process.env.OPENAI_API_KEY = '';
+    process.env.PERSPECTIVE_API_KEY = '';
 
     const aiStub = {
       getFullResponse: jest.fn((messages: ChatMessage[]): Promise<string> => {
@@ -274,6 +282,8 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     })
       .overrideProvider(AIProviderFactory)
       .useValue(aiStub)
+      .overrideProvider(GoogleDecisionsService)
+      .useValue({ isConfigured: () => false })
       .overrideProvider(MailService)
       .useValue({
         sendAccountConfirmation: () => Promise.resolve(),
@@ -1067,7 +1077,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     expect(blockedOnReading.body.error.code).toBe('CATEGORY_MODERATION_REJECTED');
   });
 
-  it('Test 9 (QA): enforces daily limit of 20 distinct new custom categories, resists delete+recreate spam with 429, and never charges quota for reorders/removals/catalog', async () => {
+  it('Test 9 (QA): enforces daily limit of 20 distinct new custom categories, resists delete+recreate spam with 429, and never charges quota for reorders/removals/repeats', async () => {
     const bulkUser = await registerUser('test9-bulk-cap');
     const authBulk = `Bearer ${bulkUser.tokens.accessToken}`;
     await selectPlan(bulkUser.tokens.accessToken, 'dolly_pro');
@@ -1093,21 +1103,45 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const authSpammer = `Bearer ${spammer.tokens.accessToken}`;
     await selectPlan(spammer.tokens.accessToken, 'dolly_pro');
 
-    for (let i = 1; i <= 20; i++) {
+    await supertest(app.getHttpServer())
+      .put('/api/v1/settings/categories')
+      .set('Authorization', authSpammer)
+      .send({
+        categories: [
+          `Especialidad ${alphaTag} 1`,
+          `Especialidad ${alphaTag} 2`,
+          `Especialidad ${alphaTag} 3`,
+        ],
+      })
+      .expect(200);
+
+    for (let i = 4; i <= 20; i++) {
       await supertest(app.getHttpServer())
         .put('/api/v1/settings/categories')
         .set('Authorization', authSpammer)
-        .send({ categories: ['technology', 'history', `Especialidad ${alphaTag} ${i}`] })
+        .send({
+          categories: [
+            `Especialidad ${alphaTag} 1`,
+            `Especialidad ${alphaTag} 2`,
+            `Especialidad ${alphaTag} ${i}`,
+          ],
+        })
         .expect(200);
     }
 
-    // 3. Reordenar, quitar o seleccionar del catálogo oficial con 20/20 consumidos SIGUE funcionando (0 cupo adicional)
-    const afterDeleteToCatalog = await supertest(app.getHttpServer())
+    // 3. Reordenar o reutilizar categorías ya configuradas con 20/20 consumidos SIGUE funcionando (0 cupo adicional)
+    const afterReorder = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authSpammer)
-      .send({ categories: ['technology', 'history', `Especialidad ${alphaTag} 20`] })
+      .send({
+        categories: [
+          `Especialidad ${alphaTag} 20`,
+          `Especialidad ${alphaTag} 1`,
+          `Especialidad ${alphaTag} 2`,
+        ],
+      })
       .expect(200);
-    expect(afterDeleteToCatalog.body.data.selected).toContain('technology');
+    expect(afterReorder.body.data.selected).toContain(`Especialidad ${alphaTag} 1`);
 
     // Re-agregar una categoría ya evaluada hoy tampoco vuelve a cobrar cupo diario ni IA
     const callsBeforeRepeatToday = countModAiCalls();
@@ -1115,7 +1149,11 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       .put('/api/v1/settings/categories')
       .set('Authorization', authSpammer)
       .send({
-        categories: [`Especialidad ${alphaTag} 5`, `Especialidad ${alphaTag} 20`, 'technology'],
+        categories: [
+          `Especialidad ${alphaTag} 5`,
+          `Especialidad ${alphaTag} 20`,
+          `Especialidad ${alphaTag} 1`,
+        ],
       })
       .expect(200);
     expect(countModAiCalls()).toBe(callsBeforeRepeatToday);
@@ -1125,7 +1163,13 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const hitCap = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authSpammer)
-      .send({ categories: ['technology', 'history', `Especialidad ${alphaTag} 21`] })
+      .send({
+        categories: [
+          `Especialidad ${alphaTag} 1`,
+          `Especialidad ${alphaTag} 2`,
+          `Especialidad ${alphaTag} 21`,
+        ],
+      })
       .expect(429);
     expect(hitCap.body.error.code).toBe('CATEGORY_DAILY_LIMIT_REACHED');
     expect(hitCap.body.error.details).toMatchObject({ limit: 20, used: 20, remaining: 0 });

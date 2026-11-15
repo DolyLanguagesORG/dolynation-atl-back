@@ -45,14 +45,6 @@ export interface StructuredExplanationResult {
   otherContexts: UsageContextItem[];
 }
 
-const ALLOWED_CATEGORIES: TextCategory[] = [
-  'technology',
-  'history',
-  'education',
-  'programming',
-  'culture',
-  'pop_culture',
-];
 const ALLOWED_DIFFICULTIES: TextDifficulty[] = ['easy', 'medium', 'hard'];
 
 /**
@@ -85,22 +77,22 @@ export class AiResponseParserService {
     const categoryNormalized = categoryRaw.toLowerCase().replace(/[\s-]+/g, '_');
     const categoryCanonical = canonicalCategoryKey(categoryRaw);
 
-    const validSource =
-      allowedCategories && allowedCategories.length > 0 ? allowedCategories : ALLOWED_CATEGORIES;
-    const validList = validSource.map((c) =>
-      c
-        .trim()
-        .toLowerCase()
-        .replace(/[\s-]+/g, '_'),
-    );
-    const validCanonical = validSource.map((c) => canonicalCategoryKey(c)).filter(Boolean);
+    if (allowedCategories && allowedCategories.length > 0) {
+      const validList = allowedCategories.map((c) =>
+        c
+          .trim()
+          .toLowerCase()
+          .replace(/[\s-]+/g, '_'),
+      );
+      const validCanonical = allowedCategories.map((c) => canonicalCategoryKey(c)).filter(Boolean);
 
-    if (
-      !validList.includes(categoryNormalized) &&
-      !validList.includes(categoryRaw.toLowerCase()) &&
-      !(categoryCanonical.length > 0 && validCanonical.includes(categoryCanonical))
-    ) {
-      throw new Error(`Invalid category: ${categoryRaw}`);
+      if (
+        !validList.includes(categoryNormalized) &&
+        !validList.includes(categoryRaw.toLowerCase()) &&
+        !(categoryCanonical.length > 0 && validCanonical.includes(categoryCanonical))
+      ) {
+        throw new Error(`Invalid category: ${categoryRaw}`);
+      }
     }
     const category = categoryNormalized;
 
@@ -234,11 +226,248 @@ export class AiResponseParserService {
       else if (c === '}') {
         depth--;
         if (depth === 0) {
-          return JSON.parse(cleaned.slice(firstBrace, i + 1)) as unknown;
+          return this.parseJsonCandidate(cleaned.slice(firstBrace, i + 1));
         }
       }
     }
+
+    const lastBrace = cleaned.lastIndexOf('}');
+    if (lastBrace > firstBrace) {
+      const candidate = cleaned.slice(firstBrace, lastBrace + 1);
+      const repaired = this.tryRepairAndParseJson(candidate);
+      if (repaired.ok) {
+        return repaired.value;
+      }
+    }
+
     throw new Error('Unterminated JSON object in response');
+  }
+
+  private parseJsonCandidate(candidate: string): unknown {
+    try {
+      return JSON.parse(candidate) as unknown;
+    } catch (primaryErr) {
+      const repaired = this.tryRepairAndParseJson(candidate);
+      if (repaired.ok) {
+        return repaired.value;
+      }
+      throw primaryErr;
+    }
+  }
+
+  private tryRepairAndParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
+    try {
+      return {
+        ok: true,
+        value: JSON.parse(this.repairJsonLiteralsAndQuotes(candidate)) as unknown,
+      };
+    } catch {
+      const recovered = this.recoverKnownObjectFields(candidate);
+      return recovered ? { ok: true, value: recovered } : { ok: false };
+    }
+  }
+
+  private repairJsonLiteralsAndQuotes(text: string): string {
+    const stack: Array<{ type: '{' | '['; expecting: 'key' | 'colon' | 'value' | 'comma' }> = [];
+    const out: string[] = [];
+    let inString = false;
+    let stringRole: 'key' | 'value' = 'value';
+    let escape = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i] ?? '';
+
+      if (!inString) {
+        if (ch === '{') {
+          stack.push({ type: '{', expecting: 'key' });
+          out.push(ch);
+        } else if (ch === '[') {
+          stack.push({ type: '[', expecting: 'value' });
+          out.push(ch);
+        } else if (ch === '}' || ch === ']') {
+          stack.pop();
+          const parent = stack.at(-1);
+          if (parent) parent.expecting = 'comma';
+          out.push(ch);
+        } else if (ch === ':') {
+          const top = stack.at(-1);
+          if (top?.type === '{') top.expecting = 'value';
+          out.push(ch);
+        } else if (ch === ',') {
+          const top = stack.at(-1);
+          if (top) top.expecting = top.type === '{' ? 'key' : 'value';
+          out.push(ch);
+        } else if (ch === '"') {
+          const top = stack.at(-1);
+          stringRole = top?.type === '{' && top.expecting === 'key' ? 'key' : 'value';
+          inString = true;
+          out.push(ch);
+        } else {
+          out.push(ch);
+        }
+        continue;
+      }
+
+      if (escape) {
+        escape = false;
+        out.push(ch);
+        continue;
+      }
+      if (ch === '\\') {
+        escape = true;
+        out.push(ch);
+        continue;
+      }
+      if (ch === '\n') {
+        out.push('\\n');
+        continue;
+      }
+      if (ch === '\r') {
+        out.push('\\r');
+        continue;
+      }
+      if (ch === '\t') {
+        out.push('\\t');
+        continue;
+      }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) {
+        out.push(`\\u${code.toString(16).padStart(4, '0')}`);
+        continue;
+      }
+      if (ch === '"') {
+        const top = stack.at(-1);
+        if (this.isStructuralClosingQuote(text, i, stringRole, top?.type, stack.length)) {
+          inString = false;
+          if (top) {
+            top.expecting = top.type === '{' ? (stringRole === 'key' ? 'colon' : 'comma') : 'comma';
+          }
+          out.push('"');
+        } else {
+          out.push('\\"');
+        }
+        continue;
+      }
+      out.push(ch);
+    }
+
+    return out.join('');
+  }
+
+  private skipWhitespace(text: string, start: number): number {
+    let i = start;
+    while (i < text.length && /\s/.test(text[i] ?? '')) i++;
+    return i;
+  }
+
+  private isLikelyJsonObjectKeyAfter(text: string, openingQuoteIdx: number): boolean {
+    let esc = false;
+    for (let i = openingQuoteIdx + 1; i < text.length; i++) {
+      const ch = text[i];
+      if (esc) {
+        esc = false;
+        continue;
+      }
+      if (ch === '\\') {
+        esc = true;
+        continue;
+      }
+      if (ch === '"') {
+        const afterKey = this.skipWhitespace(text, i + 1);
+        return text[afterKey] === ':';
+      }
+      if (ch === '\n' || ch === '\r') return false;
+    }
+    return false;
+  }
+
+  private isStructuralClosingQuote(
+    text: string,
+    quoteIdx: number,
+    stringRole: 'key' | 'value',
+    containerType: '{' | '[' | undefined,
+    stackDepth: number,
+  ): boolean {
+    const nextIdx = this.skipWhitespace(text, quoteIdx + 1);
+    if (nextIdx >= text.length) return true;
+    const next = text[nextIdx];
+
+    if (stringRole === 'key') {
+      return next === ':';
+    }
+    if (next === '}') {
+      if (containerType !== '{') return false;
+      const afterCloseIdx = this.skipWhitespace(text, nextIdx + 1);
+      if (stackDepth <= 1) return afterCloseIdx >= text.length;
+      const afterClose = text[afterCloseIdx];
+      return afterClose === ',' || afterClose === '}' || afterClose === ']';
+    }
+    if (next === ']') {
+      if (containerType !== '[') return false;
+      const afterCloseIdx = this.skipWhitespace(text, nextIdx + 1);
+      if (afterCloseIdx >= text.length) return true;
+      const afterClose = text[afterCloseIdx];
+      return afterClose === ',' || afterClose === '}' || afterClose === ']';
+    }
+    if (next !== ',') return false;
+
+    const afterCommaIdx = this.skipWhitespace(text, nextIdx + 1);
+    if (afterCommaIdx >= text.length) return false;
+    const afterComma = text[afterCommaIdx];
+
+    if (containerType === '{') {
+      return afterComma === '"' && this.isLikelyJsonObjectKeyAfter(text, afterCommaIdx);
+    }
+
+    return (
+      afterComma === '"' ||
+      afterComma === ']' ||
+      afterComma === '{' ||
+      afterComma === '[' ||
+      afterComma === '-' ||
+      (afterComma !== undefined && afterComma >= '0' && afterComma <= '9') ||
+      text.startsWith('true', afterCommaIdx) ||
+      text.startsWith('false', afterCommaIdx) ||
+      text.startsWith('null', afterCommaIdx)
+    );
+  }
+
+  private recoverKnownObjectFields(candidate: string): Record<string, unknown> | null {
+    const keyRegex = /"(title|description|content|category|difficulty|score|feedback)"\s*:/g;
+    const matches = Array.from(candidate.matchAll(keyRegex));
+    if (matches.length < 2) return null;
+
+    const recovered: Record<string, unknown> = {};
+    for (let idx = 0; idx < matches.length; idx++) {
+      const m = matches[idx];
+      const key = m?.[1];
+      if (!key || m.index === undefined) continue;
+      const valueStart = m.index + m[0].length;
+      const nextMatch = matches[idx + 1];
+      const segmentEnd = nextMatch?.index ?? candidate.lastIndexOf('}');
+      if (segmentEnd <= valueStart) continue;
+
+      const rawSegment = candidate.slice(valueStart, segmentEnd).replace(/,\s*$/, '').trim();
+      if (key === 'score') {
+        const numeric = Number(rawSegment);
+        if (Number.isFinite(numeric)) recovered[key] = numeric;
+        continue;
+      }
+      if (rawSegment.startsWith('"') && rawSegment.endsWith('"') && rawSegment.length >= 2) {
+        recovered[key] = rawSegment
+          .slice(1, -1)
+          .replace(/\\"/g, '"')
+          .replace(/\\n/g, '\n')
+          .replace(/\\t/g, '\t')
+          .replace(/\\\\/g, '\\');
+      }
+    }
+
+    const hasReadingShape =
+      typeof recovered['title'] === 'string' && typeof recovered['content'] === 'string';
+    const hasEvalShape =
+      typeof recovered['score'] === 'number' && typeof recovered['feedback'] === 'string';
+    return hasReadingShape || hasEvalShape ? recovered : null;
   }
 }
 

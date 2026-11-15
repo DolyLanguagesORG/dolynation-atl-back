@@ -116,23 +116,14 @@ describe('POST /readings request body is fully documented', () => {
     expect(ref).toBe('#/components/schemas/GenerateReadingDto');
   });
 
-  it('GenerateReadingDto documents category (required) with the right enum and example', () => {
+  it('GenerateReadingDto documents category (required) as custom string with example and no fixed enum', () => {
     const schema = document.components?.schemas?.['GenerateReadingDto'];
     expect(schema).toBeDefined();
     const category = schema?.properties?.['category'];
     expect(category).toBeDefined();
     expect(category?.type).toBe('string');
-    expect(category?.enum).toEqual(
-      expect.arrayContaining([
-        'technology',
-        'history',
-        'education',
-        'programming',
-        'culture',
-        'pop_culture',
-      ]),
-    );
-    expect(category?.example).toBe('technology');
+    expect(category?.enum).toBeUndefined();
+    expect(category?.example).toBe('Día de Muertos');
     expect(schema?.required).toEqual(expect.arrayContaining(['category', 'language']));
   });
 
