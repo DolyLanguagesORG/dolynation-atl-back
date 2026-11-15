@@ -65,5 +65,22 @@ describe('validateEnv', () => {
     it('usa 5m por defecto (el valor de todos los ambientes)', () => {
       expect(validateEnv(base).JWT_ACCESS_TTL).toBe('5m');
     });
+
+    it('una variable de GitHub inexistente (cadena vacia) cae al default', () => {
+      // Una variable de environment que no existe se resuelve a "" en GitHub.
+      // Sin el preprocess, el TTL quedaria vacio y los tokens no expirarian.
+      expect(validateEnv({ ...base, JWT_ACCESS_TTL: '' }).JWT_ACCESS_TTL).toBe('5m');
+      expect(validateEnv({ ...base, JWT_REFRESH_TTL: '' }).JWT_REFRESH_TTL).toBe('30d');
+    });
+  });
+
+  describe('AI_DEFAULT_PROVIDER', () => {
+    it('cae al default si llega vacio', () => {
+      expect(validateEnv({ ...base, AI_DEFAULT_PROVIDER: '' }).AI_DEFAULT_PROVIDER).toBe('minimax');
+    });
+
+    it('rechaza un provider que no existe', () => {
+      expect(() => validateEnv({ ...base, AI_DEFAULT_PROVIDER: 'openai' })).toThrow();
+    });
   });
 });

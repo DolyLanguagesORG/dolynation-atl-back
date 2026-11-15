@@ -42,13 +42,19 @@ const baseEnvSchema = z.object({
 
   // ===== Autenticación (JWT) =====
   JWT_SECRET: z.string().min(32).default('change-me-in-production-please-32-chars-minimum'),
-  JWT_ACCESS_TTL: z.string().default('5m'),
-  JWT_REFRESH_TTL: z.string().default('30d'),
+  // `emptyToUndefined` importa: una variable de GitHub que no existe llega
+  // como cadena vacia, y sin esto `AI_DEFAULT_PROVIDER=` haria fallar el enum
+  // en el arranque (y `JWT_ACCESS_TTL=` dejaria los tokens sin expirar).
+  JWT_ACCESS_TTL: z.preprocess(emptyToUndefined, z.string().default('5m')),
+  JWT_REFRESH_TTL: z.preprocess(emptyToUndefined, z.string().default('30d')),
 
   // ===== Proveedores de IA =====
   // Proveedores registrados en `AIProviderFactory`: `minimax` y `google`.
   // `groq` se conserva solo como configuración legada sin proveedor activo en la factoría.
-  AI_DEFAULT_PROVIDER: z.enum(['minimax', 'google']).default('minimax'),
+  AI_DEFAULT_PROVIDER: z.preprocess(
+    emptyToUndefined,
+    z.enum(['minimax', 'google']).default('minimax'),
+  ),
 
   // MiniMax
   MINIMAX_API_KEY: z.string().optional(),

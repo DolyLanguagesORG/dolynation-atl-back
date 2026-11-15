@@ -120,12 +120,28 @@ jobs:
           DB_DATABASE: ${{ secrets.DB_DATABASE }}
           DB_LOGGING: "false"
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
-          JWT_ACCESS_TTL: 5m
+          JWT_ACCESS_TTL: ${{ vars.JWT_ACCESS_TTL }}
           JWT_REFRESH_TTL: 30d
-          AI_DEFAULT_PROVIDER: minimax
+          AI_DEFAULT_PROVIDER: ${{ vars.AI_DEFAULT_PROVIDER }}
           MINIMAX_API_KEY: ${{ secrets.MINIMAX_API_KEY }}
           MINIMAX_MODEL: ${{ secrets.MINIMAX_MODEL }}
+          MINIMAX_REASONING_EFFORT: ${{ vars.MINIMAX_REASONING_EFFORT }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          # IA y moderacion. Las keys son secrets; los parametros de
+          # configuracion son variables del environment (mismo nombre en todos
+          # los ambientes, distinto valor). Ver conventions/environment.md.
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_MODEL: ${{ vars.GOOGLE_MODEL }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_MODERATION_ENDPOINT: ${{ vars.OPENAI_MODERATION_ENDPOINT }}
+          OPENAI_MODERATION_MODEL: ${{ vars.OPENAI_MODERATION_MODEL }}
+          CATEGORY_MODERATION_ENABLED: ${{ vars.CATEGORY_MODERATION_ENABLED }}
+          CATEGORY_MODERATION_AI_ENABLED: ${{ vars.CATEGORY_MODERATION_AI_ENABLED }}
+          CATEGORY_MODERATION_AI_PROVIDER: ${{ vars.CATEGORY_MODERATION_AI_PROVIDER }}
+          CATEGORY_DAILY_LIMIT: ${{ vars.CATEGORY_DAILY_LIMIT }}
+          CATEGORY_MODERATION_SCORE_THRESHOLD: ${{ vars.CATEGORY_MODERATION_SCORE_THRESHOLD }}
+          CATEGORY_MODERATION_TIMEOUT_MS: ${{ vars.CATEGORY_MODERATION_TIMEOUT_MS }}
+          CATEGORY_MODERATION_CACHE_TTL_MS: ${{ vars.CATEGORY_MODERATION_CACHE_TTL_MS }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -133,8 +149,11 @@ jobs:
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
           SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
           SMTP_SECURE: ${{ secrets.SMTP_SECURE }}
-          FRONTEND_BASE_URL: https://devweb.yacaterkos.tech
-          EMAIL_VERIFICATION_REQUIRED: "false"
+          # Base publica del frontend: se usa para construir los enlaces de los
+          # correos de confirmacion y de restablecimiento de contrasena.
+          FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
+          # Exige confirmar el correo antes de poder iniciar sesion.
+          EMAIL_VERIFICATION_REQUIRED: ${{ vars.EMAIL_VERIFICATION_REQUIRED }}
         run: |
           set -euo pipefail
           # El agente SSH se creo en el paso anterior, en otro shell: hay que
@@ -164,7 +183,20 @@ jobs:
             printf 'AI_DEFAULT_PROVIDER=%s\n' "$AI_DEFAULT_PROVIDER"
             printf 'MINIMAX_API_KEY=%s\n' "$MINIMAX_API_KEY"
             printf 'MINIMAX_MODEL=%s\n'   "$MINIMAX_MODEL"
+            printf 'MINIMAX_REASONING_EFFORT=%s\n' "$MINIMAX_REASONING_EFFORT"
             printf 'GROQ_API_KEY=%s\n'    "$GROQ_API_KEY"
+            printf 'GOOGLE_API_KEY=%s\n'  "$GOOGLE_API_KEY"
+            printf 'GOOGLE_MODEL=%s\n'   "$GOOGLE_MODEL"
+            printf 'OPENAI_API_KEY=%s\n'  "$OPENAI_API_KEY"
+            printf 'OPENAI_MODERATION_ENDPOINT=%s\n' "$OPENAI_MODERATION_ENDPOINT"
+            printf 'OPENAI_MODERATION_MODEL=%s\n' "$OPENAI_MODERATION_MODEL"
+            printf 'CATEGORY_MODERATION_ENABLED=%s\n' "$CATEGORY_MODERATION_ENABLED"
+            printf 'CATEGORY_MODERATION_AI_ENABLED=%s\n' "$CATEGORY_MODERATION_AI_ENABLED"
+            printf 'CATEGORY_MODERATION_AI_PROVIDER=%s\n' "$CATEGORY_MODERATION_AI_PROVIDER"
+            printf 'CATEGORY_DAILY_LIMIT=%s\n' "$CATEGORY_DAILY_LIMIT"
+            printf 'CATEGORY_MODERATION_SCORE_THRESHOLD=%s\n' "$CATEGORY_MODERATION_SCORE_THRESHOLD"
+            printf 'CATEGORY_MODERATION_TIMEOUT_MS=%s\n' "$CATEGORY_MODERATION_TIMEOUT_MS"
+            printf 'CATEGORY_MODERATION_CACHE_TTL_MS=%s\n' "$CATEGORY_MODERATION_CACHE_TTL_MS"
             printf 'SMTP_HOST=%s\n'       "$SMTP_HOST"
             printf 'SMTP_PORT=%s\n'       "$SMTP_PORT"
             printf 'SMTP_USER=%s\n'       "$SMTP_USER"
