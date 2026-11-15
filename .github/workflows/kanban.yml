@@ -214,7 +214,11 @@ jobs:
 
             # En estos repos los PRs y las issues comparten numeracion: hay que
             # confirmar que el numero es de una ISSUE y no de un PR.
-            if ! gh api "repos/$REPO/issues/$num" --jq '.pull_request' 2>/dev/null | grep -q null; then
+            # `gh api --jq` imprime **nada** (no el literal "null") cuando el
+            # campo es null, asi que un `grep -q null` daba falso y TODAS las
+            # issues se omitian. Se pregunta explicitamente por el tipo.
+            tipo="$(gh api "repos/$REPO/issues/$num" --jq 'if .pull_request then "pr" else "issue" end' 2>/dev/null || echo "")"
+            if [ "$tipo" != "issue" ]; then
               echo "  #$num no es una issue: se omite."
               continue
             fi
