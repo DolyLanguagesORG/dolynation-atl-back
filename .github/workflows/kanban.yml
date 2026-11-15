@@ -61,7 +61,11 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
-          ACTION: ${{ github.action }}
+          # `github.action` es el nombre del step que se esta ejecutando
+          # (siempre "calc"), no la accion del evento. Con esa variable
+          # el `case` de abajo nunca caia en la rama "closed", asi que
+          # las tarjetas NUNCA llegaban a `Done`.
+          ACTION: ${{ github.event.action }}
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
