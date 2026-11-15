@@ -57,13 +57,23 @@ const baseEnvSchema = z.object({
   ),
 
   // MiniMax
-  MINIMAX_API_KEY: z.string().optional(),
-  MINIMAX_MODEL: z.string().default('MiniMax-M2.7'),
-  MINIMAX_ENDPOINT: z.string().url().default('https://api.minimax.io/v1/chat/completions'),
+  MINIMAX_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  // `emptyToUndefined` en todas: una variable o secret de GitHub que no
+  // existe llega como cadena vacia. Sin el preprocess, `MINIMAX_MODEL=`
+  // mandaria un modelo inexistente al API y `MINIMAX_REASONING_EFFORT=`
+  // reventaria el enum en el arranque.
+  MINIMAX_MODEL: z.preprocess(emptyToUndefined, z.string().default('MiniMax-M2.7')),
+  MINIMAX_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://api.minimax.io/v1/chat/completions'),
+  ),
   MINIMAX_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
   MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(8192),
   MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.7),
-  MINIMAX_REASONING_EFFORT: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
+  MINIMAX_REASONING_EFFORT: z.preprocess(
+    emptyToUndefined,
+    z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
+  ),
 
   // Google AI Studio (Gemini — compatible con Chat Completions de OpenAI)
   GOOGLE_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
@@ -96,8 +106,8 @@ const baseEnvSchema = z.object({
   ),
 
   // Groq (legado — conservado como referencia)
-  GROQ_API_KEY: z.string().optional(),
-  GROQ_MODEL: z.string().default('qwen/qwen3-32b'),
+  GROQ_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  GROQ_MODEL: z.preprocess(emptyToUndefined, z.string().default('qwen/qwen3-32b')),
 
   // ===== Moderación de categorías dinámicas =====
   CATEGORY_MODERATION_ENABLED: z

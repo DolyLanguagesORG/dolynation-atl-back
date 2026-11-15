@@ -83,4 +83,79 @@ describe('validateEnv', () => {
       expect(() => validateEnv({ ...base, AI_DEFAULT_PROVIDER: 'openai' })).toThrow();
     });
   });
+
+  describe('variables que llegan vacias de GitHub', () => {
+    // Una variable o secret de GitHub que no existe se resuelve a "" en el
+    // `.env` del servidor. Sin `emptyToUndefined` eso rompe el enum del
+    // arranque o manda un valor invalido al API.
+    it('MINIMAX_* caen al default en vez de quedar vacias', () => {
+      const env = validateEnv({
+        ...base,
+        MINIMAX_MODEL: '',
+        MINIMAX_ENDPOINT: '',
+        MINIMAX_REASONING_EFFORT: '',
+        MINIMAX_API_KEY: '',
+        GROQ_MODEL: '',
+      });
+
+      expect(env.MINIMAX_MODEL).toBe('MiniMax-M2.7');
+      expect(env.MINIMAX_ENDPOINT).toBe('https://api.minimax.io/v1/chat/completions');
+      expect(env.MINIMAX_REASONING_EFFORT).toBe('low');
+      expect(env.MINIMAX_API_KEY).toBeUndefined();
+      expect(env.GROQ_MODEL).toBe('qwen/qwen3-32b');
+    });
+
+    it('el .env completo del deploy de desarrollo es valido', () => {
+      // Lo que el workflow `deploy-dev.yml` escribe en el servidor.
+      const env = validateEnv({
+        NODE_ENV: 'development',
+        PORT: '3333',
+        HOST: '0.0.0.0',
+        API_PREFIX: 'api/v1',
+        APP_NAME: 'dolynglish-backend',
+        LOG_LEVEL: 'debug',
+        DB_HOST: 'doly-dev-db',
+        DB_PORT: '5432',
+        DB_USER: 'dolynglish_user',
+        DB_PASSWORD: 'x',
+        DB_DATABASE: 'dolynglish_test',
+        DB_LOGGING: 'false',
+        JWT_SECRET: 'test-secret-test-secret-test-secret-test-secret',
+        JWT_ACCESS_TTL: '5m',
+        JWT_REFRESH_TTL: '30d',
+        AI_DEFAULT_PROVIDER: 'minimax',
+        MINIMAX_API_KEY: 'k',
+        MINIMAX_MODEL: '',
+        MINIMAX_REASONING_EFFORT: 'low',
+        GROQ_API_KEY: '',
+        GOOGLE_API_KEY: 'k',
+        GOOGLE_MODEL: 'gemini-3.5-flash-lite',
+        OPENAI_API_KEY: 'k',
+        OPENAI_MODERATION_ENDPOINT: 'https://api.openai.com/v1/moderations',
+        OPENAI_MODERATION_MODEL: 'omni-moderation-latest',
+        CATEGORY_MODERATION_ENABLED: 'true',
+        CATEGORY_MODERATION_AI_ENABLED: 'true',
+        CATEGORY_MODERATION_AI_PROVIDER: 'auto',
+        CATEGORY_DAILY_LIMIT: '20',
+        CATEGORY_MODERATION_SCORE_THRESHOLD: '0.45',
+        CATEGORY_MODERATION_TIMEOUT_MS: '15000',
+        CATEGORY_MODERATION_CACHE_TTL_MS: '86400000',
+        SMTP_HOST: 'smtp-relay.brevo.com',
+        SMTP_PORT: '587',
+        SMTP_USER: 'u',
+        SMTP_PASSWORD: 'p',
+        SMTP_FROM: 'f',
+        SMTP_FROM_NAME: 'D',
+        SMTP_SECURE: 'false',
+        FRONTEND_BASE_URL: 'https://devweb.yacaterkos.tech',
+        EMAIL_VERIFICATION_REQUIRED: 'false',
+      });
+
+      expect(env.FRONTEND_BASE_URL).toBe('https://devweb.yacaterkos.tech');
+      expect(env.EMAIL_VERIFICATION_REQUIRED).toBe(false);
+      expect(env.CATEGORY_MODERATION_AI_PROVIDER).toBe('auto');
+      expect(env.GOOGLE_API_KEY).toBe('k');
+      expect(env.OPENAI_API_KEY).toBe('k');
+    });
+  });
 });
