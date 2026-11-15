@@ -55,6 +55,11 @@ jobs:
   build:
     name: Construir imagen
     runs-on: ubuntu-latest
+    # Sin este limite, un build colgado (la emulacion de arm64 con QEMU
+    # puede quedarse horas) bloquea el grupo de concurrencia y **todas** las
+    # imagenes siguientes: el tren de release se para sin que nadie lo note.
+    # 120 minutos de margen: con la cache caliente el build tarda ~5 min.
+    timeout-minutes: 120
     outputs:
       sha: ${{ steps.meta.outputs.sha }}
       version: ${{ steps.meta.outputs.version }}
