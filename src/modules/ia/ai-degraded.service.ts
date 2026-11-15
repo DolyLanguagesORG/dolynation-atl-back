@@ -2,10 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AIProviderFactory } from './providers/ai-provider.factory';
-import type { ChatMessage } from './providers/ai-provider.interface';
+import type {
+  AIRequestOptions,
+  ChatMessage,
+  ProviderName,
+} from './providers/ai-provider.interface';
 
 /**
- * Opciones de resiliencia (reintentos y circuit breaker) para llamadas al proveedor de IA.
+ * Opciones de resiliencia (reintentos y circuit breaker) y enrutamiento opcional de proveedor/modelo
+ * para llamadas al servicio de IA.
  */
 export interface DegradedCallOptions {
   /** Número máximo de intentos incluyendo el primero. Por defecto 2. */
@@ -20,14 +25,20 @@ export interface DegradedCallOptions {
   circuitFailureThreshold?: number;
   /** Tiempo que el circuito permanece abierto antes de volver a intentar. Por defecto 30s. */
   circuitOpenMs?: number;
+  /** Proveedor puntual a usar en esta llamada (`minimax` | `google`). */
+  provider?: ProviderName;
+  /** Modelo puntual opcional para esta llamada. */
+  model?: string;
+  /** Opciones adicionales reenviadas al proveedor seleccionado. */
+  aiOptions?: AIRequestOptions;
 }
 
-const DEFAULT_OPTIONS: Required<DegradedCallOptions> = {
+const DEFAULT_OPTIONS = {
   retries: 2,
   retryDelayMs: 150,
   circuitFailureThreshold: 5,
   circuitOpenMs: 30_000,
-};
+} as const;
 
 /**
  * Envoltorio ligero alrededor de `AIProviderFactory` que aplica reintentos y un
@@ -50,16 +61,27 @@ export class AiDegradedService {
    * Ejecuta la llamada al proveedor aplicando reintentos y protegiendo con el circuit breaker.
    */
   async getFullResponse(messages: ChatMessage[], options?: DegradedCallOptions): Promise<string> {
-    const config = { ...DEFAULT_OPTIONS, ...options };
+    const config = {
+      retries: options?.retries ?? DEFAULT_OPTIONS.retries,
+      retryDelayMs: options?.retryDelayMs ?? DEFAULT_OPTIONS.retryDelayMs,
+      circuitFailureThreshold:
+        options?.circuitFailureThreshold ?? DEFAULT_OPTIONS.circuitFailureThreshold,
+      circuitOpenMs: options?.circuitOpenMs ?? DEFAULT_OPTIONS.circuitOpenMs,
+    };
 
     if (this.circuitIsOpen(config)) {
       throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { reason: 'ai-circuit-open' });
     }
 
+    const aiOptions = buildAiRequestOptions(options);
+
     let lastError: unknown;
     for (let attempt = 1; attempt <= config.retries; attempt += 1) {
       try {
-        const result = await this.factory.getFullResponse(messages);
+        const result =
+          aiOptions !== undefined
+            ? await this.factory.getFullResponse(messages, aiOptions)
+            : await this.factory.getFullResponse(messages);
         this.recordSuccess();
         return result;
       } catch (err) {
@@ -80,11 +102,18 @@ export class AiDegradedService {
 
   /** Indica si el circuito se encuentra abierto actualmente (para diagnóstico o health checks). */
   isDegraded(options?: DegradedCallOptions): boolean {
-    const config = { ...DEFAULT_OPTIONS, ...options };
+    const config = {
+      circuitFailureThreshold:
+        options?.circuitFailureThreshold ?? DEFAULT_OPTIONS.circuitFailureThreshold,
+      circuitOpenMs: options?.circuitOpenMs ?? DEFAULT_OPTIONS.circuitOpenMs,
+    };
     return this.circuitIsOpen(config);
   }
 
-  private circuitIsOpen(config: Required<DegradedCallOptions>): boolean {
+  private circuitIsOpen(config: {
+    circuitFailureThreshold: number;
+    circuitOpenMs: number;
+  }): boolean {
     if (this.openedAt === null) return false;
     if (Date.now() - this.openedAt < config.circuitOpenMs) return true;
     // Ventana transcurrida: permitir una petición de prueba para cerrar el circuito si responde bien.
@@ -98,12 +127,23 @@ export class AiDegradedService {
     this.openedAt = null;
   }
 
-  private recordFailure(config: Required<DegradedCallOptions>): void {
+  private recordFailure(config: { circuitFailureThreshold: number; circuitOpenMs: number }): void {
     this.consecutiveFailures += 1;
     if (this.consecutiveFailures >= config.circuitFailureThreshold) {
       this.openedAt = Date.now();
     }
   }
+}
+
+function buildAiRequestOptions(options?: DegradedCallOptions): AIRequestOptions | undefined {
+  if (!options?.aiOptions && !options?.provider && !options?.model) {
+    return undefined;
+  }
+  return {
+    ...options.aiOptions,
+    ...(options.provider !== undefined ? { provider: options.provider } : {}),
+    ...(options.model !== undefined ? { model: options.model } : {}),
+  };
 }
 
 /** Extrae un mensaje legible de cualquier error capturado. */

@@ -79,7 +79,7 @@ describe('MiniMaxProvider', () => {
     );
   });
 
-  it('añade response_format json_object cuando el prompt pide JSON y lo omite en chat libre', async () => {
+  it('omite response_format json_object en MiniMax para evitar inyección CJK y usa top_p 0.95', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
       json: () =>
@@ -91,15 +91,107 @@ describe('MiniMaxProvider', () => {
 
     const provider = new MiniMaxProvider(mockConfig);
     await provider.getFullResponse([{ role: 'system', content: 'Respond ONLY with JSON' }]);
-    await provider.getFullResponse([{ role: 'user', content: 'Explica brevemente este concepto' }]);
 
     const firstBody = JSON.parse(
       (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
     ) as Record<string, unknown>;
-    const secondBody = JSON.parse(
+    expect(firstBody.response_format).toBeUndefined();
+    expect(firstBody.top_p).toBe(0.95);
+  });
+
+  it('omite reasoning_effort en MiniMax-M2.5 y permite override puntual a MiniMax-M3', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+        }),
+    });
+    global.fetch = fetchMock;
+
+    const m25Config = {
+      ...mockConfig,
+      ai: {
+        ...mockConfig.ai,
+        minimax: {
+          ...mockConfig.ai.minimax,
+          model: 'MiniMax-M2.5',
+          temperature: 0.85,
+        },
+      },
+    } as typeof mockConfig;
+
+    const provider = new MiniMaxProvider(m25Config);
+    await provider.getFullResponse([{ role: 'user', content: 'Hola' }]);
+    await provider.getFullResponse([{ role: 'user', content: 'Reintento limpio' }], {
+      model: 'MiniMax-M3',
+      reasoningEffort: 'low',
+      temperature: 0.7,
+    });
+
+    const primaryBody = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>;
+    const fallbackBody = JSON.parse(
       (fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string,
     ) as Record<string, unknown>;
-    expect(firstBody.response_format).toEqual({ type: 'json_object' });
-    expect(secondBody.response_format).toBeUndefined();
+
+    expect(primaryBody.model).toBe('MiniMax-M2.5');
+    expect(primaryBody.reasoning_effort).toBeUndefined();
+    expect(primaryBody.reasoning_split).toBe(true);
+    expect(primaryBody.temperature).toBe(0.85);
+    expect(primaryBody.top_p).toBe(0.95);
+
+    expect(fallbackBody.model).toBe('MiniMax-M3');
+    expect(fallbackBody.reasoning_effort).toBe('low');
+    expect(fallbackBody.temperature).toBe(0.7);
+  });
+
+  it('permite ajustar maxTokens por llamada y desactiva thinking en MiniMax-M3 cuando disableThinking es true', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+        }),
+    });
+    global.fetch = fetchMock;
+
+    const legacyProvider = new MiniMaxProvider(mockConfig);
+    await legacyProvider.getFullResponse([{ role: 'user', content: 'Clasifica esto' }], {
+      maxTokens: 512,
+      disableThinking: true,
+    });
+
+    const flashConfig = {
+      ...mockConfig,
+      ai: {
+        ...mockConfig.ai,
+        minimax: {
+          ...mockConfig.ai.minimax,
+          model: 'MiniMax-M3.1-Flash',
+        },
+      },
+    } as typeof mockConfig;
+    const flashProvider = new MiniMaxProvider(flashConfig);
+    await flashProvider.getFullResponse([{ role: 'user', content: 'Enriquece tema' }], {
+      maxTokens: 1024,
+      disableThinking: true,
+    });
+
+    const legacyBody = JSON.parse(
+      (fetchMock.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>;
+    const flashBody = JSON.parse(
+      (fetchMock.mock.calls[1] as [string, RequestInit])[1].body as string,
+    ) as Record<string, unknown>;
+
+    expect(legacyBody.max_completion_tokens).toBe(512);
+    expect(legacyBody.thinking).toEqual({ type: 'disabled' });
+    expect(legacyBody.reasoning_effort).toBeUndefined();
+
+    expect(flashBody.max_completion_tokens).toBe(1024);
+    expect(flashBody.thinking).toBeUndefined();
+    expect(flashBody.reasoning_effort).toBe('low');
   });
 });

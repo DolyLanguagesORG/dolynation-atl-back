@@ -21,23 +21,32 @@ Política de configuración por variables de entorno. La fuente de verdad es
 | `JWT_SECRET`          | Sí       | string  | -                                              | Secreto para firmar JWT (≥48 chars random)                 |
 | `JWT_ACCESS_TTL`      | No        | string  | `5m`                                         | TTL del access token                                        |
 | `JWT_REFRESH_TTL`     | No        | string  | `30d`                                        | TTL del refresh token                                       |
-| `AI_DEFAULT_PROVIDER` | Sí       | enum    | `minimax`                                    | `minimax` \| `groq`                                     |
-| `MINIMAX_API_KEY`     | Cond.*    | string  | -                                              | API key de MiniMax-M3 (*si provider es minimax)             |
-| `MINIMAX_MODEL`       | No        | string  | `MiniMax-M3`                                 | Modelo a usar                                               |
+| `AI_DEFAULT_PROVIDER` | Sí       | enum    | `minimax`                                    | `minimax` \| `google`                                       |
+| `MINIMAX_API_KEY`     | Cond.*    | string  | -                                              | API key de MiniMax (*si provider es minimax)                |
+| `MINIMAX_MODEL`       | No        | string  | `MiniMax-M2.7`                                 | Modelo principal a usar (con fallback a `MiniMax-M3`)       |
 | `MINIMAX_ENDPOINT`    | No        | string  | `https://api.minimax.io/v1/chat/completions` | URL del API                                                 |
 | `MINIMAX_MAX_TOKENS`  | No        | int     | `8192`                                       | Límite de tokens de salida                                 |
-| `MINIMAX_TEMPERATURE` | No        | float   | `0.6`                                        | Temperatura de sampling                                     |
+| `MINIMAX_TEMPERATURE` | No        | float   | `0.7`                                        | Temperatura de sampling                                     |
 | `MINIMAX_TIMEOUT_MS`  | No        | int     | `90000`                                      | Timeout HTTP en ms                                          |
-| `MINIMAX_REASONING_EFFORT` | No   | enum    | `low`                                        | Esfuerzo de razonamiento (`low` \| `medium` \| `high`)       |
+| `MINIMAX_REASONING_EFFORT` | No   | enum    | `low`                                        | Esfuerzo de razonamiento (`minimal` \| `low` \| `medium` \| `high`) |
+| `GOOGLE_API_KEY`      | Cond.*    | string  | -                                              | API key de Google AI Studio (*si provider es google)        |
+| `GOOGLE_MODEL`        | No        | string  | `gemini-3.5-flash-lite`                        | Modelo Gemini por defecto (automático si no se define)      |
+| `GOOGLE_ENDPOINT`     | No        | string  | `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` | Endpoint OpenAI-compatible de Gemini |
+| `GOOGLE_MAX_TOKENS`   | No        | int     | `8192`                                       | Límite de tokens de salida                                 |
+| `GOOGLE_TEMPERATURE`  | No        | float   | `0.7`                                        | Temperatura de sampling                                     |
+| `GOOGLE_TIMEOUT_MS`   | No        | int     | `90000`                                      | Timeout HTTP en ms                                          |
+| `GOOGLE_DECISIONS_MODEL` | No     | string  | `gemini-decision-1`                          | Modelo para compuertas condicionales (0 tokens de salida)   |
+| `GOOGLE_DECISIONS_ENDPOINT` | No  | url     | `https://generativelanguage.googleapis.com/v1beta/decisions` | Endpoint REST de Google Decisions API |
+| `GOOGLE_DECISIONS_TIMEOUT_MS` | No | int    | `15000`                                      | Timeout HTTP de Decisions API en ms                         |
 | `GROQ_API_KEY`        | Cond.*    | string  | -                                              | API key de Groq (*legacy; si provider es groq)              |
 | `GROQ_MODEL`          | No        | string  | `qwen/qwen3-32b`                             | Modelo legacy                                               |
 | `LOG_LEVEL`           | No        | enum    | `info`                                       | `trace` \| `debug` \| `info` \| `warn` \| `error` |
 | `CATEGORY_MODERATION_ENABLED` | No | boolean | `true`                                    | Activa/desactiva moderación de categorías dinámicas         |
 | `CATEGORY_MODERATION_AI_ENABLED` | No | boolean | `true`                                 | Activa validación semántica batch con IA del sistema        |
-| `CATEGORY_MODERATION_AI_PROVIDER` | No | enum | `auto`                                  | `auto` \| `openai` (solo moderación gratuita) \| `minimax` \| `none` |
+| `CATEGORY_MODERATION_AI_PROVIDER` | No | enum | `auto`                                  | `auto` \| `openai` (solo moderación gratuita) \| `google-decisions` \| `minimax` \| `google` \| `none` |
 | `CATEGORY_DAILY_LIMIT` | No | int | `20`                                                | Tope diario de categorías nuevas distintas evaluadas/usuario |
 | `CATEGORY_MODERATION_SCORE_THRESHOLD` | No | float | `0.45`                              | Umbral (0.05-1) para APIs gratuitas de moderación           |
-| `CATEGORY_MODERATION_TIMEOUT_MS` | No | int | `5000`                                     | Timeout HTTP/IA para moderación de categorías en ms         |
+| `CATEGORY_MODERATION_TIMEOUT_MS` | No | int | `15000`                                    | Timeout HTTP/IA para moderación de categorías en ms         |
 | `CATEGORY_MODERATION_CACHE_TTL_MS` | No | int | `86400000`                               | TTL del caché en memoria para categorías moderadas          |
 | `OPENAI_API_KEY`      | No        | string  | -                                            | Clave opcional para OpenAI Moderation API (gratuita)        |
 | `OPENAI_MODERATION_ENDPOINT` | No | url | `https://api.openai.com/v1/moderations`      | URL de OpenAI Moderation API                                |

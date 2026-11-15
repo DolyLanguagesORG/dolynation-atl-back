@@ -46,19 +46,48 @@ const envSchema = z.object({
   JWT_REFRESH_TTL: z.string().default('30d'),
 
   // ===== Proveedores de IA =====
-  // Solo `minimax` está registrado en la factoría de proveedores
-  // (`AIProviderFactory`). Aceptar `groq` aquí pero no ahí hacía que la app
-  // arrancara y fallara en tiempo de ejecución al pedir una lectura.
-  AI_DEFAULT_PROVIDER: z.enum(['minimax']).default('minimax'),
+  // Proveedores registrados en `AIProviderFactory`: `minimax` y `google`.
+  // `groq` se conserva solo como configuración legada sin proveedor activo en la factoría.
+  AI_DEFAULT_PROVIDER: z.enum(['minimax', 'google']).default('minimax'),
 
-  // MiniMax M3
+  // MiniMax
   MINIMAX_API_KEY: z.string().optional(),
-  MINIMAX_MODEL: z.string().default('MiniMax-M3'),
+  MINIMAX_MODEL: z.string().default('MiniMax-M2.7'),
   MINIMAX_ENDPOINT: z.string().url().default('https://api.minimax.io/v1/chat/completions'),
   MINIMAX_TIMEOUT_MS: z.coerce.number().int().positive().default(90000),
   MINIMAX_MAX_TOKENS: z.coerce.number().int().positive().default(8192),
-  MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.6),
-  MINIMAX_REASONING_EFFORT: z.enum(['low', 'medium', 'high']).default('low'),
+  MINIMAX_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.7),
+  MINIMAX_REASONING_EFFORT: z.enum(['minimal', 'low', 'medium', 'high']).default('low'),
+
+  // Google AI Studio (Gemini — compatible con Chat Completions de OpenAI)
+  GOOGLE_API_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  GOOGLE_MODEL: z.preprocess(emptyToUndefined, z.string().default('gemini-3.5-flash-lite')),
+  GOOGLE_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .url()
+      .default('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'),
+  ),
+  GOOGLE_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(90000),
+  ),
+  GOOGLE_MAX_TOKENS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(8192),
+  ),
+  GOOGLE_TEMPERATURE: z.preprocess(emptyToUndefined, z.coerce.number().min(0).max(2).default(0.7)),
+  // Google Decisions API (`gemini-decision-1`, 0 tokens de salida para compuertas condicionales)
+  GOOGLE_DECISIONS_MODEL: z.preprocess(emptyToUndefined, z.string().default('gemini-decision-1')),
+  GOOGLE_DECISIONS_ENDPOINT: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://generativelanguage.googleapis.com/v1beta/decisions'),
+  ),
+  GOOGLE_DECISIONS_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(15000),
+  ),
 
   // Groq (legado — conservado como referencia)
   GROQ_API_KEY: z.string().optional(),
@@ -75,7 +104,7 @@ const envSchema = z.object({
     .transform((v) => v === undefined || (v.trim().toLowerCase() !== 'false' && v.trim() !== '0')),
   CATEGORY_MODERATION_AI_PROVIDER: z.preprocess(
     emptyToUndefined,
-    z.enum(['auto', 'openai', 'minimax', 'none']).default('auto'),
+    z.enum(['auto', 'openai', 'google-decisions', 'minimax', 'google', 'none']).default('auto'),
   ),
   CATEGORY_DAILY_LIMIT: z.preprocess(
     emptyToUndefined,
@@ -87,7 +116,7 @@ const envSchema = z.object({
   ),
   CATEGORY_MODERATION_TIMEOUT_MS: z.preprocess(
     emptyToUndefined,
-    z.coerce.number().int().positive().default(5000),
+    z.coerce.number().int().positive().default(15000),
   ),
   CATEGORY_MODERATION_CACHE_TTL_MS: z.preprocess(
     emptyToUndefined,

@@ -2,6 +2,32 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvSchema } from './env.validation';
 
+const DEFAULT_GOOGLE_MODEL = 'gemini-3.5-flash-lite';
+const DEFAULT_GOOGLE_ENDPOINT =
+  'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const DEFAULT_GOOGLE_DECISIONS_MODEL = 'gemini-decision-1';
+const DEFAULT_GOOGLE_DECISIONS_ENDPOINT =
+  'https://generativelanguage.googleapis.com/v1beta/decisions';
+
+function optionalTrimmedString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function nonEmptyString(value: unknown, fallback: string): string {
+  return optionalTrimmedString(value) ?? fallback;
+}
+
+function positiveInt(value: unknown, fallback: number): number {
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isInteger(num) && num > 0 ? num : fallback;
+}
+
+function validFloat(value: unknown, fallback: number): number {
+  if (typeof value === 'string' && value.trim() === '') return fallback;
+  const num = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(num) && !Number.isNaN(num) ? num : fallback;
+}
+
 /**
  * Wrapper fuertemente tipado sobre ConfigService.
  * Úsalo en toda la aplicación en lugar de llamar a ConfigService.get() sin tipado.
@@ -74,21 +100,70 @@ export class AppConfigService {
       temperature: number;
       reasoningEffort: EnvSchema['MINIMAX_REASONING_EFFORT'];
     };
+    google: {
+      apiKey: string | undefined;
+      model: string;
+      endpoint: string;
+      timeoutMs: number;
+      maxTokens: number;
+      temperature: number;
+      decisions: {
+        model: string;
+        endpoint: string;
+        timeoutMs: number;
+      };
+    };
     groq: {
       apiKey: string | undefined;
       model: string;
     };
   } {
+    const rawProvider: unknown = this.config.get('AI_DEFAULT_PROVIDER', { infer: true });
+    const normalizedProvider =
+      typeof rawProvider === 'string' ? rawProvider.trim().toLowerCase() : '';
+    const defaultProvider: EnvSchema['AI_DEFAULT_PROVIDER'] =
+      normalizedProvider === 'google' || normalizedProvider === 'minimax'
+        ? normalizedProvider
+        : 'minimax';
+
     return {
-      defaultProvider: this.config.get('AI_DEFAULT_PROVIDER', { infer: true }),
+      defaultProvider,
       minimax: {
-        apiKey: this.config.get('MINIMAX_API_KEY', { infer: true }),
+        apiKey: optionalTrimmedString(this.config.get('MINIMAX_API_KEY', { infer: true })),
         model: this.config.get('MINIMAX_MODEL', { infer: true }),
         endpoint: this.config.get('MINIMAX_ENDPOINT', { infer: true }),
         timeoutMs: this.config.get('MINIMAX_TIMEOUT_MS', { infer: true }),
         maxTokens: this.config.get('MINIMAX_MAX_TOKENS', { infer: true }),
         temperature: this.config.get('MINIMAX_TEMPERATURE', { infer: true }),
         reasoningEffort: this.config.get('MINIMAX_REASONING_EFFORT', { infer: true }),
+      },
+      google: {
+        apiKey: optionalTrimmedString(this.config.get('GOOGLE_API_KEY', { infer: true })),
+        model: nonEmptyString(
+          this.config.get('GOOGLE_MODEL', { infer: true }),
+          DEFAULT_GOOGLE_MODEL,
+        ),
+        endpoint: nonEmptyString(
+          this.config.get('GOOGLE_ENDPOINT', { infer: true }),
+          DEFAULT_GOOGLE_ENDPOINT,
+        ),
+        timeoutMs: positiveInt(this.config.get('GOOGLE_TIMEOUT_MS', { infer: true }), 90_000),
+        maxTokens: positiveInt(this.config.get('GOOGLE_MAX_TOKENS', { infer: true }), 8192),
+        temperature: validFloat(this.config.get('GOOGLE_TEMPERATURE', { infer: true }), 0.7),
+        decisions: {
+          model: nonEmptyString(
+            this.config.get('GOOGLE_DECISIONS_MODEL', { infer: true }),
+            DEFAULT_GOOGLE_DECISIONS_MODEL,
+          ),
+          endpoint: nonEmptyString(
+            this.config.get('GOOGLE_DECISIONS_ENDPOINT', { infer: true }),
+            DEFAULT_GOOGLE_DECISIONS_ENDPOINT,
+          ),
+          timeoutMs: positiveInt(
+            this.config.get('GOOGLE_DECISIONS_TIMEOUT_MS', { infer: true }),
+            15_000,
+          ),
+        },
       },
       groq: {
         apiKey: this.config.get('GROQ_API_KEY', { infer: true }),
@@ -126,7 +201,7 @@ export class AppConfigService {
   get moderation(): {
     enabled: boolean;
     aiEnabled: boolean;
-    aiProvider: 'auto' | 'openai' | 'minimax' | 'none';
+    aiProvider: 'auto' | 'openai' | 'google-decisions' | 'minimax' | 'google' | 'none';
     dailyCategoryLimit: number;
     scoreThreshold: number;
     timeoutMs: number;
@@ -160,9 +235,11 @@ export class AppConfigService {
 
     const normalizedProvider =
       typeof rawAiProvider === 'string' ? rawAiProvider.trim().toLowerCase() : '';
-    const aiProvider: 'auto' | 'openai' | 'minimax' | 'none' =
+    const aiProvider: 'auto' | 'openai' | 'google-decisions' | 'minimax' | 'google' | 'none' =
       normalizedProvider === 'openai' ||
+      normalizedProvider === 'google-decisions' ||
       normalizedProvider === 'minimax' ||
+      normalizedProvider === 'google' ||
       normalizedProvider === 'none' ||
       normalizedProvider === 'auto'
         ? normalizedProvider
@@ -172,30 +249,14 @@ export class AppConfigService {
       enabled: typeof rawEnabled === 'boolean' ? rawEnabled : rawEnabled !== 'false',
       aiEnabled: typeof rawAiEnabled === 'boolean' ? rawAiEnabled : rawAiEnabled !== 'false',
       aiProvider,
-      dailyCategoryLimit:
-        typeof rawDailyLimit === 'number' && Number.isInteger(rawDailyLimit) && rawDailyLimit > 0
-          ? rawDailyLimit
-          : 20,
-      scoreThreshold:
-        typeof rawThreshold === 'number' && !Number.isNaN(rawThreshold) ? rawThreshold : 0.45,
-      timeoutMs: typeof rawTimeout === 'number' && rawTimeout > 0 ? rawTimeout : 5000,
-      cacheTtlMs: typeof rawCacheTtl === 'number' && rawCacheTtl > 0 ? rawCacheTtl : 86_400_000,
-      openaiApiKey:
-        typeof rawOpenaiKey === 'string' && rawOpenaiKey.trim().length > 0
-          ? rawOpenaiKey.trim()
-          : undefined,
-      openaiEndpoint:
-        typeof rawOpenaiEndpoint === 'string' && rawOpenaiEndpoint.trim().length > 0
-          ? rawOpenaiEndpoint.trim()
-          : 'https://api.openai.com/v1/moderations',
-      openaiModel:
-        typeof rawOpenaiModel === 'string' && rawOpenaiModel.trim().length > 0
-          ? rawOpenaiModel.trim()
-          : 'omni-moderation-latest',
-      perspectiveApiKey:
-        typeof rawPerspectiveKey === 'string' && rawPerspectiveKey.trim().length > 0
-          ? rawPerspectiveKey.trim()
-          : undefined,
+      dailyCategoryLimit: positiveInt(rawDailyLimit, 20),
+      scoreThreshold: validFloat(rawThreshold, 0.45),
+      timeoutMs: positiveInt(rawTimeout, 5000),
+      cacheTtlMs: positiveInt(rawCacheTtl, 86_400_000),
+      openaiApiKey: optionalTrimmedString(rawOpenaiKey),
+      openaiEndpoint: nonEmptyString(rawOpenaiEndpoint, 'https://api.openai.com/v1/moderations'),
+      openaiModel: nonEmptyString(rawOpenaiModel, 'omni-moderation-latest'),
+      perspectiveApiKey: optionalTrimmedString(rawPerspectiveKey),
     };
   }
 }
