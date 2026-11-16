@@ -10,7 +10,7 @@ Este archivo indexa las skills y convenciones para agentes de IA y desarrollador
 
 ## Convenciones del Proyecto
 
-- [Flujo de Git](./docs/conventions/git-workflow.md)
-- [Conventional Commits](./docs/conventions/commits.md)
-- [Contratos de API y Envelope](./docs/conventions/api-contracts.md)
-- [Estándares de Testing](./docs/conventions/testing.md)
+- [Flujo de Git](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/git-workflow.md)
+- [Conventional Commits](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/commits.md)
+- [Contratos de API y Envelope](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/api-contracts.md)
+- [Estándares de Testing](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/testing.md)
