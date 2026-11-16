@@ -100,10 +100,16 @@ describe('SettingsController', () => {
 
   describe('PUT /settings/categories', () => {
     it('persists the user’s selection when at least 3 unique categories are provided', async () => {
+      settings.getGlobalCatalog.mockResolvedValue([
+        { id: 'technology', name: 'technology' },
+        { id: 'history', name: 'history' },
+        { id: 'science', name: 'science' },
+      ]);
       const result = await controller.updateCategories(user, {
         categories: ['technology', 'history', 'science'],
       });
       expect(result.data.selected).toEqual(['technology', 'history', 'science']);
+      expect(result.data.catalog).toHaveLength(3);
       expect(settings.setCategories).toHaveBeenCalledWith(42, ['technology', 'history', 'science']);
     });
 
