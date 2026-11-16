@@ -22,7 +22,7 @@ export interface ConsumedEmailToken {
  *
  * SHA-256 es adecuado aquí porque el token tiene 256 bits de entropía; para las
  * contraseñas, que son de baja entropía, el proyecto usa Argon2id (ver
- * `docs/conventions/security.md`).
+ * `dolynation-ehecatl-docs/conventions/security.md`).
  */
 @Injectable()
 export class AuthEmailTokenService {

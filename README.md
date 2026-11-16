@@ -113,12 +113,12 @@ src/
 Auth: Bearer JWT en header `Authorization: Bearer <token>`.
 
 Las descripciones de DTOs, parámetros y operaciones están en **inglés**.
-Ver [`docs/conventions/api-contracts.md`](./docs/conventions/api-contracts.md).
+Ver [`https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/api-contracts.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/api-contracts.md).
 
 ## Environment
 
 Variables documentadas en
-[`docs/conventions/environment.md`](./docs/conventions/environment.md).
+[`https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/environment.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/environment.md).
 Template editable en [`.env.example`](./.env.example).
 
 ## Testing
@@ -127,7 +127,7 @@ Template editable en [`.env.example`](./.env.example).
 npm run verify    # typecheck + lint + format + test
 ```
 
-Política completa en [`docs/conventions/testing.md`](./docs/conventions/testing.md).
+Política completa en [`https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/testing.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/testing.md).
 
 ## CI/CD
 
@@ -152,14 +152,16 @@ Seis checks son **obligatorios** para mergear contra `develop` y `main`:
 
 ## Conventions
 
-Todas las reglas del proyecto viven en [`docs/conventions/`](./docs/conventions/README.md).
-Las críticas:
+Todas las reglas del proyecto viven en **un solo sitio**:
+[`dolynation-ehecatl-docs/conventions/`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/tree/develop/conventions).
+Este repositorio solo las enlaza (no las copia: las copias se divergieron).
 
-- [Git workflow](./docs/conventions/git-workflow.md) — flujo de ramas
-- [Commits](./docs/conventions/commits.md) — Conventional Commits
-- [API contracts](./docs/conventions/api-contracts.md) — envelope + ErrorCode catalog
-- [Code style](./docs/conventions/code-style.md) — TypeScript estricto
-- [Security](./docs/conventions/security.md) — auth, headers, secrets
+- [Git workflow](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/git-workflow.md) — flujo de ramas
+- [Commits](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/commits.md) — Conventional Commits
+- [API contracts](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/api-contracts.md) — envelope + ErrorCode catalog
+- [Code style](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/code-style.md) — TypeScript estricto
+- [Security](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/security.md) — auth, headers, secrets
+- [Database](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/database.md) — schema y migraciones
 
 ## Contributing
 

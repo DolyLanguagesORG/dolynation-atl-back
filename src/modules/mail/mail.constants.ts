@@ -35,7 +35,7 @@ export const FRONTEND_RESET_PASSWORD_PATH = '/reset-password';
  * Mitiga el abuso del endpoint (email bombing). Es *best effort*: vive en
  * memoria del proceso, así que no sobrevive a un reinicio ni se comparte entre
  * instancias. La brecha global de rate limiting sigue abierta (ver
- * `docs/conventions/security.md`).
+ * `dolynation-ehecatl-docs/conventions/security.md`).
  */
 export const FORGOT_PASSWORD_THROTTLE_MAX_REQUESTS = 3;
 
