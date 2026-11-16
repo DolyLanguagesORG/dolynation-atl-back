@@ -54,8 +54,11 @@ export class SettingsController {
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<CategoriesSettingsDto>> {
     await this.subscriptions.assertSubscriptionActive(current.id);
-    const selected = await this.settings.getCategories(current.id);
-    return apiOk('Categories settings', { catalog: [], selected });
+    const [catalog, selected] = await Promise.all([
+      this.settings.getGlobalCatalog(),
+      this.settings.getCategories(current.id),
+    ]);
+    return apiOk('Categories settings', { catalog, selected });
   }
 
   /**

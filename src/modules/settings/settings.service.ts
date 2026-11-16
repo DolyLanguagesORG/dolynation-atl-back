@@ -1,15 +1,15 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { userSettings } from '../../database/drizzle/schema';
+import { moderatedCategories, userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
 import { CategoryModerationService } from '../moderation/category-moderation.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CategoryDailyLimitService } from './category-daily-limit.service';
-import type { LanguagesSettingsDto } from './dto/settings-catalog.dto';
+import type { CatalogItemDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import {
   arraysEqual,
   canUseFreeAnnualChange,
@@ -20,6 +20,7 @@ import {
   sanitizeSelectedLanguages,
 } from './language-selection.helpers';
 import {
+  GLOBAL_CATALOG_LIMIT,
   MIN_USER_CATEGORIES,
   SUPPORTED_LANGUAGE_IDS,
   SUPPORTED_LANGUAGES,
@@ -65,6 +66,35 @@ export class SettingsService {
   async getCategories(userId: number): Promise<string[]> {
     const row = await this.findByUserId(userId);
     return row?.preferredCategories ?? [];
+  }
+
+  /**
+   * Devuelve el catálogo global de categorías dinámicas: las que ya pasaron la
+   * moderación en algún momento, guardadas en `moderated_categories`.
+   *
+   * El catálogo **no es una lista fija**: cada categoría que un usuario
+   * escribe y supera la moderación queda disponible para todos. Así el
+   * selector de la interfaz nunca está vacío y la lista crece con el uso real.
+   *
+   * Solo se sirven las **aprobadas**: una categoría rechazada (blacklist,
+   * regex o IA) no puede aparecer nunca.
+   *
+   * El `id` es el nombre mostrable de la categoría, que es lo que se guarda en
+   * `user_settings.preferred_categories`: así el selector, lo que el usuario
+   * ve y lo que se persiste son la misma cadena.
+   */
+  async getGlobalCatalog(limit = GLOBAL_CATALOG_LIMIT): Promise<CatalogItemDto[]> {
+    const rows = await this.db
+      .select({
+        id: moderatedCategories.sampleCategory,
+        name: moderatedCategories.sampleCategory,
+      })
+      .from(moderatedCategories)
+      .where(eq(moderatedCategories.allowed, true))
+      .orderBy(desc(moderatedCategories.updatedAt))
+      .limit(limit);
+
+    return rows;
   }
 
   /**

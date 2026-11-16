@@ -28,3 +28,11 @@ export const LANGUAGE_CHANGE_COOLDOWN_MS = LANGUAGE_CHANGE_COOLDOWN_DAYS * 24 * 
 export function isSupportedLanguageId(value: unknown): value is LanguageId {
   return typeof value === 'string' && (SUPPORTED_LANGUAGE_IDS as readonly string[]).includes(value);
 }
+
+/**
+ * Máximo de categorías del catálogo global que se devuelven en
+ * `GET /settings/categories`. El catálogo crece con el uso (cada categoría
+ * escrita y moderada por un usuario entra), así que se recorta a las más
+ * recientes para no inflar la respuesta.
+ */
+export const GLOBAL_CATALOG_LIMIT = 100;
