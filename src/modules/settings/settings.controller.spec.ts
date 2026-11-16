@@ -11,6 +11,7 @@ describe('SettingsController', () => {
     Pick<
       SettingsService,
       | 'getCategories'
+      | 'getGlobalCatalog'
       | 'setCategories'
       | 'getLanguagesSettings'
       | 'setLanguages'
@@ -43,6 +44,7 @@ describe('SettingsController', () => {
   beforeEach(async () => {
     settings = {
       getCategories: jest.fn().mockResolvedValue([]),
+      getGlobalCatalog: jest.fn().mockResolvedValue([]),
       setCategories: jest.fn().mockImplementation((_: number, c: string[]) => Promise.resolve(c)),
       getLanguagesSettings: jest.fn().mockResolvedValue(languageState),
       setLanguages: jest.fn().mockResolvedValue(languageState),
@@ -71,12 +73,28 @@ describe('SettingsController', () => {
   });
 
   describe('GET /settings/categories', () => {
-    it('returns an empty predefined catalog and the current user selection', async () => {
+    it('returns the global catalog of dynamic categories and the current user selection', async () => {
       settings.getCategories.mockResolvedValue(['Astronomía Moderna']);
+      settings.getGlobalCatalog.mockResolvedValue([
+        { id: 'Historia de México', name: 'Historia de México' },
+        { id: 'Ciencia', name: 'Ciencia' },
+      ]);
       const result = await controller.getCategories(user);
       expect(result.data.selected).toEqual(['Astronomía Moderna']);
-      expect(result.data.catalog).toEqual([]);
+      expect(result.data.catalog).toEqual([
+        { id: 'Historia de México', name: 'Historia de México' },
+        { id: 'Ciencia', name: 'Ciencia' },
+      ]);
       expect(settings.getCategories).toHaveBeenCalledWith(42);
+      expect(settings.getGlobalCatalog).toHaveBeenCalled();
+    });
+
+    it('returns an empty catalog when no dynamic category has been moderated yet', async () => {
+      settings.getCategories.mockResolvedValue([]);
+      settings.getGlobalCatalog.mockResolvedValue([]);
+      const result = await controller.getCategories(user);
+      expect(result.data.catalog).toEqual([]);
+      expect(result.data.selected).toEqual([]);
     });
   });
 

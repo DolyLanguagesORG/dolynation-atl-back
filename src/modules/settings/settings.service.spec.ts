@@ -10,6 +10,7 @@ describe('SettingsService', () => {
   let onConflictDoUpdate: jest.Mock;
   let values: jest.Mock;
   let selectLimit: jest.Mock;
+  let selectOrderBy: jest.Mock;
   let db: { insert: jest.Mock; select: jest.Mock };
   let moderation: jest.Mocked<Pick<CategoryModerationService, 'assertCategoriesAllowed'>>;
   let subscriptions: { assertSubscriptionActive: jest.Mock };
@@ -23,13 +24,15 @@ describe('SettingsService', () => {
     onConflictDoUpdate = jest.fn().mockResolvedValue(undefined);
     values = jest.fn().mockReturnValue({ onConflictDoUpdate });
     selectLimit = jest.fn().mockResolvedValue([]);
+    selectOrderBy = jest.fn().mockReturnValue({ limit: selectLimit });
+    // `where()` devuelve un objeto con `limit` (findByUserId) y con
+    // `orderBy` (getGlobalCatalog): las dos consultas encadenan distinto.
+    const selectWhereResult = { limit: selectLimit, orderBy: selectOrderBy };
     db = {
       insert: jest.fn().mockReturnValue({ values }),
       select: jest.fn().mockReturnValue({
         from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: selectLimit,
-          }),
+          where: jest.fn().mockReturnValue(selectWhereResult),
         }),
       }),
     };
@@ -316,6 +319,29 @@ describe('SettingsService', () => {
       );
       expect(moderation.assertCategoriesAllowed).not.toHaveBeenCalled();
       expect(db.insert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('getGlobalCatalog', () => {
+    it('devuelve el catalogo global de categorias dinamicas aprobadas', async () => {
+      selectLimit.mockResolvedValue([
+        { id: 'Historia de Mexico', name: 'Historia de Mexico' },
+        { id: 'Ciencia', name: 'Ciencia' },
+      ]);
+
+      const catalog = await service.getGlobalCatalog();
+
+      expect(catalog).toEqual([
+        { id: 'Historia de Mexico', name: 'Historia de Mexico' },
+        { id: 'Ciencia', name: 'Ciencia' },
+      ]);
+      expect(selectLimit).toHaveBeenCalledWith(100);
+    });
+
+    it('devuelve un catalogo vacio cuando aun no hay categorias moderadas', async () => {
+      selectLimit.mockResolvedValue([]);
+
+      await expect(service.getGlobalCatalog()).resolves.toEqual([]);
     });
   });
 });
