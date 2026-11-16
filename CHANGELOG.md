@@ -11,6 +11,13 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.7.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.6.1...v0.7.0) (2026-11-16)
+
+
+### Features
+
+* **i18n:** trae el trabajo de multilenguaje y glosario de la rama de Sebastian ([#126](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/126)) ([bf95489](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/bf954892b82355bceed73de93fc798e3f6ef5d49))
+
 ## [0.6.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.6.0...v0.6.1) (2026-11-15)
 
 
