@@ -11,6 +11,18 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.8.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.7.0...v0.8.0) (2026-11-16)
+
+
+### Features
+
+* **settings:** el catalogo de categorias sale de las categorias dinamicas ([#129](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/129)) ([647a6d0](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/647a6d01224579513ecbb7eaf96dc5926ef0f33d)), closes [#128](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/128)
+
+
+### Bug Fixes
+
+* **settings:** el PUT de categorias tambien devuelve el catalogo ([#131](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/131)) ([41b9e6f](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/41b9e6f1b65c95241a20239d230774ff598e4bfd)), closes [#128](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/128)
+
 ## [0.7.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.6.1...v0.7.0) (2026-11-16)
 
 
