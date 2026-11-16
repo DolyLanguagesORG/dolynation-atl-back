@@ -47,6 +47,9 @@ export enum ErrorCode {
   // === Validación (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
 
+  // === Proveedor de IA (4xx: cuota del provider, no del usuario) ===
+  AI_RATE_LIMITED = 'AI_RATE_LIMITED',
+
   // === Servidor (5xx) ===
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
@@ -209,6 +212,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.SERVICE_UNAVAILABLE,
     503,
     'The service is temporarily unavailable. Please try again later.',
+  ),
+  [ErrorCode.AI_RATE_LIMITED]: entry(
+    ErrorCode.AI_RATE_LIMITED,
+    429,
+    'The AI provider reached its request quota. Please try again in a few minutes.',
   ),
 };
 /* eslint-enable @typescript-eslint/no-unsafe-enum-comparison */

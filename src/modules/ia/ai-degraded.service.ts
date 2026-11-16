@@ -70,7 +70,10 @@ export class AiDegradedService {
     };
 
     if (this.circuitIsOpen(config)) {
-      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { reason: 'ai-circuit-open' });
+      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
+        reason: 'ai-circuit-open',
+        hint: 'The provider failed several times in a row. It will be retried shortly.',
+      });
     }
 
     const aiOptions = buildAiRequestOptions(options);
@@ -86,6 +89,21 @@ export class AiDegradedService {
         return result;
       } catch (err) {
         lastError = err;
+
+        // Cuota agotada: reintentar ahora no sirve (la cuota no se libera en
+        // 150 ms) y ademas consume mas cuota del provider. Se responde al
+        // instante con un 429 explicito en vez de un 503 generico.
+        if (isRateLimited(err)) {
+          this.logger.warn(
+            `AI provider reached its quota (attempt ${attempt}/${config.retries}): ${describe(err)}`,
+          );
+          this.recordFailure(config);
+          throw new AppHttpException(ErrorCode.AI_RATE_LIMITED, {
+            reason: 'ai-rate-limited',
+            operation: 'ai_call',
+          });
+        }
+
         this.logger.warn(
           `AI provider call failed (attempt ${attempt}/${config.retries}): ${describe(err)}`,
         );
@@ -97,7 +115,10 @@ export class AiDegradedService {
 
     this.recordFailure(config);
     this.logger.error(`AI provider exhausted retries: ${describe(lastError)}`);
-    throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { reason: 'ai-call-failed' });
+    throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
+      reason: 'ai-call-failed',
+      operation: 'ai_call',
+    });
   }
 
   /** Indica si el circuito se encuentra abierto actualmente (para diagnóstico o health checks). */
@@ -150,6 +171,29 @@ function buildAiRequestOptions(options?: DegradedCallOptions): AIRequestOptions 
 function describe(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/**
+ * ¿El fallo es porque el provider se quedo **sin cuota** (429) y no porque
+ * este caido?
+ *
+ * La diferencia importa mucho: un 429 no se arregla reintentando a los 150 ms
+ * (la cuota no se libera en ese tiempo), asi que reintentar solo **gasta**
+ * mas cuota del provider. Un 5xx, en cambio, si sebeneficia del reintento.
+ *
+ * El provider no expone el status como tipo, asi que se detecta en el
+ * mensaje, que es lo que compone `postOpenAICompatibleChat`
+ * (`<provider> request failed: 429 Too Many Requests - <body>`).
+ */
+export function isRateLimited(err: unknown): boolean {
+  const message = describe(err).toLowerCase();
+  return (
+    message.includes('429') ||
+    message.includes('rate limit') ||
+    message.includes('rate_limit') ||
+    message.includes('quota exceeded') ||
+    message.includes('resource_exhausted')
+  );
 }
 
 /** Espera asíncrona simple usada entre reintentos. */

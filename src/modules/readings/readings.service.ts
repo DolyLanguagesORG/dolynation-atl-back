@@ -65,6 +65,38 @@ const SEMANTIC_SIMILARITY_REJECT_SCORE = 2.35;
  * Servicio principal de lecturas: coordina enriquecimiento dinámico por lectura,
  * deduplicación semántica sobre las últimas 10 lecturas, guardia de pureza lingüística y evaluación.
  */
+/**
+ * Convierte el fallo del proveedor de IA en una excepcion que **si explica**.
+ *
+ * El proveedor falla por motivos muy distintos y el cliente reacciona
+ * distinto a cada uno:
+ *
+ * - `AI_RATE_LIMITED` (429): se acabo la cuota del provider. Reintentar no
+ *   sirve: hay que esperar. Decirlo evita que el usuario piense que la
+ *   aplicacion esta caida.
+ * - `SERVICE_UNAVAILABLE` (503) con `ai-circuit-open`: el provider fallo
+ *   varias veces seguidas y esta en cuarentena; se reintentara en breve.
+ * - `SERVICE_UNAVAILABLE` (503) con `ai-call-failed`: el provider fallo y
+ *   no se pudo reintentar.
+ *
+ * Cuando el error ya es una `AppHttpException` (el proveedor de IA la lanza
+ * con su motivo), se respeta tal cual: no se envuelve en otra.
+ */
+function toAiException(err: unknown, operation: 'ai_chat' | 'ai_parse'): AppHttpException {
+  if (err instanceof AppHttpException) {
+    const response = err.getResponse() as {
+      code?: ErrorCode;
+      details?: Record<string, unknown>;
+    };
+    const code = response.code ?? ErrorCode.SERVICE_UNAVAILABLE;
+    return new AppHttpException(code, { ...(response.details ?? {}), operation });
+  }
+  return new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
+    reason: 'ai-call-failed',
+    operation,
+  });
+}
+
 @Injectable()
 export class ReadingsService {
   private readonly logger = new Logger(ReadingsService.name);
@@ -184,8 +216,11 @@ export class ReadingsService {
         parse: (raw) =>
           this.parser.parseGeneratedText(raw, [input.options.category, ...userCategories]),
         extractTexts: (item) => [item.title, item.description, item.content],
-        onPrimaryError: () => {
-          throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_chat' });
+        onPrimaryError: (err) => {
+          // Se conserva el motivo real del provider (cuota agotada, circuito
+          // abierto, fallo de llamada): sin el, el cliente solo ve un 503
+          // generico y no sabe si esperar o reintentar.
+          throw toAiException(err, 'ai_chat');
         },
         onParseError: async (err) => {
           await this.promptLogs.logPromptError(
@@ -194,7 +229,7 @@ export class ReadingsService {
             (err as Error).message,
             prompt.seed,
           );
-          throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_parse' });
+          throw toAiException(err, 'ai_parse');
         },
       });
 
