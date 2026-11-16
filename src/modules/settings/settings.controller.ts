@@ -98,8 +98,12 @@ export class SettingsController {
       });
     }
     await this.subscriptions.assertCategoryLimit(current.id, normalized.length);
+    // Primero se guardan (que es lo que moderá y缓存a la categoría): después
+    // se relee el catálogo, para que la respuesta ya muestre las categorías
+    // que el usuario acaba de escribir sin esperar al siguiente GET.
     const selected = await this.settings.setCategories(current.id, normalized);
-    return apiOk('Categories updated', { catalog: [], selected });
+    const catalog = await this.settings.getGlobalCatalog();
+    return apiOk('Categories updated', { catalog, selected });
   }
 
   /**
