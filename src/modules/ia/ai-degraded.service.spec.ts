@@ -90,4 +90,63 @@ describe('AiDegradedService', () => {
       maxTokens: 1024,
     });
   });
+
+  describe('cuota agotada del provider (429)', () => {
+    it('no reintenta y responde AI_RATE_LIMITED (429)', async () => {
+      factory.getFullResponse.mockRejectedValue(
+        new Error('Google request failed: 429 Too Many Requests - quota exceeded'),
+      );
+
+      const promise = service.getFullResponse([{ role: 'user', content: 'hi' }], {
+        retries: 2,
+        retryDelayMs: 0,
+      });
+
+      await expect(promise).rejects.toBeInstanceOf(AppHttpException);
+      await expect(promise).rejects.toMatchObject({ status: 429 });
+      // Un 429 no se arregla reintentando: solo gastaria mas cuota.
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(1);
+
+      try {
+        await service.getFullResponse([{ role: 'user', content: 'hi' }], {
+          retries: 2,
+          retryDelayMs: 0,
+        });
+        fail('expected AI_RATE_LIMITED');
+      } catch (err) {
+        const body = (err as AppHttpException).getResponse() as {
+          code: ErrorCode;
+          details?: { reason?: string };
+        };
+        expect(body.code).toBe(ErrorCode.AI_RATE_LIMITED);
+        expect(body.details?.reason).toBe('ai-rate-limited');
+      }
+    });
+
+    it('detecta el rate limit tambien por el texto del error', async () => {
+      factory.getFullResponse.mockRejectedValue(
+        new Error('Resource exhausted, rate limit reached'),
+      );
+
+      await expect(
+        service.getFullResponse([{ role: 'user', content: 'hi' }], {
+          retries: 3,
+          retryDelayMs: 0,
+        }),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(1);
+    });
+
+    it('un fallo normal (5xx) si se reintenta', async () => {
+      factory.getFullResponse.mockRejectedValue(new Error('boom'));
+
+      await expect(
+        service.getFullResponse([{ role: 'user', content: 'hi' }], {
+          retries: 3,
+          retryDelayMs: 0,
+        }),
+      ).rejects.toMatchObject({ status: 503 });
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(3);
+    });
+  });
 });

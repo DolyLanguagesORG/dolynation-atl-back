@@ -11,7 +11,7 @@ import { ApiOkResponseOfArray } from '../../common/types/api-envelope.decorators
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import { AdminGuard } from './admin.guard';
 import { AdminService } from './admin.service';
-import { AdminCategoryDto, AdminUserRowDto } from './dto/admin-category.dto';
+import { AdminCategoryDto, AdminPromptLogDto, AdminUserRowDto } from './dto/admin-category.dto';
 
 /**
  * Controlador para rutas de administración (`/admin`), protegido por `AdminGuard`.
@@ -43,6 +43,34 @@ export class AdminController {
   })
   listCategories(): ApiResponse<AdminCategoryDto[]> {
     return apiOk('Admin categories', this.admin.listCategories());
+  }
+
+  /**
+   * Devuelve los fallos recientes del proveedor de IA (`prompt_logs`).
+   *
+   * Es la vía para ver **qué pasó de verdad** cuando una generación falla
+   * (cuota agotada, timeout, respuesta que no parsea) sin entrar al servidor:
+   * la API no filtra ese detalle al cliente final, pero aquí sí está.
+   *
+   * Solo para administradores.
+   */
+  @Get('prompt-logs')
+  @ApiOperation({
+    summary: 'Listar los fallos recientes del proveedor de IA',
+    description:
+      'Devuelve los registros de `prompt_logs` con el error original del provider. Es una herramienta de operación: el frontend no la usa.',
+  })
+  @ApiOkResponseOfArray(AdminPromptLogDto)
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'El usuario no es administrador',
+    type: ApiErrorDto,
+  })
+  async listPromptLogs(): Promise<ApiResponse<AdminPromptLogDto[]>> {
+    return apiOk('Admin prompt logs', await this.admin.listPromptLogs());
   }
 
   /**
