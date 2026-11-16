@@ -95,15 +95,27 @@ Detalle de columnas, tipos y relaciones en
 | Columnas SQL | `snake_case` | `created_at` |
 | Variables TS | `camelCase` | `createdAt` |
 | Archivos TS | `kebab-case` | `auth-access.tokens.ts` |
-| Updates SQL | `NN-<kebab>` | `02-sprint2-study-config.sql` |
+| Updates SQL | `NN-<kebab>` | `02-sprint2-study-config.sql` (solo en la fase 2) |
 
 ## Workflow al cambiar el schema
 
-1. Crear el script `NN-<nombre>.sql` en `database/postgres/updates/`.
-2. Actualizar `01-init.sql` para que una base nueva tenga el mismo estado final.
-3. Probar el script en una base existente y en una limpia; debe ser idempotente.
-4. Commit de ambos archivos en el mismo PR de infra.
+**El schema vive en un solo archivo**: `database/postgres/01-init.sql`, en el
+repo de infra. Los scripts incrementales de `database/postgres/updates/` solo
+entran en juego en la **fase 2**, cuando producción tenga datos que no se
+pueden perder (ver
+[conventions/database.md](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/database.md)).
+
+1. Editar `database/postgres/01-init.sql` (repo de infra) con el estado nuevo.
+2. Comprobar que el schema sigue siendo válido: el job `schema-sql` de la CI
+   de infra lo aplica sobre un Postgres 15 limpio y verifica las 10 tablas que
+   mapea Drizzle.
+3. PR a `develop` en **infra**, con `Closes #N` del issue de migración.
+4. El deploy aplica el schema solo: `scripts/apply-schema.sh` compara el hash
+   del archivo con el guardado dentro de la base y, si cambió, la recrea (si no
+   tiene datos) o **se niega a borrarla** (si tiene datos: hay que migrar a
+   mano).
 5. Los cambios de código backend que usan la nueva estructura van en su repo y
    en commits/PRs separados.
-6. Si el cambio desbloquea un issue de backend, cierra el issue de migración
-   con evidencia de la verificación.
+
+> El backend **no** ejecuta DDL: ni migraciones, ni `ALTER`, ni creación de
+> tablas. Drizzle solo mapea tipos.
