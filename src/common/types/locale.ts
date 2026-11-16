@@ -7,7 +7,7 @@
  */
 
 /** Locales de interfaz soportados por la aplicación. */
-export const SUPPORTED_UI_LOCALES = ['es', 'en'] as const;
+export const SUPPORTED_UI_LOCALES = ['es', 'en', 'fr', 'it'] as const;
 
 /** Unión de identificadores de locale de interfaz soportados. */
 export type UiLocale = (typeof SUPPORTED_UI_LOCALES)[number];

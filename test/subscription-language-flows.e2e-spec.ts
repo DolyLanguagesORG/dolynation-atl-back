@@ -1175,4 +1175,104 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     expect(hitCap.body.error.details).toMatchObject({ limit: 20, used: 20, remaining: 0 });
     expect(countModAiCalls()).toBe(callsBefore21);
   });
+
+  it('Test 10 (Glossary): tracks readingAvailable=false after soft-deleting a reading while preserving explanation & language filter', async () => {
+    const learner = await registerUser('test10-glossary-deleted');
+    const auth = `Bearer ${learner.tokens.accessToken}`;
+    await selectPlan(learner.tokens.accessToken, 'dolly_pro');
+
+    await supertest(app.getHttpServer())
+      .put('/api/v1/settings/languages')
+      .set('Authorization', auth)
+      .send({ languages: ['es', 'en', 'fr', 'it'] })
+      .expect(200);
+
+    await supertest(app.getHttpServer())
+      .put('/api/v1/settings/categories')
+      .set('Authorization', auth)
+      .send({ categories: ['philosophy', 'history', 'science'] })
+      .expect(200);
+
+    const enReadingRes = await supertest(app.getHttpServer())
+      .post('/api/v1/readings')
+      .set('Authorization', auth)
+      .send({ category: 'philosophy', language: 'en', difficulty: 'easy', size: 'short' })
+      .expect(201);
+    const enReading = enReadingRes.body.data as { id: number; title: string };
+
+    const frReadingRes = await supertest(app.getHttpServer())
+      .post('/api/v1/readings')
+      .set('Authorization', auth)
+      .send({ category: 'history', language: 'fr', difficulty: 'medium', size: 'short' })
+      .expect(201);
+    const frReading = frReadingRes.body.data as { id: number; title: string };
+
+    const enExplainRes = await supertest(app.getHttpServer())
+      .post(`/api/v1/readings/${enReading.id}/explanations`)
+      .set('Authorization', auth)
+      .send({ word: 'empirical', context: 'Empirical observation clarifies core ideas.' })
+      .expect(201);
+    const enExplanation = enExplainRes.body.data as { id: number };
+
+    const frExplainRes = await supertest(app.getHttpServer())
+      .post(`/api/v1/readings/${frReading.id}/explanations`)
+      .set('Authorization', auth)
+      .send({ word: 'procédés', context: "L'observation attentive des procédés." })
+      .expect(201);
+    const frExplanation = frExplainRes.body.data as { id: number };
+
+    await supertest(app.getHttpServer())
+      .patch(`/api/v1/readings/explanations/${enExplanation.id}/glossary`)
+      .set('Authorization', auth)
+      .send({ isSaved: true })
+      .expect(200);
+
+    await supertest(app.getHttpServer())
+      .delete(`/api/v1/readings/${enReading.id}`)
+      .set('Authorization', auth)
+      .expect(204);
+
+    const glossaryAllRes = await supertest(app.getHttpServer())
+      .get('/api/v1/readings/glossary')
+      .set('Authorization', auth)
+      .expect(200);
+    const allEntries = glossaryAllRes.body.data as Array<{
+      id: number;
+      readingId: number;
+      readingTitle: string;
+      readingAvailable: boolean;
+      language: string;
+      context: string | null;
+      isSaved: boolean;
+    }>;
+
+    const deletedEntry = allEntries.find((item) => item.id === enExplanation.id);
+    const activeEntry = allEntries.find((item) => item.id === frExplanation.id);
+
+    expect(deletedEntry).toMatchObject({
+      readingId: enReading.id,
+      readingTitle: enReading.title,
+      readingAvailable: false,
+      language: 'en',
+      context: 'Empirical observation clarifies core ideas.',
+      isSaved: true,
+    });
+    expect(activeEntry).toMatchObject({
+      readingId: frReading.id,
+      readingTitle: frReading.title,
+      readingAvailable: true,
+      language: 'fr',
+    });
+
+    const toggleDeletedRes = await supertest(app.getHttpServer())
+      .patch(`/api/v1/readings/explanations/${enExplanation.id}/glossary`)
+      .set('Authorization', auth)
+      .send({ isSaved: false })
+      .expect(200);
+    expect(toggleDeletedRes.body.data).toMatchObject({
+      id: enExplanation.id,
+      readingAvailable: false,
+      isSaved: false,
+    });
+  });
 });

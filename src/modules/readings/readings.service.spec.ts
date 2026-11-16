@@ -1248,7 +1248,7 @@ describe('ReadingsService', () => {
         select: jest.fn().mockReturnValue({
           from: jest.fn().mockReturnValue({
             where: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue([{ title: 'La tarde de Juan' }]),
+              limit: jest.fn().mockResolvedValue([{ title: 'La tarde de Juan', deletedAt: null }]),
             }),
           }),
         }),
@@ -1258,6 +1258,7 @@ describe('ReadingsService', () => {
       const toggled = await service.toggleGlossarySave(90, 42, true);
       expect(toggled.isSaved).toBe(true);
       expect(toggled.readingTitle).toBe('La tarde de Juan');
+      expect(toggled.readingAvailable).toBe(true);
 
       let missingError: AppHttpException | null = null;
       try {
@@ -1269,6 +1270,65 @@ describe('ReadingsService', () => {
       expect(missingError?.getResponse()).toMatchObject({
         code: ErrorCode.RESOURCE_NOT_FOUND,
         details: { resource: 'ReadingExplanation' },
+      });
+    });
+
+    it('listGlossary marks soft-deleted source readings with readingAvailable = false while keeping context', async () => {
+      const baseEntry = {
+        id: 91,
+        readingId: 30,
+        userId: 42,
+        word: 'wrote',
+        normalizedWord: 'wrote',
+        entryType: 'word',
+        language: 'en',
+        difficulty: 'easy',
+        context: 'Marcus Aurelius wrote a private journal.',
+        literalMeaning: 'Recorded words in the past tense.',
+        explanation: 'Indicates he wrote personal reflections daily.',
+        wordBreakdown: [],
+        otherWaysToSay: [],
+        otherContexts: [],
+        isSaved: true,
+        savedAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const deletedRow = {
+        entry: baseEntry,
+        readingTitle: 'Ancient Stoic Ideas',
+        readingDeletedAt: new Date('2026-11-14T12:00:00.000Z'),
+      };
+      const activeRow = {
+        entry: { ...baseEntry, id: 92, readingId: 31, word: 'stoic', normalizedWord: 'stoic' },
+        readingTitle: 'Modern Reflections',
+        readingDeletedAt: null,
+      };
+      const localDb = {
+        ...db,
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            innerJoin: jest.fn().mockReturnValue({
+              where: jest.fn().mockReturnValue({
+                orderBy: jest.fn().mockResolvedValue([deletedRow, activeRow]),
+              }),
+            }),
+          }),
+        }),
+      };
+
+      service = await buildModuleWithDb(localDb);
+      const result = await service.listGlossary(42, {});
+      expect(result).toHaveLength(2);
+      expect(result[0]).toMatchObject({
+        id: 91,
+        readingTitle: 'Ancient Stoic Ideas',
+        readingAvailable: false,
+      });
+      expect(result[1]).toMatchObject({
+        id: 92,
+        readingTitle: 'Modern Reflections',
+        readingAvailable: true,
       });
     });
   });

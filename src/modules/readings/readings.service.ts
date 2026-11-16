@@ -568,7 +568,7 @@ Evaluate how well the user understood the main idea of the text.`;
       const key = row.normalizedWord || row.word.trim().toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
-      entries.push(toGlossaryEntryDto(row, reading.title));
+      entries.push(toGlossaryEntryDto(row, reading.title, reading.deletedAt === null));
     }
     return entries;
   }
@@ -608,13 +608,16 @@ Evaluate how well the user understood the main idea of the text.`;
       .select({
         entry: readingExplanations,
         readingTitle: readings.title,
+        readingDeletedAt: readings.deletedAt,
       })
       .from(readingExplanations)
       .innerJoin(readings, eq(readingExplanations.readingId, readings.id))
       .where(and(...conditions))
       .orderBy(desc(readingExplanations.createdAt), desc(readingExplanations.id));
 
-    return rows.map((row) => toGlossaryEntryDto(row.entry, row.readingTitle));
+    return rows.map((row) =>
+      toGlossaryEntryDto(row.entry, row.readingTitle, row.readingDeletedAt === null),
+    );
   }
 
   /**
@@ -645,12 +648,13 @@ Evaluate how well the user understood the main idea of the text.`;
     }
 
     const readingRows = await this.db
-      .select({ title: readings.title })
+      .select({ title: readings.title, deletedAt: readings.deletedAt })
       .from(readings)
       .where(eq(readings.id, updated.readingId))
       .limit(1);
 
-    return toGlossaryEntryDto(updated, readingRows[0]?.title ?? '');
+    const readingRow = readingRows[0] as { title: string; deletedAt: Date | null } | undefined;
+    return toGlossaryEntryDto(updated, readingRow?.title ?? '', readingRow?.deletedAt === null);
   }
 
   /** Busca una explicación previamente persistida para evitar llamadas redundantes a la IA. */
@@ -1003,11 +1007,16 @@ Respond ONLY with a valid JSON object strictly in natural ${langLabel}.`;
   return { systemPrompt, userPrompt };
 }
 
-function toGlossaryEntryDto(row: ReadingExplanation, readingTitle: string): GlossaryEntryDto {
+function toGlossaryEntryDto(
+  row: ReadingExplanation,
+  readingTitle: string,
+  readingAvailable: boolean,
+): GlossaryEntryDto {
   return {
     id: row.id,
     readingId: row.readingId,
     readingTitle,
+    readingAvailable,
     word: row.word,
     normalizedWord: row.normalizedWord,
     entryType: row.entryType,
