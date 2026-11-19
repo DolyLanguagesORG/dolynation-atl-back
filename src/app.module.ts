@@ -1,14 +1,16 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv, type EnvSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
+import { LogsModule, RequestContextMiddleware } from './modules/logs';
 import { MailModule } from './modules/mail/mail.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { AccessRequestsModule } from './modules/access-requests/access-requests.module';
 import { ReadingsModule } from './modules/readings/readings.module';
 import { ContentModule } from './modules/content/content.module';
 import { EvaluationModule } from './modules/evaluation/evaluation.module';
@@ -42,7 +44,19 @@ import { VersionModule } from './modules/version/version.module';
             ? undefined
             : { target: 'pino-pretty', options: { colorize: true, singleLine: true } };
         const redact = {
-          paths: ['req.headers.authorization', 'req.headers.cookie', '*.password', '*.token'],
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers["x-api-key"]',
+            '*.password',
+            '*.newPassword',
+            '*.currentPassword',
+            '*.token',
+            '*.accessToken',
+            '*.refreshToken',
+            '*.tokenHash',
+            '*.secret',
+          ],
           censor: '[REDACTED]',
         };
         return transport === undefined
@@ -53,11 +67,13 @@ import { VersionModule } from './modules/version/version.module';
 
     CommonModule,
     DatabaseModule,
+    LogsModule,
     MailModule,
     AuthModule,
     UsersModule,
     SubscriptionsModule,
     SettingsModule,
+    AccessRequestsModule,
     ReadingsModule,
     ContentModule,
     EvaluationModule,
@@ -68,6 +84,10 @@ import { VersionModule } from './modules/version/version.module';
     VersionModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}
 
 export type { EnvSchema };
