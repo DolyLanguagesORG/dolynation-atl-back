@@ -1,10 +1,11 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { JwtService } from '@nestjs/jwt';
 import { AppConfigService } from '../../config/env.config';
 import { UsersService } from '../users/users.service';
 import { AuthEventLogService } from '../readings/prompt-logs';
+import { AuditLogService, ErrorLogService, RequestContextService } from '../logs';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { createHash, randomUUID } from 'node:crypto';
 import { DRIZZLE } from '../../database/database.tokens';
@@ -26,6 +27,13 @@ import {
   PASSWORD_RESET_TTL_MINUTES,
 } from '../mail/mail.constants';
 import { DEFAULT_UI_LOCALE } from '../../common/types/locale';
+
+/**
+ * Hash Argon2id de relleno para igualar el tiempo de respuesta cuando el correo
+ * no existe en el sistema y mitigar ataques de enumeración por temporización.
+ */
+const DUMMY_PASSWORD_HASH =
+  '$argon2id$v=19$m=65536,t=3,p=4$CE2w4hZYapxMoptUfZgR2A$aqYoxIk1Q60/npauPIakLwYea5vjzxNBxSFT4mIsNwY';
 
 /** Carga útil codificada dentro de los tokens JWT de acceso y refresco. */
 interface JwtPayload {
@@ -86,6 +94,9 @@ export class AuthService implements IAuthService {
     private readonly authEventLogs: AuthEventLogService,
     private readonly mail: MailService,
     private readonly emailTokens: AuthEmailTokenService,
+    @Optional() private readonly auditLogs?: AuditLogService,
+    @Optional() private readonly errorLogs?: ErrorLogService,
+    @Optional() private readonly requestContext?: RequestContextService,
   ) {
     this.accessTtl = config.jwt.accessTtl;
     this.refreshTtl = config.jwt.refreshTtl;
@@ -102,7 +113,7 @@ export class AuthService implements IAuthService {
   async register(input: RegisterDto): Promise<RegisterResult> {
     const existing = await this.users.findByEmail(input.email);
     if (existing) {
-      throw new AppHttpException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS, { email: input.email });
+      throw new AppHttpException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
     }
     const created = await this.users.create({
       email: input.email,
@@ -116,7 +127,27 @@ export class AuthService implements IAuthService {
       ? null
       : await this.signTokensFor(created.id, created.email);
 
+    this.requestContext?.setActor({
+      id: created.id,
+      email: created.email,
+      role: created.role,
+    });
+
     await this.authEventLogs.logAuthEvent('user_registered', created.id);
+    const publicUser = this.users.toPublic(created);
+    await this.auditLogs?.logCreate({
+      module: 'auth',
+      event: 'auth.user_registered',
+      entityType: 'users',
+      entityId: created.id,
+      actorUserId: created.id,
+      actorEmail: created.email,
+      actorRole: created.role,
+      targetUserId: created.id,
+      summary: `User account registered (${created.email})`,
+      afterState: { ...publicUser },
+      metadata: { emailVerificationRequired: verificationRequired },
+    });
 
     // Un fallo del proveedor de correo no debe invalidar el alta: la cuenta
     // existe y el usuario puede pedir un reenvío con
@@ -124,7 +155,7 @@ export class AuthService implements IAuthService {
     await this.sendAccountConfirmationEmail(created);
 
     return {
-      user: this.users.toPublic(created),
+      user: publicUser,
       tokens,
       emailVerificationRequired: verificationRequired,
     };
@@ -136,15 +167,72 @@ export class AuthService implements IAuthService {
   async login(input: LoginDto): Promise<{ user: AuthUserView; tokens: AuthTokens }> {
     const user = await this.users.findByEmail(input.email);
     if (!user) {
+      await this.users.verifyPassword(input.password, DUMMY_PASSWORD_HASH);
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.login_failed',
+        entityType: 'users',
+        summary: `Failed login attempt for unknown email (${input.email})`,
+        actorEmail: input.email,
+        metadata: { attemptedEmail: input.email, reason: 'user_not_found' },
+      });
       throw new AppHttpException(ErrorCode.AUTH_INVALID_CREDENTIALS);
     }
     const ok = await this.users.verifyPassword(input.password, user.password);
     if (!ok) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.login_failed',
+        entityType: 'users',
+        entityId: user.id,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        summary: `Failed login attempt (invalid password) for user #${user.id}`,
+        metadata: { attemptedEmail: input.email, reason: 'invalid_password' },
+      });
       throw new AppHttpException(ErrorCode.AUTH_INVALID_CREDENTIALS);
     }
-    this.assertEmailVerified(user);
+    try {
+      this.assertEmailVerified(user);
+    } catch (err) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.login_unverified_blocked',
+        entityType: 'users',
+        entityId: user.id,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        summary: `Login blocked for unverified email (${user.email})`,
+      });
+      throw err;
+    }
+
+    this.requestContext?.setActor({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
     const tokens = await this.signTokensFor(user.id, user.email);
     await this.authEventLogs.logAuthEvent('user_login', user.id);
+    await this.auditLogs?.logEvent({
+      module: 'auth',
+      action: 'AUTH',
+      event: 'auth.user_login',
+      entityType: 'users',
+      entityId: user.id,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      summary: `User #${user.id} (${user.email}) logged in`,
+    });
     return { user: this.users.toPublic(user), tokens };
   }
 
@@ -160,7 +248,7 @@ export class AuthService implements IAuthService {
       throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID);
     }
     if (payload.type !== 'refresh') {
-      throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID, { reason: 'wrong_type' });
+      throw new AppHttpException(ErrorCode.AUTH_TOKEN_INVALID);
     }
     // Buscamos el hash SHA-256 del token para comprobar que sigue activo y sin expirar.
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
@@ -210,7 +298,33 @@ export class AuthService implements IAuthService {
       this.assertEmailVerified(user);
     }
 
-    return this.signTokensFor(payload.sub, payload.email);
+    const nextTokens = await this.signTokensFor(payload.sub, payload.email);
+    await this.auditLogs?.logUpdate({
+      module: 'auth',
+      event: 'auth.token_refreshed',
+      entityType: 'auth_access_tokens',
+      entityId: storedToken.id,
+      actorUserId: payload.sub,
+      actorEmail: payload.email,
+      targetUserId: payload.sub,
+      summary: `Refresh token #${storedToken.id} rotated for user #${payload.sub}`,
+      beforeState: {
+        id: storedToken.id,
+        tokenableId: storedToken.tokenableId,
+        type: storedToken.type,
+        deletedAt: null,
+        expiresAt: storedToken.expiresAt,
+      },
+      afterState: {
+        id: storedToken.id,
+        tokenableId: storedToken.tokenableId,
+        type: storedToken.type,
+        deletedAt: now,
+        updatedAt: now,
+        expiresAt: storedToken.expiresAt,
+      },
+    });
+    return nextTokens;
   }
 
   /**
@@ -232,6 +346,18 @@ export class AuthService implements IAuthService {
           gt(authAccessTokens.expiresAt, now),
         ),
       );
+
+    await this.authEventLogs.logAuthEvent('user_logout', userId);
+    await this.auditLogs?.logUpdate({
+      module: 'auth',
+      event: 'auth.user_logout',
+      entityType: 'auth_access_tokens',
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `User #${userId} logged out of current session`,
+      beforeState: { tokenableId: userId, type: 'refresh', deletedAt: null },
+      afterState: { tokenableId: userId, type: 'refresh', deletedAt: now, updatedAt: now },
+    });
   }
 
   /**
@@ -251,6 +377,24 @@ export class AuthService implements IAuthService {
           gt(authAccessTokens.expiresAt, now),
         ),
       );
+
+    await this.authEventLogs.logAuthEvent('user_logout', userId);
+    await this.auditLogs?.logUpdate({
+      module: 'auth',
+      event: 'auth.user_logout_all',
+      entityType: 'auth_access_tokens',
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `User #${userId} revoked all active sessions`,
+      beforeState: { tokenableId: userId, type: 'refresh', scope: 'all_sessions', deletedAt: null },
+      afterState: {
+        tokenableId: userId,
+        type: 'refresh',
+        scope: 'all_sessions',
+        deletedAt: now,
+        updatedAt: now,
+      },
+    });
   }
 
   /**
@@ -283,7 +427,25 @@ export class AuthService implements IAuthService {
       throw new AppHttpException(ErrorCode.AUTH_UNAUTHORIZED);
     }
     const tokens = await this.signTokensFor(user.id, user.email);
+    this.requestContext?.setActor({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
     await this.authEventLogs.logAuthEvent('user_login', user.id);
+    await this.auditLogs?.logUpdate({
+      module: 'auth',
+      event: 'auth.email_verified',
+      entityType: 'users',
+      entityId: user.id,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: user.id,
+      summary: `User #${user.id} verified email address (${user.email})`,
+      beforeState: { id: user.id, emailVerifiedAt: null },
+      afterState: { id: user.id, emailVerifiedAt: user.emailVerifiedAt ?? new Date() },
+    });
     return {
       emailVerified: true,
       user: this.users.toPublic(user),
@@ -301,15 +463,32 @@ export class AuthService implements IAuthService {
   async forgotPassword(email: string): Promise<{ emailSent: boolean }> {
     const normalized = normalizeEmail(email);
     if (!this.registerMailAttempt(`forgot:${normalized}`)) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.forgot_password_requested',
+        entityType: 'users',
+        summary: `Password reset throttled for ${normalized}`,
+        metadata: { email: normalized, throttled: true },
+      });
       // Límite alcanzado: se responde igual y en silencio para no filtrar información.
       return { emailSent: true };
     }
 
     const user = await this.users.findByEmail(normalized);
     if (!user) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.forgot_password_requested',
+        entityType: 'users',
+        summary: `Password reset requested for unknown email (${normalized})`,
+        metadata: { email: normalized, accountExists: false, throttled: false },
+      });
       return { emailSent: true };
     }
 
+    let mailDispatched = false;
     try {
       const token = await this.emailTokens.issue({
         userId: user.id,
@@ -322,9 +501,40 @@ export class AuthService implements IAuthService {
         token,
         locale: resolveLocale(user.locale),
       });
+      mailDispatched = true;
     } catch (error) {
-      this.logger.error(`No se pudo enviar el correo de restablecimiento: ${describeError(error)}`);
+      const errDesc = describeError(error);
+      this.logger.error(`No se pudo enviar el correo de restablecimiento: ${errDesc}`);
+      await this.errorLogs?.logError({
+        severity: 'error',
+        source: 'mail_smtp',
+        module: 'auth',
+        errorCode: 'MAIL_DELIVERY_ERROR',
+        message: `Failed to send password reset email: ${errDesc}`,
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorStack: error instanceof Error ? (error.stack ?? null) : null,
+        actorUserId: user.id,
+        actorEmail: user.email,
+      });
     }
+
+    await this.auditLogs?.logEvent({
+      module: 'auth',
+      action: 'AUTH',
+      event: 'auth.forgot_password_requested',
+      entityType: 'users',
+      entityId: user.id,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      targetUserId: user.id,
+      summary: `Password reset email ${mailDispatched ? 'sent' : 'failed'} for user #${user.id}`,
+      metadata: {
+        email: normalized,
+        accountExists: true,
+        throttled: false,
+        mailDispatched,
+      },
+    });
 
     return { emailSent: true };
   }
@@ -337,6 +547,14 @@ export class AuthService implements IAuthService {
   async resendVerification(email: string): Promise<{ emailSent: boolean }> {
     const normalized = normalizeEmail(email);
     if (!this.registerMailAttempt(`resend:${normalized}`)) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.resend_verification_requested',
+        entityType: 'users',
+        summary: `Verification resend throttled for ${normalized}`,
+        metadata: { email: normalized, throttled: true, sent: false },
+      });
       return { emailSent: true };
     }
 
@@ -344,10 +562,38 @@ export class AuthService implements IAuthService {
     // `user?.emailVerifiedAt !== null` cubre los tres casos: la cuenta no
     // existe (`undefined`), la cuenta ya está verificada o la que no lo está.
     if (user?.emailVerifiedAt !== null) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.resend_verification_requested',
+        entityType: 'users',
+        entityId: user?.id ?? null,
+        targetUserId: user?.id ?? null,
+        summary: `Verification resend skipped for ${normalized}`,
+        metadata: {
+          email: normalized,
+          accountExists: Boolean(user),
+          alreadyVerified: Boolean(user?.emailVerifiedAt),
+          throttled: false,
+          sent: false,
+        },
+      });
       return { emailSent: true };
     }
 
     await this.sendAccountConfirmationEmail(user);
+    await this.auditLogs?.logEvent({
+      module: 'auth',
+      action: 'AUTH',
+      event: 'auth.resend_verification_requested',
+      entityType: 'users',
+      entityId: user.id,
+      actorUserId: user.id,
+      actorEmail: user.email,
+      targetUserId: user.id,
+      summary: `Verification email resent for user #${user.id}`,
+      metadata: { email: normalized, accountExists: true, throttled: false, sent: true },
+    });
     return { emailSent: true };
   }
 
@@ -366,6 +612,18 @@ export class AuthService implements IAuthService {
     await this.users.updatePassword(consumed.userId, password);
     await this.logoutAll(consumed.userId);
     await this.emailTokens.revokeActive(consumed.userId, EMAIL_TOKEN_TYPE_PASSWORD_RESET);
+
+    await this.auditLogs?.logUpdate({
+      module: 'auth',
+      event: 'auth.password_reset_completed',
+      entityType: 'users',
+      entityId: consumed.userId,
+      actorUserId: consumed.userId,
+      targetUserId: consumed.userId,
+      summary: `User #${consumed.userId} completed password reset and revoked all sessions`,
+      beforeState: { userId: consumed.userId, password: '[REDACTED]', sessionsRevoked: false },
+      afterState: { userId: consumed.userId, password: '[REDACTED]', sessionsRevoked: true },
+    });
 
     return { passwordUpdated: true };
   }
@@ -421,7 +679,19 @@ export class AuthService implements IAuthService {
         locale: resolveLocale(user.locale),
       });
     } catch (error) {
-      this.logger.error(`No se pudo enviar el correo de confirmación: ${describeError(error)}`);
+      const errDesc = describeError(error);
+      this.logger.error(`No se pudo enviar el correo de confirmación: ${errDesc}`);
+      await this.errorLogs?.logError({
+        severity: 'error',
+        source: 'mail_smtp',
+        module: 'auth',
+        errorCode: 'MAIL_DELIVERY_ERROR',
+        message: `Failed to send account confirmation email: ${errDesc}`,
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorStack: error instanceof Error ? (error.stack ?? null) : null,
+        actorUserId: user.id,
+        actorEmail: user.email,
+      });
     }
   }
 

@@ -17,6 +17,7 @@ describe('Auth endpoints (e2e)', () => {
     process.env.JWT_REFRESH_TTL = '30d';
     process.env.LOG_LEVEL = 'silent';
     process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
+    process.env.ACCESS_REQUESTS_ENABLED = 'false';
 
     const { AppModule } = await import('../src/app.module');
     const moduleRef = await Test.createTestingModule({

@@ -4,6 +4,7 @@ import type { DrizzleDb } from '../../database/database.module';
 import { AppHttpException } from '../errors/app-http.exception';
 import { ErrorCode } from '../errors/error-codes';
 import { ALLOW_WITHOUT_SUBSCRIPTION_KEY } from '../decorators/allow-without-subscription.decorator';
+import { ALLOW_ADMIN_SESSION_KEY, IS_ADMIN_ONLY_KEY } from '../decorators/admin-only.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import { SubscriptionGuard } from './subscription.guard';
 
@@ -12,7 +13,11 @@ describe('SubscriptionGuard', () => {
   let dbMock: { select: jest.Mock };
   let guard: SubscriptionGuard;
 
-  const createContext = (user?: { id: number; email: string }): ExecutionContext =>
+  const createContext = (user?: {
+    id: number;
+    email: string;
+    role?: 'student' | 'admin';
+  }): ExecutionContext =>
     ({
       getHandler: jest.fn(),
       getClass: jest.fn(),
@@ -74,5 +79,34 @@ describe('SubscriptionGuard', () => {
     });
 
     await expect(guard.canActivate(createContext({ id: 7, email: 'u@x.com' }))).resolves.toBe(true);
+  });
+
+  it('allows admin users on @AdminOnly() and @AllowAdminSession() routes without a subscription', async () => {
+    reflector.getAllAndOverride.mockImplementation((key: string) => key === IS_ADMIN_ONLY_KEY);
+    await expect(
+      guard.canActivate(createContext({ id: 1, email: 'admin@x.com', role: 'admin' })),
+    ).resolves.toBe(true);
+
+    reflector.getAllAndOverride.mockImplementation(
+      (key: string) => key === ALLOW_ADMIN_SESSION_KEY,
+    );
+    await expect(
+      guard.canActivate(createContext({ id: 1, email: 'admin@x.com', role: 'admin' })),
+    ).resolves.toBe(true);
+    expect(dbMock.select).not.toHaveBeenCalled();
+  });
+
+  it('forbids admin users from accessing student routes with RESOURCE_FORBIDDEN', async () => {
+    reflector.getAllAndOverride.mockReturnValue(false);
+
+    let err: AppHttpException | null = null;
+    try {
+      await guard.canActivate(createContext({ id: 1, email: 'admin@x.com', role: 'admin' }));
+    } catch (caught) {
+      err = caught as AppHttpException;
+    }
+    expect(err).toBeInstanceOf(AppHttpException);
+    expect(err?.getStatus()).toBe(403);
+    expect(err?.getResponse()).toMatchObject({ code: ErrorCode.RESOURCE_FORBIDDEN });
   });
 });

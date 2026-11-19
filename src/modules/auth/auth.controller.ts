@@ -35,6 +35,7 @@ import {
 } from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { AllowWithoutSubscription } from '../../common/decorators/allow-without-subscription.decorator';
+import { AllowAdminSession } from '../../common/decorators/admin-only.decorator';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
@@ -187,6 +188,7 @@ export class AuthController {
 
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
+  @AllowAdminSession()
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -208,6 +210,7 @@ export class AuthController {
 
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
+  @AllowAdminSession()
   @Post('logout-all')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -224,6 +227,7 @@ export class AuthController {
   }
 
   @ApiBearerAuth('access-token')
+  @AllowAdminSession()
   @Get('me')
   @ApiOperation({ summary: 'Devolver el perfil público del usuario autenticado actual' })
   @ApiOkResponseOf(AuthUserViewDto)

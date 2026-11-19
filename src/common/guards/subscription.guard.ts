@@ -6,6 +6,7 @@ import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { users } from '../../database/drizzle/schema';
 import { ALLOW_WITHOUT_SUBSCRIPTION_KEY } from '../decorators/allow-without-subscription.decorator';
+import { ALLOW_ADMIN_SESSION_KEY, IS_ADMIN_ONLY_KEY } from '../decorators/admin-only.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import type { AuthUser } from '../decorators/current-user.decorator';
 import { AppHttpException } from '../errors/app-http.exception';
@@ -38,18 +39,35 @@ export class SubscriptionGuard implements CanActivate {
       return true;
     }
 
+    const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
+    const user = req.user;
+    if (!user) {
+      throw new AppHttpException(ErrorCode.AUTH_UNAUTHORIZED);
+    }
+
+    if (user.role === 'admin') {
+      const isAdminRoute = this.reflector.getAllAndOverride<boolean>(IS_ADMIN_ONLY_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]);
+      const allowAdminSession = this.reflector.getAllAndOverride<boolean>(ALLOW_ADMIN_SESSION_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]);
+      if (isAdminRoute || allowAdminSession) {
+        return true;
+      }
+      throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+        message: 'Administrators can only access administration endpoints.',
+      });
+    }
+
     const allowWithoutSubscription = this.reflector.getAllAndOverride<boolean>(
       ALLOW_WITHOUT_SUBSCRIPTION_KEY,
       [context.getHandler(), context.getClass()],
     );
     if (allowWithoutSubscription) {
       return true;
-    }
-
-    const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
-    const user = req.user;
-    if (!user) {
-      throw new AppHttpException(ErrorCode.AUTH_UNAUTHORIZED);
     }
 
     const rows = await this.db

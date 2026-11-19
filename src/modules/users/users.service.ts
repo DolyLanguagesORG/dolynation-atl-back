@@ -1,13 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { Inject } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { users, userSettings, readings } from '../../database/drizzle/schema';
-import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { roles, users, userSettings, readings } from '../../database/drizzle/schema';
+import { and, eq, gte, isNull, sql, type SQL } from 'drizzle-orm';
 import { type NewUser, type User } from '../../database/drizzle/types';
 import * as argon2 from 'argon2';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import { AuditLogService } from '../logs';
 import type { LanguageId } from '../settings/settings.constants';
 import {
   resolveActiveLanguages,
@@ -15,17 +15,22 @@ import {
 } from '../settings/language-selection.helpers';
 import { getMaxLanguagesForTier } from '../subscriptions/subscriptions.constants';
 import { DEFAULT_UI_LOCALE } from '../../common/types/locale';
+import { DEFAULT_USER_ROLE, isUserRole, type UserRole } from '../../common/types/user-role';
 
 /** Campos permitidos al actualizar el perfil de usuario. */
 export interface UpdateProfileInput {
   fullName?: string;
 }
 
+/** Registro de usuario enriquecido con el nombre del rol resuelto desde `roles`. */
+export type UserWithRole = User & { role: UserRole };
+
 /** Representación pública y segura de un usuario (sin hash de contraseña ni campos internos). */
 export interface PublicUser {
   id: number;
   email: string;
   fullName: string | null;
+  role: UserRole;
   subscriptionTier: string | null;
   currentStreak: number;
   lastStreakDate: string | null;
@@ -46,18 +51,39 @@ export interface UserProfile extends PublicUser {
  */
 @Injectable()
 export class UsersService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDb,
+    @Optional() private readonly auditLogs?: AuditLogService,
+  ) {}
 
-  /** Busca un usuario por su correo electrónico. */
-  async findByEmail(email: string): Promise<User | null> {
-    const rows = await this.db.select().from(users).where(eq(users.email, email)).limit(1);
-    return rows[0] ?? null;
+  /** Busca un usuario por su correo electrónico junto con su rol. */
+  async findByEmail(email: string): Promise<UserWithRole | null> {
+    return this.findOneWithRole(eq(users.email, email));
   }
 
-  /** Busca un usuario por su identificador primario. */
-  async findById(id: number): Promise<User | null> {
-    const rows = await this.db.select().from(users).where(eq(users.id, id)).limit(1);
-    return rows[0] ?? null;
+  /** Busca un usuario por su identificador primario junto con su rol. */
+  async findById(id: number): Promise<UserWithRole | null> {
+    return this.findOneWithRole(eq(users.id, id));
+  }
+
+  private async findOneWithRole(whereClause: SQL): Promise<UserWithRole | null> {
+    const rows = await this.db
+      .select({
+        user: users,
+        roleName: roles.name,
+      })
+      .from(users)
+      .leftJoin(roles, eq(users.roleId, roles.id))
+      .where(whereClause)
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    const rawUser = 'user' in row ? row.user : (row as unknown as User);
+    const rawRole = 'roleName' in row ? row.roleName : (row as unknown as { role?: string }).role;
+    return {
+      ...rawUser,
+      role: isUserRole(rawRole) ? rawRole : DEFAULT_USER_ROLE,
+    };
   }
 
   /**
@@ -71,26 +97,49 @@ export class UsersService {
     password: string;
     fullName: string;
     locale?: string;
-  }): Promise<User> {
+  }): Promise<UserWithRole> {
     const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     const now = new Date();
+    const roleRows = await this.db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.name, DEFAULT_USER_ROLE))
+      .limit(1);
+    const studentRoleId = roleRows[0]?.id;
+
     const row: NewUser = {
       email: input.email,
       password: passwordHash,
+      ...(studentRoleId !== undefined ? { roleId: studentRoleId } : {}),
       currentStreak: 0,
       locale: input.locale ?? DEFAULT_UI_LOCALE,
       createdAt: now,
     };
     const [inserted] = await this.db.insert(users).values(row).returning();
     if (!inserted) throw new Error('User insert returned no row');
+    let createdUser: UserWithRole = { ...inserted, role: DEFAULT_USER_ROLE };
     if (input.fullName.length > 0) {
       await this.db
         .update(users)
         .set({ fullName: input.fullName })
         .where(eq(users.id, inserted.id));
-      return { ...inserted, fullName: input.fullName };
+      createdUser = { ...inserted, fullName: input.fullName, role: DEFAULT_USER_ROLE };
     }
-    return inserted;
+
+    await this.auditLogs?.logCreate({
+      module: 'users',
+      event: 'user.created',
+      entityType: 'users',
+      entityId: createdUser.id,
+      actorUserId: createdUser.id,
+      actorEmail: createdUser.email,
+      actorRole: createdUser.role,
+      targetUserId: createdUser.id,
+      summary: `User #${createdUser.id} (${createdUser.email}) created`,
+      afterState: { ...this.toPublic(createdUser) },
+    });
+
+    return createdUser;
   }
 
   /** Verifica una contraseña en texto plano frente al hash almacenado. */
@@ -103,11 +152,13 @@ export class UsersService {
   }
 
   /** Proyecta una entidad `User` de base de datos al formato público expuesto por la API. */
-  toPublic(user: User): PublicUser {
+  toPublic(user: User & { role?: string }): PublicUser {
+    const role: UserRole = isUserRole(user.role) ? user.role : DEFAULT_USER_ROLE;
     return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
+      role,
       subscriptionTier: user.subscriptionTier ?? null,
       currentStreak: this.effectiveStreakCount(user.lastStreakDate, user.currentStreak),
       lastStreakDate: user.lastStreakDate,
@@ -125,15 +176,28 @@ export class UsersService {
    */
   async updatePassword(userId: number, plainPassword: string): Promise<void> {
     const passwordHash = await argon2.hash(plainPassword, { type: argon2.argon2id });
+    const now = new Date();
     const [updated] = await this.db
       .update(users)
-      .set({ password: passwordHash, updatedAt: new Date() })
+      .set({ password: passwordHash, updatedAt: now })
       .where(eq(users.id, userId))
       .returning({ id: users.id });
 
     if (!updated) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
     }
+
+    await this.auditLogs?.logUpdate({
+      module: 'users',
+      event: 'user.password_updated',
+      entityType: 'users',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Password updated for user #${userId}`,
+      beforeState: { id: userId, password: '[REDACTED]' },
+      afterState: { id: userId, password: '[REDACTED]', updatedAt: now },
+    });
   }
 
   /**
@@ -142,10 +206,23 @@ export class UsersService {
    * Es idempotente: volver a llamarla no cambia la marca original.
    */
   async markEmailVerified(userId: number): Promise<void> {
+    const now = new Date();
     await this.db
       .update(users)
-      .set({ emailVerifiedAt: new Date(), updatedAt: new Date() })
+      .set({ emailVerifiedAt: now, updatedAt: now })
       .where(eq(users.id, userId));
+
+    await this.auditLogs?.logUpdate({
+      module: 'users',
+      event: 'user.email_verified_marked',
+      entityType: 'users',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Email verification timestamp recorded for user #${userId}`,
+      beforeState: { id: userId, emailVerifiedAt: null },
+      afterState: { id: userId, emailVerifiedAt: now, updatedAt: now },
+    });
   }
 
   /**
@@ -195,10 +272,33 @@ export class UsersService {
       .where(eq(users.id, userId))
       .returning();
     if (!updated) throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND);
-    return this.toProfile(updated);
+
+    await this.auditLogs?.logUpdate({
+      module: 'users',
+      event: 'user.profile_updated',
+      entityType: 'users',
+      entityId: userId,
+      actorUserId: userId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: userId,
+      summary: `Profile updated for user #${userId}`,
+      beforeState: {
+        id: user.id,
+        fullName: user.fullName,
+        updatedAt: user.updatedAt,
+      },
+      afterState: {
+        id: updated.id,
+        fullName: updated.fullName,
+        updatedAt: updated.updatedAt,
+      },
+    });
+
+    return this.toProfile({ ...updated, role: user.role });
   }
 
-  private async toProfile(user: User): Promise<UserProfile> {
+  private async toProfile(user: UserWithRole): Promise<UserProfile> {
     const selectedLanguages = await this.getActiveSelectedLanguages(
       user.id,
       user.subscriptionTier ?? null,
@@ -281,6 +381,26 @@ export class UsersService {
         updatedAt: today,
       })
       .where(eq(users.id, userId));
+
+    await this.auditLogs?.logUpdate({
+      module: 'users',
+      event: 'user.streak_updated',
+      entityType: 'users',
+      entityId: userId,
+      actorUserId: userId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      targetUserId: userId,
+      summary: `Daily study streak updated for user #${userId} (${user.currentStreak} -> ${nextStreak})`,
+      beforeState: {
+        currentStreak: user.currentStreak,
+        lastStreakDate: user.lastStreakDate,
+      },
+      afterState: {
+        currentStreak: nextStreak,
+        lastStreakDate: todayStr,
+      },
+    });
   }
 
   /**

@@ -1,13 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../../users/users.service';
-import { UnauthorizedException } from '@nestjs/common';
 import type { AuthUser } from '../../../common/decorators/current-user.decorator';
 import { AppConfigService } from '../../../config/env.config';
 import { AppHttpException } from '../../../common/errors/app-http.exception';
 import { ErrorCode } from '../../../common/errors/error-codes';
+import { DEFAULT_USER_ROLE, isUserRole } from '../../../common/types/user-role';
+import { RequestContextService } from '../../logs';
 
 /** Carga útil esperada dentro del token JWT. */
 export interface JwtPayload {
@@ -25,6 +26,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     config: ConfigService,
     private readonly users: UsersService,
     private readonly appConfig: AppConfigService,
+    @Optional() private readonly requestContext?: RequestContextService,
   ) {
     const secret = config.get<string>('JWT_SECRET');
     if (!secret) throw new Error('JWT_SECRET is not configured');
@@ -45,7 +47,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (payload.type !== 'access') {
       throw new UnauthorizedException({
         code: 'AUTH.INVALID_TOKEN',
-        message: 'Access token required',
+        message: 'Unauthorized',
       });
     }
 
@@ -53,7 +55,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException({
         code: 'AUTH.INVALID_TOKEN',
-        message: 'User no longer exists',
+        message: 'Unauthorized',
       });
     }
 
@@ -63,10 +65,19 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new AppHttpException(ErrorCode.AUTH_EMAIL_NOT_VERIFIED);
     }
 
-    return {
+    const authUser: AuthUser = {
       id: user.id,
       email: user.email,
       fullName: user.fullName ?? '',
+      role: isUserRole(user.role) ? user.role : DEFAULT_USER_ROLE,
     };
+
+    this.requestContext?.setActor({
+      id: authUser.id,
+      email: authUser.email,
+      role: authUser.role ?? null,
+    });
+
+    return authUser;
   }
 }

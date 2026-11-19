@@ -28,6 +28,18 @@ export const FRONTEND_VERIFY_EMAIL_PATH = '/verify-email';
 /** Ruta del frontend que consume el token de restablecimiento de contraseña. */
 export const FRONTEND_RESET_PASSWORD_PATH = '/reset-password';
 
+/** Ruta del frontend para configurar preferencias después de aprobar un plan. */
+export const FRONTEND_SETUP_PREFERENCES_PATH = '/setup-preferences';
+
+/** Ruta del frontend para el perfil y gestión de idiomas del usuario. */
+export const FRONTEND_PROFILE_PATH = '/profile';
+
+/** Ruta del frontend para seleccionar plan o consultar lista de espera. */
+export const FRONTEND_SELECT_PLAN_PATH = '/select-plan';
+
+/** Ruta del frontend para el panel administrativo. */
+export const FRONTEND_ADMIN_PATH = '/admin';
+
 /**
  * Límite de solicitudes de restablecimiento por dirección de correo dentro de
  * la ventana de `FORGOT_PASSWORD_THROTTLE_WINDOW_MS`.
