@@ -61,6 +61,34 @@ describe('validateEnv', () => {
     });
   });
 
+  describe('ACCESS_REQUESTS_ENABLED y ADMIN_NOTIFICATION_EMAIL', () => {
+    it('interpreta ACCESS_REQUESTS_ENABLED como booleano y acepta ADMIN_NOTIFICATION_EMAIL opcional', () => {
+      const defaults = validateEnv(base);
+      expect(defaults.ACCESS_REQUESTS_ENABLED).toBe(false);
+      expect(defaults.ADMIN_NOTIFICATION_EMAIL).toBeUndefined();
+
+      const enabled = validateEnv({
+        ...base,
+        ACCESS_REQUESTS_ENABLED: 'true',
+        ADMIN_NOTIFICATION_EMAIL: '',
+      });
+      expect(enabled.ACCESS_REQUESTS_ENABLED).toBe(true);
+      expect(enabled.ADMIN_NOTIFICATION_EMAIL).toBeUndefined();
+
+      const withAdminEmail = validateEnv({
+        ...base,
+        ACCESS_REQUESTS_ENABLED: '1',
+        ADMIN_NOTIFICATION_EMAIL: 'admin@dolynation.test',
+      });
+      expect(withAdminEmail.ACCESS_REQUESTS_ENABLED).toBe(true);
+      expect(withAdminEmail.ADMIN_NOTIFICATION_EMAIL).toBe('admin@dolynation.test');
+    });
+
+    it('rechaza ADMIN_NOTIFICATION_EMAIL con formato invalido', () => {
+      expect(() => validateEnv({ ...base, ADMIN_NOTIFICATION_EMAIL: 'no-es-correo' })).toThrow();
+    });
+  });
+
   describe('JWT_ACCESS_TTL', () => {
     it('usa 5m por defecto (el valor de todos los ambientes)', () => {
       expect(validateEnv(base).JWT_ACCESS_TTL).toBe('5m');

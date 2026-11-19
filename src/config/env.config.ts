@@ -197,6 +197,19 @@ export class AppConfigService {
     };
   }
 
+  // ===== Solicitudes de acceso y aprobación administrativa =====
+  get accessRequests(): {
+    enabled: boolean;
+    adminNotificationEmail: string | undefined;
+  } {
+    return {
+      enabled: this.config.get('ACCESS_REQUESTS_ENABLED', { infer: true }),
+      adminNotificationEmail: optionalTrimmedString(
+        this.config.get('ADMIN_NOTIFICATION_EMAIL', { infer: true }),
+      ),
+    };
+  }
+
   // ===== Moderación de categorías =====
   get moderation(): {
     enabled: boolean;
