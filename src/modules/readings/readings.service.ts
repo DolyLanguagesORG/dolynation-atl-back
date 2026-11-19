@@ -24,6 +24,7 @@ import {
   type GeneratedText,
 } from './ai-response-parser.service';
 import { PromptLogService } from './prompt-logs';
+import { AuditLogService, ErrorLogService } from '../logs';
 import { UsersService } from '../users/users.service';
 import { SettingsService } from '../settings/settings.service';
 import { MIN_USER_CATEGORIES } from '../settings/settings.constants';
@@ -82,19 +83,15 @@ const SEMANTIC_SIMILARITY_REJECT_SCORE = 2.35;
  * Cuando el error ya es una `AppHttpException` (el proveedor de IA la lanza
  * con su motivo), se respeta tal cual: no se envuelve en otra.
  */
-function toAiException(err: unknown, operation: 'ai_chat' | 'ai_parse'): AppHttpException {
+function toAiException(err: unknown): AppHttpException {
   if (err instanceof AppHttpException) {
     const response = err.getResponse() as {
       code?: ErrorCode;
-      details?: Record<string, unknown>;
     };
     const code = response.code ?? ErrorCode.SERVICE_UNAVAILABLE;
-    return new AppHttpException(code, { ...(response.details ?? {}), operation });
+    return new AppHttpException(code);
   }
-  return new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
-    reason: 'ai-call-failed',
-    operation,
-  });
+  return new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE);
 }
 
 @Injectable()
@@ -112,6 +109,8 @@ export class ReadingsService {
     private readonly moderation: CategoryModerationService,
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
     @Optional() private readonly googleDecisions?: GoogleDecisionsService,
+    @Optional() private readonly auditLogs?: AuditLogService,
+    @Optional() private readonly errorLogs?: ErrorLogService,
   ) {}
 
   /**
@@ -189,6 +188,7 @@ export class ReadingsService {
       recentSummaries.length > 0 && Boolean(this.googleDecisions?.isConfigured());
     const maxAttempts = 1 + (decisionsEnabled ? MAX_SEMANTIC_REGENERATIONS : 0);
 
+    const startedAt = Date.now();
     const usedLensIds = new Set<string>();
     const rejectedAngles: string[] = [];
     let chosenPrompt: GeneratedPrompt | null = null;
@@ -220,7 +220,7 @@ export class ReadingsService {
           // Se conserva el motivo real del provider (cuota agotada, circuito
           // abierto, fallo de llamada): sin el, el cliente solo ve un 503
           // generico y no sabe si esperar o reintentar.
-          throw toAiException(err, 'ai_chat');
+          throw toAiException(err);
         },
         onParseError: async (err) => {
           await this.promptLogs.logPromptError(
@@ -229,7 +229,7 @@ export class ReadingsService {
             (err as Error).message,
             prompt.seed,
           );
-          throw toAiException(err, 'ai_parse');
+          throw toAiException(err);
         },
       });
 
@@ -262,7 +262,7 @@ export class ReadingsService {
     }
 
     if (!chosenPrompt || !parsed) {
-      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, { operation: 'ai_chat' });
+      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE);
     }
 
     const prompt = chosenPrompt;
@@ -318,6 +318,39 @@ export class ReadingsService {
         enrichedSubtopic: prompt.params.subcategories[0],
       },
     );
+
+    const resolvedProvider =
+      input.aiOptions?.provider ??
+      (typeof this.factory.resolveProviderName === 'function'
+        ? this.factory.resolveProviderName()
+        : null);
+    await this.auditLogs?.logCreate({
+      module: 'readings',
+      event: 'reading.generated',
+      entityType: 'readings',
+      entityId: inserted.id,
+      actorUserId: input.userId,
+      targetUserId: input.userId,
+      summary: `Reading #${inserted.id} generated (${targetLanguage}, ${requestedDifficulty}, "${inserted.category}")`,
+      afterState: {
+        id: inserted.id,
+        userId: inserted.userId,
+        title: inserted.title,
+        description: inserted.description,
+        content: inserted.content,
+        category: inserted.category,
+        difficulty: inserted.difficulty,
+        language: inserted.language,
+        wordCount: inserted.wordCount,
+        status: inserted.status,
+        createdAt: inserted.createdAt,
+      },
+      metadata: {
+        seed: prompt.seed,
+        provider: resolvedProvider,
+        generationDurationMs: Math.max(0, Date.now() - startedAt),
+      },
+    });
     return inserted;
   }
 
@@ -459,6 +492,38 @@ Evaluate how well the user understood the main idea of the text.`;
     }
 
     await this.users.recordDailyActivity(userId);
+    await this.promptLogs.logPromptSuccess('reading_evaluated', userId, id, `eval:${id}`, {
+      score: result.score,
+      passed: result.passed,
+      language: readingLanguage,
+    });
+    await this.auditLogs?.logUpdate({
+      module: 'readings',
+      event: 'reading.evaluated',
+      entityType: 'readings',
+      entityId: id,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Reading #${id} evaluated (score: ${result.score}, passed: ${String(result.passed)})`,
+      beforeState: {
+        id: reading.id,
+        status: reading.status,
+        score: reading.score,
+        passed: reading.passed,
+        userResponse: reading.userResponse,
+        feedback: reading.feedback,
+        updatedAt: reading.updatedAt,
+      },
+      afterState: {
+        id: updated.id,
+        status: updated.status,
+        score: updated.score,
+        passed: updated.passed,
+        userResponse: updated.userResponse,
+        feedback: updated.feedback,
+        updatedAt: updated.updatedAt,
+      },
+    });
 
     // Se conservan explícitamente los valores recién escritos (userResponse, feedback, status='completed')
     // junto con la fila actualizada devuelta por PostgreSQL.
@@ -491,6 +556,17 @@ Evaluate how well the user understood the main idea of the text.`;
     if (!forceRefresh) {
       const cached = await this.findCachedExplanation(id, userId, normalizedWord);
       if (cached) {
+        await this.auditLogs?.logEvent({
+          module: 'readings',
+          action: 'ACTION',
+          event: 'reading.explanation_cache_hit',
+          entityType: 'reading_explanations',
+          entityId: cached.id,
+          actorUserId: userId,
+          targetUserId: userId,
+          summary: `Cached explanation served for "${displayWord}" on reading #${id}`,
+          metadata: { readingId: id, word: displayWord, normalizedWord, entryType },
+        });
         return {
           id: cached.id,
           word: cached.word,
@@ -565,6 +641,36 @@ Evaluate how well the user understood the main idea of the text.`;
       wordBreakdown: structured.wordBreakdown,
       otherWaysToSay: structured.otherWaysToSay,
       otherContexts: structured.otherContexts,
+    });
+
+    await this.promptLogs.logPromptSuccess('word_explained', userId, id, normalizedWord, {
+      word: displayWord,
+      entryType,
+      language: readingLanguage,
+      difficulty: readingLevel,
+      forceRefresh,
+    });
+
+    await this.auditLogs?.logEvent({
+      module: 'readings',
+      action: 'AI',
+      event: 'reading.explanation_generated',
+      entityType: 'reading_explanations',
+      entityId: persisted?.id ?? null,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Explanation generated for "${displayWord}" on reading #${id}`,
+      afterState: {
+        id: persisted?.id ?? null,
+        readingId: id,
+        word: displayWord,
+        normalizedWord,
+        entryType,
+        language: readingLanguage,
+        difficulty: readingLevel,
+        isSaved: persisted?.isSaved ?? false,
+      },
+      metadata: { forceRefresh },
     });
 
     return {
@@ -664,6 +770,31 @@ Evaluate how well the user understood the main idea of the text.`;
     userId: number,
     isSaved: boolean,
   ): Promise<GlossaryEntryDto> {
+    let beforeSnapshot: Record<string, unknown> | null = null;
+    if (this.auditLogs) {
+      try {
+        const existingRows = await this.db
+          .select({
+            id: readingExplanations.id,
+            readingId: readingExplanations.readingId,
+            word: readingExplanations.word,
+            isSaved: readingExplanations.isSaved,
+            savedAt: readingExplanations.savedAt,
+            updatedAt: readingExplanations.updatedAt,
+          })
+          .from(readingExplanations)
+          .where(
+            and(eq(readingExplanations.id, explanationId), eq(readingExplanations.userId, userId)),
+          )
+          .limit(1);
+        if (existingRows[0]) {
+          beforeSnapshot = existingRows[0];
+        }
+      } catch {
+        beforeSnapshot = null;
+      }
+    }
+
     const now = new Date();
     const updatedRows = await this.db
       .update(readingExplanations)
@@ -681,6 +812,30 @@ Evaluate how well the user understood the main idea of the text.`;
         resource: 'ReadingExplanation',
       });
     }
+
+    await this.auditLogs?.logUpdate({
+      module: 'readings',
+      event: 'reading.glossary_toggled',
+      entityType: 'reading_explanations',
+      entityId: explanationId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Glossary entry #${explanationId} ("${updated.word}") marked as ${isSaved ? 'saved' : 'unsaved'}`,
+      beforeState: beforeSnapshot ?? {
+        id: explanationId,
+        readingId: updated.readingId,
+        word: updated.word,
+        isSaved: !isSaved,
+      },
+      afterState: {
+        id: updated.id,
+        readingId: updated.readingId,
+        word: updated.word,
+        isSaved: updated.isSaved,
+        savedAt: updated.savedAt,
+        updatedAt: updated.updatedAt,
+      },
+    });
 
     const readingRows = await this.db
       .select({ title: readings.title, deletedAt: readings.deletedAt })
@@ -728,11 +883,46 @@ Evaluate how well the user understood the main idea of the text.`;
    * Marca una lectura como eliminada lógicamente (`deletedAt`) tras validar propiedad y vigencia.
    */
   async remove(id: number, userId: number): Promise<void> {
-    await this.findById(id, userId);
+    const reading = await this.findById(id, userId);
+    const deletedAt = new Date();
     await this.db
       .update(readings)
-      .set({ deletedAt: new Date() })
+      .set({ deletedAt })
       .where(and(eq(readings.id, id), eq(readings.userId, userId)));
+
+    await this.auditLogs?.logSoftDelete({
+      module: 'readings',
+      event: 'reading.soft_deleted',
+      entityType: 'readings',
+      entityId: id,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Reading #${id} ("${reading.title}") soft-deleted by user #${userId}`,
+      beforeState: {
+        id: reading.id,
+        userId: reading.userId,
+        title: reading.title,
+        description: reading.description,
+        category: reading.category,
+        difficulty: reading.difficulty,
+        language: reading.language,
+        status: reading.status,
+        score: reading.score,
+        deletedAt: null,
+      },
+      afterState: {
+        id: reading.id,
+        userId: reading.userId,
+        title: reading.title,
+        description: reading.description,
+        category: reading.category,
+        difficulty: reading.difficulty,
+        language: reading.language,
+        status: reading.status,
+        score: reading.score,
+        deletedAt,
+      },
+    });
   }
 
   /** Cuenta cuántas lecturas pendientes tiene actualmente el usuario. */
@@ -821,9 +1011,19 @@ Evaluate how well the user understood the main idea of the text.`;
       );
       enriched = this.promptGen.parseEnrichmentResponse(enrichRaw, fallback);
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(
-        `Dynamic enrichment step fell back cleanly for "${options.category}": ${err instanceof Error ? err.message : String(err)}`,
+        `Dynamic enrichment step fell back cleanly for "${options.category}": ${msg}`,
       );
+      void this.errorLogs?.logError({
+        severity: 'warn',
+        source: 'ai_provider',
+        module: 'readings',
+        errorCode: 'READING_ENRICHMENT_FALLBACK',
+        message: `Dynamic enrichment fell back for "${options.category}": ${msg}`,
+        errorName: err instanceof Error ? err.name : typeof err,
+        details: { category: options.category, language: options.language },
+      });
     }
 
     const params: RandomPromptParams = this.promptGen.generateRandomParams({
@@ -891,9 +1091,17 @@ Evaluate how well the user understood the main idea of the text.`;
         score: result.score,
       };
     } catch (err) {
-      this.logger.warn(
-        `Google Decisions semantic similarity check failed (fail-open): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Google Decisions semantic similarity check failed (fail-open): ${msg}`);
+      void this.errorLogs?.logError({
+        severity: 'warn',
+        source: 'ai_provider',
+        module: 'readings',
+        errorCode: 'SEMANTIC_DECISION_FALLBACK',
+        message: `Google Decisions semantic similarity check failed: ${msg}`,
+        errorName: err instanceof Error ? err.name : typeof err,
+        details: { category },
+      });
       return { repetitive: false, score: 0 };
     }
   }

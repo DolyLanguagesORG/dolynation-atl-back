@@ -4,11 +4,11 @@ import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { AppConfigService } from '../src/config/env.config';
 import { DRIZZLE } from '../src/database/database.tokens';
 import type { DrizzleDb } from '../src/database/database.module';
-import { moderatedCategories, userSettings } from '../src/database/drizzle/schema';
+import { moderatedCategories, users, userSettings } from '../src/database/drizzle/schema';
 import { AIProviderFactory } from '../src/modules/ia/providers/ai-provider.factory';
 import type { ChatMessage } from '../src/modules/ia/providers/ai-provider.interface';
 import { GoogleDecisionsService } from '../src/modules/ia/decisions/google-decisions.service';
@@ -95,6 +95,8 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
   let jwtService: JwtService;
   let appConfig: AppConfigService;
   const recordedCalls: RecordedAiCall[] = [];
+  const createdUserIds: number[] = [];
+  const createdCategoryKeys = new Set<string>();
   let stripAccentsInNextReadingCategory = false;
 
   let tagSequence = 0;
@@ -102,19 +104,15 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
   const uniqueEmail = (tag: string): string =>
     `qa-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
 
-  // Categoría dinámica única sin dígitos ni repeticiones que disparen heurísticas regex de gibberish.
-  const uniquePronounceableTag = (prefix: string): string => {
-    const consonants = 'bcdfghjklmnrtv';
-    const vowels = 'aeiou';
-    const digits = `${String(Date.now()).slice(-7)}${String(++tagSequence).padStart(2, '0')}`;
-    const body = digits
-      .split('')
-      .map(
-        (ch, idx) =>
-          `${consonants[(Number(ch) + idx * 3) % consonants.length]}${vowels[Number(ch) % vowels.length]}`,
-      )
-      .join('');
-    return `${prefix}${body}`;
+  const nextTestRunLabel = (): string => `lote-${Date.now() % 1000}-${++tagSequence}`;
+
+  const trackTestCategories = (items: readonly string[]): void => {
+    for (const item of items) {
+      const key = canonicalCategoryKey(item);
+      if (key) {
+        createdCategoryKeys.add(key);
+      }
+    }
   };
 
   const extractCategoryFromPrompt = (userPrompt: string): string => {
@@ -149,10 +147,12 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       .post('/api/v1/auth/register')
       .send({ email, password, fullName: `QA ${tag}` })
       .expect(201);
+    const createdUser = res.body.data.user as { id: number; email: string };
+    createdUserIds.push(createdUser.id);
     return {
       email,
       password,
-      user: res.body.data.user as { id: number; email: string },
+      user: createdUser,
       tokens: res.body.data.tokens as {
         accessToken: string;
         refreshToken: string;
@@ -176,6 +176,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     process.env.JWT_REFRESH_TTL = '30d';
     process.env.LOG_LEVEL = 'silent';
     process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
+    process.env.ACCESS_REQUESTS_ENABLED = 'false';
     process.env.CATEGORY_MODERATION_ENABLED = 'true';
     process.env.CATEGORY_MODERATION_AI_ENABLED = 'true';
     process.env.CATEGORY_MODERATION_AI_PROVIDER = 'minimax';
@@ -309,6 +310,16 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
   });
 
   afterAll(async () => {
+    if (db) {
+      if (createdUserIds.length > 0) {
+        await db.delete(users).where(inArray(users.id, createdUserIds));
+      }
+      if (createdCategoryKeys.size > 0) {
+        await db
+          .delete(moderatedCategories)
+          .where(inArray(moderatedCategories.canonicalKey, Array.from(createdCategoryKeys)));
+      }
+    }
     await app.close();
   });
 
@@ -997,8 +1008,9 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     expect(countModAiCalls()).toBe(modCallsBeforeLocal);
 
     // 2. Categoría sutil evaluada por Capa 3 (IA): falla en User A (1 llamada) -> se guarda en Postgres -> 0 llamadas para User B incluso tras limpiar memoria L1
-    const alphaTag = uniquePronounceableTag('qa');
-    const subtleBad = `Tema subtleharmful ${alphaTag}`;
+    const runTag = nextTestRunLabel();
+    const subtleBad = `Tema subtleharmful ${runTag}`;
+    trackTestCategories([subtleBad]);
     const callsBeforeAiReject = countModAiCalls();
 
     const firstReject = await supertest(app.getHttpServer())
@@ -1026,18 +1038,52 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     // Resuelto desde caché persistente `moderated_categories` sin consumir tokens extra
     expect(countModAiCalls()).toBe(callsBeforeAiReject + 1);
 
-    // 3. Categorías dinámicas educativas legítimas (incluyendo históricas/culturales sensibles) pasan y quedan cacheadas en Postgres
-    const dynamicSafeTopic = `Arquitectura Colonial ${alphaTag}`;
+    // 3. Categorías dinámicas educativas legítimas: privadas por usuario (User B NO ve las de User A),
+    // pero comparten caché en Postgres cuando User B escribe la misma por cuenta propia.
+    const dynamicSafeTopic = `Arquitectura Colonial ${runTag}`;
+    const extraTopic = `C++ ${runTag}`;
     const validCategories = ['Día de Muertos', 'Architettura Gotica', dynamicSafeTopic];
+    trackTestCategories([...validCategories, extraTopic]);
     const callsBeforeSafe = countModAiCalls();
 
     const savedA = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authA)
+      .send({ categories: [...validCategories, extraTopic] })
+      .expect(200);
+    expect(savedA.body.data.selected).toEqual([...validCategories, extraTopic]);
+    expect(countModAiCalls()).toBe(callsBeforeSafe + 1);
+
+    // User B NO ve las categorías creadas por User A en su propio GET /settings/categories
+    const userBInitial = await supertest(app.getHttpServer())
+      .get('/api/v1/settings/categories')
+      .set('Authorization', authB)
+      .expect(200);
+    expect(userBInitial.body.data.catalog).toEqual([]);
+    expect(userBInitial.body.data.selected).toEqual([]);
+
+    // User A deselecciona `extraTopic` -> desaparece de `selected`, pero sigue en su propia biblioteca `catalog`
+    const deselectedA = await supertest(app.getHttpServer())
+      .put('/api/v1/settings/categories')
+      .set('Authorization', authA)
       .send({ categories: validCategories })
       .expect(200);
-    expect(savedA.body.data.selected).toEqual(validCategories);
-    expect(countModAiCalls()).toBe(callsBeforeSafe + 1);
+    expect(deselectedA.body.data.selected).toEqual(validCategories);
+    expect(deselectedA.body.data.catalog.map((c: { id: string }) => c.id)).toContain(extraTopic);
+
+    // User A elimina `extraTopic` de su perfil -> desaparece de `catalog`, pero NO se borra del caché `moderated_categories`
+    const deletedA = await supertest(app.getHttpServer())
+      .delete('/api/v1/settings/categories')
+      .query({ category: extraTopic })
+      .set('Authorization', authA)
+      .expect(200);
+    expect(deletedA.body.data.catalog.map((c: { id: string }) => c.id)).not.toContain(extraTopic);
+
+    const extraCachedRows = await db
+      .select()
+      .from(moderatedCategories)
+      .where(eq(moderatedCategories.canonicalKey, canonicalCategoryKey(extraTopic)));
+    expect(extraCachedRows).toHaveLength(1);
 
     aiModerator.clearCache();
     const callsAfterCacheClear = countModAiCalls();
@@ -1085,11 +1131,14 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const countModAiCalls = (): number =>
       recordedCalls.filter((c) => c.kind === 'moderation').length;
 
-    const alphaTag = uniquePronounceableTag('cap');
+    const runTag = nextTestRunLabel();
 
     // 1. Enviar 21 categorías nuevas distintas en un solo PUT bloquea de inmediato con 429 sin gastar IA
     const callsBeforeBulk = countModAiCalls();
-    const twentyOneAtOnce = Array.from({ length: 21 }, (_, idx) => `Tema${alphaTag}N${idx + 1}`);
+    const twentyOneAtOnce = Array.from(
+      { length: 21 },
+      (_, idx) => `Tema Estudio ${runTag} N${idx + 1}`,
+    );
     const bulkRejected = await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authBulk)
@@ -1103,28 +1152,28 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const authSpammer = `Bearer ${spammer.tokens.accessToken}`;
     await selectPlan(spammer.tokens.accessToken, 'dolly_pro');
 
+    const batchInitial = [
+      `Historia Regional ${runTag} 1`,
+      `Historia Regional ${runTag} 2`,
+      `Historia Regional ${runTag} 3`,
+    ];
+    trackTestCategories(batchInitial);
     await supertest(app.getHttpServer())
       .put('/api/v1/settings/categories')
       .set('Authorization', authSpammer)
       .send({
-        categories: [
-          `Especialidad ${alphaTag} 1`,
-          `Especialidad ${alphaTag} 2`,
-          `Especialidad ${alphaTag} 3`,
-        ],
+        categories: batchInitial,
       })
       .expect(200);
 
     for (let i = 4; i <= 20; i++) {
+      const catName = `Historia Regional ${runTag} ${i}`;
+      trackTestCategories([catName]);
       await supertest(app.getHttpServer())
         .put('/api/v1/settings/categories')
         .set('Authorization', authSpammer)
         .send({
-          categories: [
-            `Especialidad ${alphaTag} 1`,
-            `Especialidad ${alphaTag} 2`,
-            `Especialidad ${alphaTag} ${i}`,
-          ],
+          categories: [`Historia Regional ${runTag} 1`, `Historia Regional ${runTag} 2`, catName],
         })
         .expect(200);
     }
@@ -1135,13 +1184,13 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       .set('Authorization', authSpammer)
       .send({
         categories: [
-          `Especialidad ${alphaTag} 20`,
-          `Especialidad ${alphaTag} 1`,
-          `Especialidad ${alphaTag} 2`,
+          `Historia Regional ${runTag} 20`,
+          `Historia Regional ${runTag} 1`,
+          `Historia Regional ${runTag} 2`,
         ],
       })
       .expect(200);
-    expect(afterReorder.body.data.selected).toContain(`Especialidad ${alphaTag} 1`);
+    expect(afterReorder.body.data.selected).toContain(`Historia Regional ${runTag} 1`);
 
     // Re-agregar una categoría ya evaluada hoy tampoco vuelve a cobrar cupo diario ni IA
     const callsBeforeRepeatToday = countModAiCalls();
@@ -1150,9 +1199,9 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       .set('Authorization', authSpammer)
       .send({
         categories: [
-          `Especialidad ${alphaTag} 5`,
-          `Especialidad ${alphaTag} 20`,
-          `Especialidad ${alphaTag} 1`,
+          `Historia Regional ${runTag} 5`,
+          `Historia Regional ${runTag} 20`,
+          `Historia Regional ${runTag} 1`,
         ],
       })
       .expect(200);
@@ -1165,9 +1214,9 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       .set('Authorization', authSpammer)
       .send({
         categories: [
-          `Especialidad ${alphaTag} 1`,
-          `Especialidad ${alphaTag} 2`,
-          `Especialidad ${alphaTag} 21`,
+          `Historia Regional ${runTag} 1`,
+          `Historia Regional ${runTag} 2`,
+          `Historia Regional ${runTag} 21`,
         ],
       })
       .expect(429);

@@ -130,25 +130,27 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
     expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
   });
 
-  it('fails open without caching transient external/AI errors', async () => {
+  it('fails closed with 503 without caching transient external/AI errors, and succeeds on healthy retry', async () => {
     modConfig.openaiApiKey = 'sk-test-free';
     const fetchMock = jest.fn().mockResolvedValue({ ok: false, status: 500 });
     global.fetch = fetchMock;
     aiFactoryMock.getFullResponse.mockResolvedValueOnce('invalid-non-json-response');
 
-    const first = await service.moderateBatch(['Literatura Latinoamericana']);
-    expect(first).toEqual([{ category: 'Literatura Latinoamericana', allowed: true }]);
+    await expect(service.moderateBatch(['Literatura Latinoamericana'])).rejects.toMatchObject({
+      status: 503,
+    });
 
     // Since transient failures must NOT be cached, a healthy second attempt invokes AI and caches properly
     aiFactoryMock.getFullResponse.mockResolvedValueOnce(
       '{"results":[{"category":"Literatura Latinoamericana","allowed":true,"reason":"ok"}]}',
     );
 
-    await service.moderateBatch(['Literatura Latinoamericana']);
+    const retried = await service.moderateBatch(['Literatura Latinoamericana']);
+    expect(retried).toEqual([{ category: 'Literatura Latinoamericana', allowed: true }]);
     expect(aiFactoryMock.getFullResponse).toHaveBeenCalledTimes(2);
   });
 
-  it('stops at OpenAI free moderation when OpenAI returns allowed=true in auto mode (0 MiniMax tokens spent)', async () => {
+  it('uses OpenAI only as safety gate in auto mode, escalating unflagged items to semantic check (blocking gibberish)', async () => {
     modConfig.aiProvider = 'auto';
     modConfig.aiEnabled = true;
     modConfig.openaiApiKey = 'sk-test-free';
@@ -157,30 +159,69 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          results: [{ flagged: false, category_scores: { sexual: 0.001 } }],
+          results: [
+            { flagged: false, category_scores: { sexual: 0.001 } },
+            { flagged: false, category_scores: { sexual: 0.001 } },
+          ],
         }),
     });
     global.fetch = fetchMock;
 
-    const first = await service.moderateBatch(['Astronomía Observacional']);
-    expect(first).toEqual([{ category: 'Astronomía Observacional', allowed: true }]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
+    aiFactoryMock.getFullResponse.mockResolvedValueOnce(
+      JSON.stringify({
+        results: [
+          { category: 'Astronomía Observacional', allowed: true, reason: 'ok' },
+          {
+            category: 'Especialidad capldgriwe 12',
+            allowed: false,
+            reason: 'nonsense_or_gibberish',
+          },
+        ],
+      }),
+    );
 
-    // Cached approval from OpenAI also avoids re-calling fetch on subsequent checks
-    const second = await service.moderateBatch(['astronomia observacional']);
-    expect(second).toEqual([{ category: 'astronomia observacional', allowed: true }]);
+    const first = await service.moderateBatch([
+      'Astronomía Observacional',
+      'Especialidad capldgriwe 12',
+    ]);
+    expect(first).toEqual([
+      { category: 'Astronomía Observacional', allowed: true },
+      {
+        category: 'Especialidad capldgriwe 12',
+        allowed: false,
+        layer: 'ai_moderation',
+        reason: 'nonsense_or_gibberish',
+      },
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
+    expect(aiFactoryMock.getFullResponse).toHaveBeenCalledTimes(1);
+
+    // Cached verdicts resolve with 0 external/AI calls
+    const second = await service.moderateBatch([
+      'astronomia observacional',
+      'especialidad capldgriwe 12',
+    ]);
+    expect(second).toEqual([
+      { category: 'astronomia observacional', allowed: true },
+      {
+        category: 'especialidad capldgriwe 12',
+        allowed: false,
+        layer: 'ai_moderation',
+        reason: 'nonsense_or_gibberish',
+      },
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(aiFactoryMock.getFullResponse).toHaveBeenCalledTimes(1);
   });
 
-  it('enforces aiProvider=openai strictly (free /moderations only, never calls MiniMax even on missing key or non-moderation URL)', async () => {
+  it('enforces aiProvider=openai strictly (never calls LLM; fails closed on missing key or non-moderation URL)', async () => {
     modConfig.aiProvider = 'openai';
     modConfig.aiEnabled = true;
     modConfig.openaiApiKey = undefined;
 
-    const missingKey = await service.moderateBatch(['Historia Económica']);
-    expect(missingKey).toEqual([{ category: 'Historia Económica', allowed: true }]);
+    await expect(service.moderateBatch(['Historia Económica'])).rejects.toMatchObject({
+      status: 503,
+    });
     expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
 
     // Even if someone points OPENAI_MODERATION_ENDPOINT to a paid /chat/completions endpoint, refuse it
@@ -189,8 +230,9 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
     const fetchMock = jest.fn();
     global.fetch = fetchMock;
 
-    const blockedPaidUrl = await service.moderateBatch(['Física Cuántica']);
-    expect(blockedPaidUrl).toEqual([{ category: 'Física Cuántica', allowed: true }]);
+    await expect(service.moderateBatch(['Física Cuántica'])).rejects.toMatchObject({
+      status: 503,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
   });
@@ -652,9 +694,22 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
     expect(approvedRow?.promptProfile).toBeTruthy();
   });
 
-  it('en auto prioriza OpenAI si tiene clave, aplica fail-open si Decision 1 falla sin gastar Flash-Lite, y soporta modo google-decisions', async () => {
+  it('en auto pasa de OpenAI a Google Decisions, escala a Google generativo si Decisions falla/duda y aplica fail-closed si todo falla', async () => {
     modConfig.aiProvider = 'auto';
     modConfig.openaiApiKey = 'sk-free-openai';
+
+    const googleAutoConfig = {
+      get moderation() {
+        return modConfig;
+      },
+      ai: {
+        defaultProvider: 'google',
+        google: {
+          apiKey: 'AQ.test-key',
+          model: 'gemini-3.5-flash-lite',
+        },
+      },
+    } as unknown as AppConfigService;
 
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,
@@ -665,33 +720,62 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
     });
     global.fetch = fetchMock;
 
-    const decideMock = jest.fn().mockRejectedValue(new Error('network timeout'));
+    const decideMock = jest
+      .fn()
+      // 1. OpenAI pasa seguridad -> Decisions aprueba con alta confianza (0 tokens generativos)
+      .mockResolvedValueOnce({
+        answers: {
+          verdict: {
+            type: 'choice',
+            choice: 'allow',
+            probabilities: { allow: 0.96, nonsense_or_gibberish: 0.02 },
+            confidence: 0.96,
+          },
+          safe_and_valid: { type: 'noul', noul: 0.95, confidence: 0.95 },
+        },
+      })
+      // 2. OpenAI falla + Decisions falla por red -> escala a Google generativo
+      .mockRejectedValueOnce(new Error('network timeout'))
+      // 3. Decisions también falla -> luego falla Google generativo -> 503 fail-closed
+      .mockRejectedValueOnce(new Error('network timeout'));
+
     const decisionsMock = {
       isConfigured: jest.fn().mockReturnValue(true),
       decide: decideMock,
     } as unknown as GoogleDecisionsService;
 
     const autoModerator = new CategoryAiModeratorService(
-      configMock,
+      googleAutoConfig,
       aiFactoryMock as unknown as AIProviderFactory,
       undefined,
       decisionsMock,
     );
 
-    const openAiApproved = await autoModerator.moderateBatch(['Historia del Cine']);
-    expect(openAiApproved).toEqual([{ category: 'Historia del Cine', allowed: true }]);
+    const openAiThenDecisions = await autoModerator.moderateBatch(['Historia del Cine']);
+    expect(openAiThenDecisions).toEqual([{ category: 'Historia del Cine', allowed: true }]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(decideMock).not.toHaveBeenCalled();
-    expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
-
-    // Si OpenAI no tiene clave y Decision 1 falla por red, hace fail-open sin caer a Flash-Lite ni cachear error
-    modConfig.openaiApiKey = undefined;
-    const failedOpen = await autoModerator.moderateBatch(['Cerámica Japonesa']);
-    expect(failedOpen).toEqual([{ category: 'Cerámica Japonesa', allowed: true }]);
     expect(decideMock).toHaveBeenCalledTimes(1);
     expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
 
-    // Modo dedicado `google-decisions`: no llama OpenAI aunque tenga clave y tampoco cae a LLM generativo
+    // Si OpenAI falla y Decision 1 falla, escala a Google generativo (`gemini-3.5-flash-lite`)
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    aiFactoryMock.getFullResponse.mockResolvedValueOnce(
+      '{"results":[{"category":"Ebanistería CNC","allowed":true,"reason":"ok"}]}',
+    );
+    const escalatedToGoogleGen = await autoModerator.moderateBatch(['Ebanistería CNC']);
+    expect(escalatedToGoogleGen).toEqual([{ category: 'Ebanistería CNC', allowed: true }]);
+    expect(decideMock).toHaveBeenCalledTimes(2);
+    expect(aiFactoryMock.getFullResponse).toHaveBeenCalledTimes(1);
+
+    // Si OpenAI, Google Decisions y Google generativo fallan -> fail-closed 503 sin cachear
+    fetchMock.mockRejectedValueOnce(new Error('openai down'));
+    aiFactoryMock.getFullResponse.mockRejectedValueOnce(new Error('gemini down'));
+    await expect(autoModerator.moderateBatch(['Cerámica Japonesa'])).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(aiFactoryMock.getFullResponse).toHaveBeenCalledTimes(2);
+
+    // Modo dedicado `google-decisions`: no llama OpenAI aunque tenga clave y tampoco cae a LLM generativo; fail-closed si falta clave
     modConfig.aiProvider = 'google-decisions';
     modConfig.openaiApiKey = 'sk-free-openai';
     const decideMissingKey = {
@@ -705,10 +789,12 @@ describe('CategoryAiModeratorService (Filter 3)', () => {
       undefined,
       decideMissingKey,
     );
-    const missingKeyRes = await strictDecisionsModerator.moderateBatch(['Robótica Educativa']);
-    expect(missingKeyRes).toEqual([{ category: 'Robótica Educativa', allowed: true }]);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(aiFactoryMock.getFullResponse).not.toHaveBeenCalled();
+    await expect(
+      strictDecisionsModerator.moderateBatch(['Robótica Educativa']),
+    ).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(aiFactoryMock.getFullResponse).toHaveBeenCalledTimes(2);
   });
 
   it('performs lightweight safety-only moderation in system AI fallback without asking for reading blueprints', async () => {

@@ -29,10 +29,5 @@ export function isSupportedLanguageId(value: unknown): value is LanguageId {
   return typeof value === 'string' && (SUPPORTED_LANGUAGE_IDS as readonly string[]).includes(value);
 }
 
-/**
- * Máximo de categorías del catálogo global que se devuelven en
- * `GET /settings/categories`. El catálogo crece con el uso (cada categoría
- * escrita y moderada por un usuario entra), así que se recorta a las más
- * recientes para no inflar la respuesta.
- */
-export const GLOBAL_CATALOG_LIMIT = 100;
+/** Cantidad máxima de categorías personales conservadas en la biblioteca privada de un usuario. */
+export const MAX_USER_SAVED_CATEGORIES = 100;

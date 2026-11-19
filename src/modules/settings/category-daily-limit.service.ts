@@ -1,11 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, sql } from 'drizzle-orm';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { categoryDailyUsage } from '../../database/drizzle/schema';
+import { AuditLogService } from '../logs';
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { getDateKeyInTimeZone, TIMEZONE_RESET } from '../subscriptions/subscriptions.constants';
 
@@ -21,6 +22,7 @@ export class CategoryDailyLimitService {
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
     private readonly config: AppConfigService,
+    @Optional() private readonly auditLogs?: AuditLogService,
   ) {}
 
   /** Devuelve el tope diario configurado de categorías nuevas distintas por usuario. */
@@ -56,27 +58,26 @@ export class CategoryDailyLimitService {
   }
 
   /**
-   * Valida que las categorías nuevas enviadas no excedan el límite diario (`CATEGORY_DAILY_LIMIT`)
-   * antes de invocar moderación externa/IA, y registra de forma atómica los nuevos términos evaluados hoy.
-   *
-   * Reordenar o eliminar categorías existentes no consume cupo diario.
+   * Valida y reserva de forma atómica el cupo diario de categorías nuevas evaluadas hoy,
+   * devolviendo las claves recién consumidas en esta llamada.
    */
-  async assertAndRecordDailyQuota(
+  async acquireDailyQuota(
     userId: number,
     candidateCategories: readonly string[],
     existingUserCategories: readonly string[],
     now: Date = new Date(),
-  ): Promise<void> {
+  ): Promise<string[]> {
     const newCandidateKeys = this.extractNewCustomCategoryKeys(
       candidateCategories,
       existingUserCategories,
     );
     if (newCandidateKeys.length === 0) {
-      return;
+      return [];
     }
 
     const dailyLimit = this.getDailyLimit();
     const usageDate = getDateKeyInTimeZone(TIMEZONE_RESET, now);
+    let acquiredKeys: string[] = [];
 
     await this.db.transaction(async (tx) => {
       // Serializa actualizaciones concurrentes del mismo usuario para impedir race conditions en el cupo
@@ -118,6 +119,72 @@ export class CategoryDailyLimitService {
           })),
         )
         .onConflictDoNothing();
+      acquiredKeys = unseenTodayKeys;
+    });
+
+    if (acquiredKeys.length > 0) {
+      await this.auditLogs?.logCreate({
+        module: 'settings',
+        event: 'settings.category_daily_quota_acquired',
+        entityType: 'category_daily_usage',
+        entityId: `${userId}:${usageDate}`,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Reserved ${acquiredKeys.length} daily custom category quota key(s) for user #${userId}`,
+        afterState: { userId, usageDate, acquiredKeys },
+      });
+    }
+
+    return acquiredKeys;
+  }
+
+  /**
+   * Valida que las categorías nuevas enviadas no excedan el límite diario (`CATEGORY_DAILY_LIMIT`)
+   * antes de invocar moderación externa/IA, y registra de forma atómica los nuevos términos evaluados hoy.
+   *
+   * Reordenar o eliminar categorías existentes no consume cupo diario.
+   */
+  async assertAndRecordDailyQuota(
+    userId: number,
+    candidateCategories: readonly string[],
+    existingUserCategories: readonly string[],
+    now: Date = new Date(),
+  ): Promise<void> {
+    await this.acquireDailyQuota(userId, candidateCategories, existingUserCategories, now);
+  }
+
+  /**
+   * Libera claves recién reservadas cuando la moderación falla de forma transitoria (503 fail-closed),
+   * evitando penalizar al usuario por una indisponibilidad del proveedor de IA.
+   */
+  async releaseDailyQuotaKeys(
+    userId: number,
+    canonicalKeys: readonly string[],
+    now: Date = new Date(),
+  ): Promise<void> {
+    if (canonicalKeys.length === 0) {
+      return;
+    }
+    const usageDate = getDateKeyInTimeZone(TIMEZONE_RESET, now);
+    await this.db
+      .delete(categoryDailyUsage)
+      .where(
+        and(
+          eq(categoryDailyUsage.userId, userId),
+          eq(categoryDailyUsage.usageDate, usageDate),
+          inArray(categoryDailyUsage.canonicalKey, [...canonicalKeys]),
+        ),
+      );
+
+    await this.auditLogs?.logDelete({
+      module: 'settings',
+      event: 'settings.category_daily_quota_released',
+      entityType: 'category_daily_usage',
+      entityId: `${userId}:${usageDate}`,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Released ${canonicalKeys.length} daily category quota key(s) after transient moderation error for user #${userId}`,
+      beforeState: { userId, usageDate, releasedKeys: [...canonicalKeys] },
     });
   }
 }

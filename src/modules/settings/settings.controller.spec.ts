@@ -11,8 +11,9 @@ describe('SettingsController', () => {
     Pick<
       SettingsService,
       | 'getCategories'
-      | 'getGlobalCatalog'
+      | 'getCategoriesSettings'
       | 'setCategories'
+      | 'removeCategory'
       | 'getLanguagesSettings'
       | 'setLanguages'
       | 'reorderLanguages'
@@ -44,8 +45,9 @@ describe('SettingsController', () => {
   beforeEach(async () => {
     settings = {
       getCategories: jest.fn().mockResolvedValue([]),
-      getGlobalCatalog: jest.fn().mockResolvedValue([]),
+      getCategoriesSettings: jest.fn().mockResolvedValue({ catalog: [], selected: [] }),
       setCategories: jest.fn().mockImplementation((_: number, c: string[]) => Promise.resolve(c)),
+      removeCategory: jest.fn().mockResolvedValue({ catalog: [], selected: [] }),
       getLanguagesSettings: jest.fn().mockResolvedValue(languageState),
       setLanguages: jest.fn().mockResolvedValue(languageState),
       reorderLanguages: jest
@@ -73,25 +75,25 @@ describe('SettingsController', () => {
   });
 
   describe('GET /settings/categories', () => {
-    it('returns the global catalog of dynamic categories and the current user selection', async () => {
-      settings.getCategories.mockResolvedValue(['Astronomía Moderna']);
-      settings.getGlobalCatalog.mockResolvedValue([
-        { id: 'Historia de México', name: 'Historia de México' },
-        { id: 'Ciencia', name: 'Ciencia' },
-      ]);
+    it('returns only the user personal category library and active selection', async () => {
+      settings.getCategoriesSettings.mockResolvedValue({
+        catalog: [
+          { id: 'Astronomía Moderna', name: 'Astronomía Moderna' },
+          { id: 'Historia de México', name: 'Historia de México' },
+        ],
+        selected: ['Astronomía Moderna'],
+      });
       const result = await controller.getCategories(user);
       expect(result.data.selected).toEqual(['Astronomía Moderna']);
       expect(result.data.catalog).toEqual([
+        { id: 'Astronomía Moderna', name: 'Astronomía Moderna' },
         { id: 'Historia de México', name: 'Historia de México' },
-        { id: 'Ciencia', name: 'Ciencia' },
       ]);
-      expect(settings.getCategories).toHaveBeenCalledWith(42);
-      expect(settings.getGlobalCatalog).toHaveBeenCalled();
+      expect(settings.getCategoriesSettings).toHaveBeenCalledWith(42);
     });
 
-    it('returns an empty catalog when no dynamic category has been moderated yet', async () => {
-      settings.getCategories.mockResolvedValue([]);
-      settings.getGlobalCatalog.mockResolvedValue([]);
+    it('returns an empty catalog when the user has not created categories yet', async () => {
+      settings.getCategoriesSettings.mockResolvedValue({ catalog: [], selected: [] });
       const result = await controller.getCategories(user);
       expect(result.data.catalog).toEqual([]);
       expect(result.data.selected).toEqual([]);
@@ -100,11 +102,14 @@ describe('SettingsController', () => {
 
   describe('PUT /settings/categories', () => {
     it('persists the user’s selection when at least 3 unique categories are provided', async () => {
-      settings.getGlobalCatalog.mockResolvedValue([
-        { id: 'technology', name: 'technology' },
-        { id: 'history', name: 'history' },
-        { id: 'science', name: 'science' },
-      ]);
+      settings.getCategoriesSettings.mockResolvedValue({
+        catalog: [
+          { id: 'technology', name: 'technology' },
+          { id: 'history', name: 'history' },
+          { id: 'science', name: 'science' },
+        ],
+        selected: ['technology', 'history', 'science'],
+      });
       const result = await controller.updateCategories(user, {
         categories: ['technology', 'history', 'science'],
       });
@@ -144,6 +149,25 @@ describe('SettingsController', () => {
       ]);
       expect(result.data.selected).toEqual(['Technology', 'Música Clásica', 'history']);
       expect(result.data.catalog).toEqual([]);
+    });
+  });
+
+  describe('DELETE /settings/categories', () => {
+    it('deletes a category from the user profile library and returns updated state', async () => {
+      settings.removeCategory.mockResolvedValue({
+        catalog: [
+          { id: 'technology', name: 'technology' },
+          { id: 'history', name: 'history' },
+          { id: 'science', name: 'science' },
+        ],
+        selected: ['technology', 'history', 'science'],
+      });
+
+      const result = await controller.removeCategory(user, { category: 'music' });
+
+      expect(settings.removeCategory).toHaveBeenCalledWith(42, 'music');
+      expect(result.data.catalog).toHaveLength(3);
+      expect(result.data.selected).toEqual(['technology', 'history', 'science']);
     });
   });
 

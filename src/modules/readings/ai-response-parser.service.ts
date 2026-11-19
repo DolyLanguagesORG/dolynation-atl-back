@@ -6,6 +6,7 @@ import type {
   WordBreakdownItem,
 } from '../../database/drizzle/types';
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
+import { normalizeSmartQuoteStrings } from '../ia/ai-json';
 
 /** Categoría textual normalizada de una lectura. */
 export type TextCategory = string;
@@ -199,7 +200,7 @@ export class AiResponseParserService {
    * Balancea llaves respetando cadenas para evitar cortes prematuros cuando un texto incluye `}`.
    */
   private extractJson(text: string): unknown {
-    const cleaned = this.stripProviderNoise(text);
+    const cleaned = normalizeSmartQuoteStrings(this.stripProviderNoise(text));
     const firstBrace = cleaned.indexOf('{');
     if (firstBrace === -1) {
       throw new Error('No JSON object found in response');

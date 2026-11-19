@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AppConfigService } from '../../../config/env.config';
+import { fetchWithRetry } from '../providers/provider-retry';
 import type {
   CreateDecisionRequest,
   CreateDecisionResponse,
@@ -62,18 +63,24 @@ export class GoogleDecisionsService {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      const res = await fetch(runtime.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': runtime.apiKey,
+      const res = await fetchWithRetry({
+        url: runtime.endpoint,
+        init: {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': runtime.apiKey,
+          },
+          body: JSON.stringify({
+            model,
+            input: request.input,
+            questions: request.questions,
+          }),
         },
-        body: JSON.stringify({
-          model,
-          input: request.input,
-          questions: request.questions,
-        }),
+        providerLabel: 'Google Decisions API',
+        timeoutMs,
         signal: controller.signal,
+        logger: this.logger,
       });
 
       if (!res.ok) {
