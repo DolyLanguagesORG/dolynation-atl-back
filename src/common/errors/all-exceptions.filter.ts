@@ -6,11 +6,33 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ErrorCode, ErrorCatalog, isErrorCode } from './error-codes';
+import { ErrorLogService, RequestContextService } from '../../modules/logs';
 
 const VALIDATION_MESSAGE_REGEX = /^([\w@.]+)\s+-\s+(.+)$/;
+
+const INTERNAL_DETAIL_KEYS = new Set([
+  'hint',
+  'operation',
+  'reason',
+  'existingRequestId',
+  'userCategories',
+  'validTiers',
+  'allowedLanguages',
+  'message',
+]);
+
+function stripInternalDetails(
+  details: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!details) return undefined;
+  const filteredEntries = Object.entries(details).filter(([key]) => !INTERNAL_DETAIL_KEYS.has(key));
+  if (filteredEntries.length === 0) return undefined;
+  return Object.fromEntries(filteredEntries);
+}
 
 interface ValidationErrorEntry {
   field: string;
@@ -50,14 +72,39 @@ function parseValidationMessages(arr: string[]): ValidationErrorEntry[] {
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  /** Intercepta la excepción del contexto HTTP y escribe el sobre serializado en la respuesta. */
+  constructor(
+    @Optional() private readonly errorLogs?: ErrorLogService,
+    @Optional() private readonly requestContext?: RequestContextService,
+  ) {}
+
+  /** Intercepta la excepción del contexto HTTP, la registra en Pino/BD y escribe el sobre seguro. */
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
     const envelope = this.buildEnvelope(exception, request);
-    response.status(envelope.status).json(envelope.body);
+    this.requestContext?.setHttpStatus(envelope.status);
+    void this.errorLogs?.logHttpException(exception, request, envelope);
+
+    const sanitizedDetails = stripInternalDetails(envelope.body.error.details);
+    const publicError: ApiError =
+      sanitizedDetails !== undefined
+        ? {
+            code: envelope.body.error.code,
+            message: envelope.body.error.message,
+            details: sanitizedDetails,
+          }
+        : {
+            code: envelope.body.error.code,
+            message: envelope.body.error.message,
+          };
+
+    response.status(envelope.status).json({
+      message: envelope.body.message,
+      data: null,
+      error: publicError,
+    });
   }
 
   /**
@@ -76,7 +123,6 @@ export class AllExceptionsFilter implements ExceptionFilter {
       // 1) Lee nuestro código de error desde el cuerpo. Cubre AppHttpException y
       //    HttpExceptions con campo `code` propio (p. ej. lanzadas por ValidationPipe).
       const fromBody = this.tryReadCodeFromBody(body);
-      this.logger.error(`DEBUG-BODY: ${JSON.stringify(body)}`);
       if (fromBody) {
         const meta = ErrorCatalog[fromBody] ?? fallback;
         const details = this.tryReadDetailsFromBody(body);
@@ -101,15 +147,17 @@ export class AllExceptionsFilter implements ExceptionFilter {
       return this.okResponse(meta);
     }
 
-    // 4) Cualquier otro error no controlado: se registra completo y se responde 500 genérico.
-    this.logger.error(
-      JSON.stringify({
-        msg: 'Unhandled exception caught by AllExceptionsFilter',
-        errorName: this.errorName(exception),
-        errorMessage: this.errorMessage(exception),
-        stack: this.errorStack(exception),
-      }),
-    );
+    // 4) Cualquier otro error no controlado: si no hay ErrorLogService inyectado, se registra directo aquí.
+    if (!this.errorLogs) {
+      this.logger.error(
+        JSON.stringify({
+          msg: 'Unhandled exception caught by AllExceptionsFilter',
+          errorName: this.errorName(exception),
+          errorMessage: this.errorMessage(exception),
+          stack: this.errorStack(exception),
+        }),
+      );
+    }
     return this.okResponse(fallback);
   }
 

@@ -40,6 +40,12 @@ export enum ErrorCode {
   LANGUAGE_NOT_SELECTED = 'LANGUAGE_NOT_SELECTED',
   LANGUAGE_CHANGE_LOCKED = 'LANGUAGE_CHANGE_LOCKED',
 
+  // === Solicitudes de acceso (4xx) ===
+  ACCESS_REQUEST_REQUIRED = 'ACCESS_REQUEST_REQUIRED',
+  ACCESS_REQUESTS_DISABLED = 'ACCESS_REQUESTS_DISABLED',
+  ACCESS_REQUEST_ALREADY_PENDING = 'ACCESS_REQUEST_ALREADY_PENDING',
+  ACCESS_REQUEST_ALREADY_REVIEWED = 'ACCESS_REQUEST_ALREADY_REVIEWED',
+
   // === Categorías y moderación (4xx) ===
   CATEGORY_MODERATION_REJECTED = 'CATEGORY_MODERATION_REJECTED',
   CATEGORY_DAILY_LIMIT_REACHED = 'CATEGORY_DAILY_LIMIT_REACHED',
@@ -161,7 +167,7 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
   [ErrorCode.SUBSCRIPTION_INVALID_TIER]: entry(
     ErrorCode.SUBSCRIPTION_INVALID_TIER,
     400,
-    'The specified subscription plan is invalid. Choose one of: dolly, dolly_plus, dolly_pro',
+    'The specified subscription plan is invalid.',
   ),
   [ErrorCode.SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED]: entry(
     ErrorCode.SUBSCRIPTION_CATEGORY_LIMIT_EXCEEDED,
@@ -188,6 +194,26 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     403,
     'Your selected languages are locked. You can change them once per year or unlock an immediate change with a payment',
   ),
+  [ErrorCode.ACCESS_REQUEST_REQUIRED]: entry(
+    ErrorCode.ACCESS_REQUEST_REQUIRED,
+    403,
+    'Direct activation is disabled. Please submit an access request for administrator approval.',
+  ),
+  [ErrorCode.ACCESS_REQUESTS_DISABLED]: entry(
+    ErrorCode.ACCESS_REQUESTS_DISABLED,
+    403,
+    'Manual access requests are currently disabled.',
+  ),
+  [ErrorCode.ACCESS_REQUEST_ALREADY_PENDING]: entry(
+    ErrorCode.ACCESS_REQUEST_ALREADY_PENDING,
+    409,
+    'You already have a pending request of this type awaiting administrator review.',
+  ),
+  [ErrorCode.ACCESS_REQUEST_ALREADY_REVIEWED]: entry(
+    ErrorCode.ACCESS_REQUEST_ALREADY_REVIEWED,
+    409,
+    'This access request has already been reviewed and cannot be modified.',
+  ),
   [ErrorCode.CATEGORY_MODERATION_REJECTED]: entry(
     ErrorCode.CATEGORY_MODERATION_REJECTED,
     400,
@@ -201,7 +227,7 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
   [ErrorCode.VALIDATION_ERROR]: entry(
     ErrorCode.VALIDATION_ERROR,
     400,
-    'The request data did not pass validation. See details for the specific fields.',
+    'Some of the submitted information is invalid. Please check your input.',
   ),
   [ErrorCode.INTERNAL_ERROR]: entry(
     ErrorCode.INTERNAL_ERROR,
@@ -216,7 +242,7 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
   [ErrorCode.AI_RATE_LIMITED]: entry(
     ErrorCode.AI_RATE_LIMITED,
     429,
-    'The AI provider reached its request quota. Please try again in a few minutes.',
+    'The service is experiencing high demand. Please try again in a few minutes.',
   ),
 };
 /* eslint-enable @typescript-eslint/no-unsafe-enum-comparison */

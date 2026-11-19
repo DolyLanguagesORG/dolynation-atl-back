@@ -1,8 +1,9 @@
-import { ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import { ExecutionContext, Injectable, Optional, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 import type { AuthUser } from '../decorators/current-user.decorator';
+import { RequestContextService } from '../../modules/logs';
 
 /**
  * Guardia global de autenticación JWT aplicado en `CommonModule` (`APP_GUARD`).
@@ -11,7 +12,10 @@ import type { AuthUser } from '../decorators/current-user.decorator';
  */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  constructor(private readonly reflector: Reflector) {
+  constructor(
+    private readonly reflector: Reflector,
+    @Optional() private readonly requestContext?: RequestContextService,
+  ) {
     super();
   }
 
@@ -27,12 +31,20 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     return super.canActivate(context);
   }
 
-  /** Normaliza la falta o invalidez del token lanzando `UnauthorizedException`. */
+  /** Normaliza la falta o invalidez del token lanzando `UnauthorizedException` y registra el actor en contexto. */
   override handleRequest<T = AuthUser>(err: unknown, user: T): T {
     if (err || !user) {
       throw new UnauthorizedException({
         code: 'AUTH.MISSING_TOKEN',
-        message: 'No valid access token provided',
+        message: 'Unauthorized',
+      });
+    }
+    const authUser = user as unknown as AuthUser;
+    if (typeof authUser.id === 'number') {
+      this.requestContext?.setActor({
+        id: authUser.id,
+        email: authUser.email,
+        role: authUser.role ?? null,
       });
     }
     return user;
