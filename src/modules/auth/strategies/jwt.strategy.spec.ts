@@ -47,11 +47,24 @@ describe('JwtStrategy', () => {
   });
 
   it('returns the user when the JWT payload references a real user', async () => {
-    const userRow = { id: 42, email: 'a@b.c', fullName: 'A B' };
+    const userRow = { id: 42, email: 'a@b.c', fullName: 'A B', role: 'student' };
     usersService.findById.mockResolvedValue(userRow as never);
     const payload = { sub: 42, email: 'a@b.c', type: 'access' as const };
     const result = await strategy.validate(payload);
-    expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B' });
+    expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B', role: 'student' });
+  });
+
+  it('preserves admin role from UsersService in the validated AuthUser', async () => {
+    const userRow = { id: 1, email: 'admin@b.c', fullName: 'Admin', role: 'admin' };
+    usersService.findById.mockResolvedValue(userRow as never);
+    const payload = { sub: 1, email: 'admin@b.c', type: 'access' as const };
+    const result = await strategy.validate(payload);
+    expect(result).toEqual<AuthUser>({
+      id: 1,
+      email: 'admin@b.c',
+      fullName: 'Admin',
+      role: 'admin',
+    });
   });
 
   it('rejects a refresh token used as a bearer access token', async () => {
@@ -97,7 +110,7 @@ describe('JwtStrategy', () => {
 
     const result = await strategy.validate(payload);
 
-    expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B' });
+    expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B', role: 'student' });
   });
 
   it('accepts an unverified account when the email verification is not required', async () => {
@@ -112,6 +125,6 @@ describe('JwtStrategy', () => {
 
     const result = await strategy.validate(payload);
 
-    expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B' });
+    expect(result).toEqual<AuthUser>({ id: 42, email: 'a@b.c', fullName: 'A B', role: 'student' });
   });
 });

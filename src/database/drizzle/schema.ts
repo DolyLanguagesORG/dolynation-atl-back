@@ -12,6 +12,7 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 
 /**
  * Esquema Drizzle para la base de datos de Dolynglish.
@@ -24,7 +25,15 @@ import {
  * Si agregas una columna aquí, agrégala también a la migración SQL en infraestructura.
  */
 
-/** Tabla principal de cuentas de usuario, plan de suscripción y racha de actividad. */
+/** Catálogo de roles del sistema (`student`, `admin`). */
+export const roles = pgTable('roles', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 30 }).notNull().unique(),
+  description: varchar('description', { length: 255 }),
+  createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+});
+
+/** Tabla principal de cuentas de usuario, rol, plan de suscripción y racha de actividad. */
 export const users = pgTable(
   'users',
   {
@@ -32,6 +41,10 @@ export const users = pgTable(
     fullName: varchar('full_name', { length: 255 }),
     email: varchar('email', { length: 254 }).notNull(),
     password: varchar('password', { length: 255 }).notNull(),
+    roleId: integer('role_id')
+      .notNull()
+      .default(1)
+      .references(() => roles.id),
     subscriptionTier: varchar('subscription_tier', { length: 30 }),
     currentStreak: integer('current_streak').notNull().default(0),
     lastStreakDate: date('last_streak_date'),
@@ -52,6 +65,7 @@ export const users = pgTable(
   },
   (table) => ({
     emailUnique: uniqueIndex('users_email_unique').on(table.email),
+    roleIdIdx: index('idx_users_role_id').on(table.roleId),
   }),
 );
 
@@ -71,21 +85,57 @@ export const userSettings = pgTable('user_settings', {
   lastLanguageChangeAt: timestamp('last_language_change_at', { withTimezone: false }),
   languageChangeCredits: integer('language_change_credits').notNull().default(0),
   preferredCategories: jsonb('preferred_categories').$type<string[]>().notNull().default([]),
+  savedCategories: jsonb('saved_categories').$type<string[]>().notNull().default([]),
   createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: false }),
 });
 
+/** Tipo de solicitud de acceso enviada para aprobación administrativa. */
+export type AccessRequestType = 'subscription' | 'language_unlock';
+
+/** Estado del ciclo de vida de una solicitud de acceso. */
+export type AccessRequestStatus = 'pending' | 'approved' | 'rejected' | 'cancelled';
+
 /**
- * Membresía de administradores — una fila por usuario con privilegios de administrador.
- * Se mantiene como tabla separada (y no como columna en `users`) para no afectar
- * las consultas `SELECT` existentes sobre `users` hasta que aterrice la migración en infra.
+ * Solicitudes de acceso a planes de suscripción o desbloqueo de cambio de idioma
+ * enviadas por usuarios verificados cuando `ACCESS_REQUESTS_ENABLED=true`.
  */
-export const admins = pgTable('admins', {
-  userId: integer('user_id')
-    .primaryKey()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  grantedAt: timestamp('granted_at', { withTimezone: false }).notNull().defaultNow(),
-});
+export const accessRequests = pgTable(
+  'access_requests',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    requestType: varchar('request_type', { length: 30 }).$type<AccessRequestType>().notNull(),
+    requestedTier: varchar('requested_tier', { length: 30 }),
+    currentTier: varchar('current_tier', { length: 30 }),
+    userMessage: text('user_message'),
+    status: varchar('status', { length: 20 })
+      .$type<AccessRequestStatus>()
+      .notNull()
+      .default('pending'),
+    rejectionReason: text('rejection_reason'),
+    reviewedByUserId: integer('reviewed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    reviewedAt: timestamp('reviewed_at', { withTimezone: false }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdIdx: index('idx_access_requests_user_id').on(table.userId),
+    statusIdx: index('idx_access_requests_status').on(table.status),
+    userTypeStatusIdx: index('idx_access_requests_user_type_status').on(
+      table.userId,
+      table.requestType,
+      table.status,
+    ),
+    pendingUnique: uniqueIndex('uq_access_requests_pending_per_user_type')
+      .on(table.userId, table.requestType)
+      .where(sql`status = 'pending'`),
+  }),
+);
 
 /** Tokens de sesión persistidos (actualmente usado para el hash de refresh tokens y su revocación). */
 export const authAccessTokens = pgTable('auth_access_tokens', {
@@ -169,6 +219,10 @@ export const promptLogs = pgTable(
     seed: varchar('seed', { length: 255 }),
     userId: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
     textId: integer('text_id').references(() => readings.id, { onDelete: 'set null' }),
+    requestId: varchar('request_id', { length: 64 }),
+    ipAddress: varchar('ip_address', { length: 64 }),
+    provider: varchar('provider', { length: 30 }),
+    model: varchar('model', { length: 60 }),
     params: jsonb('params'),
     systemPrompt: text('system_prompt'),
     userPrompt: text('user_prompt'),
@@ -182,6 +236,7 @@ export const promptLogs = pgTable(
     eventIdx: index('idx_prompt_logs_event').on(table.event),
     seedIdx: index('idx_prompt_logs_seed').on(table.seed),
     userIdIdx: index('idx_prompt_logs_user_id').on(table.userId),
+    requestIdIdx: index('idx_prompt_logs_request_id').on(table.requestId),
     createdAtIdx: index('idx_prompt_logs_created_at').on(table.createdAt),
   }),
 );
@@ -277,7 +332,7 @@ export interface CategoryPromptProfile {
   generatedAt: string;
 }
 
-/** Caché global persistente de categorías evaluadas por moderación automática/IA y su biblioteca de prompts. */
+/** Caché interna persistente de categorías evaluadas por moderación automática/IA y su biblioteca de prompts (no expuesta como catálogo global entre usuarios). */
 export const moderatedCategories = pgTable(
   'moderated_categories',
   {
@@ -318,17 +373,110 @@ export const categoryDailyUsage = pgTable(
   }),
 );
 
+/** Acción auditada registrada en `audit_logs`. */
+export type AuditLogAction =
+  'CREATE' | 'UPDATE' | 'SOFT_DELETE' | 'DELETE' | 'AUTH' | 'ACTION' | 'MAIL' | 'MODERATION' | 'AI';
+
+/** Severidad registrada en `error_logs`. */
+export type ErrorLogSeverity = 'warn' | 'error' | 'fatal';
+
+/** Bitácora integral de auditoría de operaciones, cambios CRUD before/after y eventos de negocio. */
+export const auditLogs = pgTable(
+  'audit_logs',
+  {
+    id: serial('id').primaryKey(),
+    requestId: varchar('request_id', { length: 64 }),
+    actorUserId: integer('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    actorEmail: varchar('actor_email', { length: 254 }),
+    actorRole: varchar('actor_role', { length: 30 }),
+    targetUserId: integer('target_user_id').references(() => users.id, { onDelete: 'set null' }),
+    ipAddress: varchar('ip_address', { length: 64 }),
+    userAgent: text('user_agent'),
+    httpMethod: varchar('http_method', { length: 10 }),
+    httpPath: varchar('http_path', { length: 500 }),
+    httpStatus: integer('http_status'),
+    module: varchar('module', { length: 50 }).notNull(),
+    action: varchar('action', { length: 30 }).$type<AuditLogAction>().notNull(),
+    event: varchar('event', { length: 100 }).notNull(),
+    entityType: varchar('entity_type', { length: 60 }),
+    entityId: varchar('entity_id', { length: 120 }),
+    summary: text('summary').notNull(),
+    beforeState: jsonb('before_state').$type<Record<string, unknown> | null>(),
+    afterState: jsonb('after_state').$type<Record<string, unknown> | null>(),
+    changedFields: jsonb('changed_fields').$type<string[]>().notNull().default([]),
+    metadata: jsonb('metadata').$type<Record<string, unknown> | null>(),
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    requestIdIdx: index('idx_audit_logs_request_id').on(table.requestId),
+    actorUserIdIdx: index('idx_audit_logs_actor_user_id').on(table.actorUserId),
+    targetUserIdIdx: index('idx_audit_logs_target_user_id').on(table.targetUserId),
+    moduleActionIdx: index('idx_audit_logs_module_action').on(table.module, table.action),
+    eventIdx: index('idx_audit_logs_event').on(table.event),
+    entityIdx: index('idx_audit_logs_entity').on(table.entityType, table.entityId),
+    ipAddressIdx: index('idx_audit_logs_ip_address').on(table.ipAddress),
+    createdAtIdx: index('idx_audit_logs_created_at').on(table.createdAt),
+    actorCreatedIdx: index('idx_audit_logs_actor_created').on(table.actorUserId, table.createdAt),
+  }),
+);
+
+/** Registro centralizado de fallos HTTP 4xx/5xx, excepciones no controladas, fallos SMTP, IA y moderación. */
+export const errorLogs = pgTable(
+  'error_logs',
+  {
+    id: serial('id').primaryKey(),
+    requestId: varchar('request_id', { length: 64 }),
+    severity: varchar('severity', { length: 20 })
+      .$type<ErrorLogSeverity>()
+      .notNull()
+      .default('error'),
+    source: varchar('source', { length: 40 }).notNull(),
+    module: varchar('module', { length: 50 }),
+    errorCode: varchar('error_code', { length: 80 }).notNull(),
+    httpStatus: integer('http_status'),
+    message: text('message').notNull(),
+    errorName: varchar('error_name', { length: 120 }),
+    errorStack: text('error_stack'),
+    actorUserId: integer('actor_user_id').references(() => users.id, { onDelete: 'set null' }),
+    actorEmail: varchar('actor_email', { length: 254 }),
+    actorRole: varchar('actor_role', { length: 30 }),
+    ipAddress: varchar('ip_address', { length: 64 }),
+    userAgent: text('user_agent'),
+    httpMethod: varchar('http_method', { length: 10 }),
+    httpPath: varchar('http_path', { length: 500 }),
+    requestBody: jsonb('request_body').$type<Record<string, unknown> | null>(),
+    requestQuery: jsonb('request_query').$type<Record<string, unknown> | null>(),
+    details: jsonb('details').$type<Record<string, unknown> | null>(),
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    requestIdIdx: index('idx_error_logs_request_id').on(table.requestId),
+    severityIdx: index('idx_error_logs_severity').on(table.severity),
+    sourceIdx: index('idx_error_logs_source').on(table.source),
+    errorCodeIdx: index('idx_error_logs_error_code').on(table.errorCode),
+    httpStatusIdx: index('idx_error_logs_http_status').on(table.httpStatus),
+    actorUserIdIdx: index('idx_error_logs_actor_user_id').on(table.actorUserId),
+    ipAddressIdx: index('idx_error_logs_ip_address').on(table.ipAddress),
+    createdAtIdx: index('idx_error_logs_created_at').on(table.createdAt),
+  }),
+);
+
 /** Mapa completo de tablas exportadas para consultas relacionales de Drizzle. */
 
 export const schema = {
+  roles,
   users,
   userSettings,
-  admins,
   authAccessTokens,
   authEmailTokens,
+  accessRequests,
   readings,
   readingExplanations,
   promptLogs,
   moderatedCategories,
   categoryDailyUsage,
+  auditLogs,
+  errorLogs,
 };

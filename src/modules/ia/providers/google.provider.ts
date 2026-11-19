@@ -81,6 +81,7 @@ export class GoogleProvider implements AIProvider {
       apiKey: this.apiKey,
       timeoutMs: google.timeoutMs,
       body,
+      logger: this.logger,
     });
 
     return extractChatCompletionText({
@@ -105,6 +106,7 @@ export class GoogleProvider implements AIProvider {
       apiKey: this.apiKey,
       timeoutMs: google.timeoutMs,
       body,
+      logger: this.logger,
     });
   }
 }

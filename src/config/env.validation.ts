@@ -190,6 +190,21 @@ const baseEnvSchema = z.object({
       .optional()
       .transform((v) => v === 'true' || v === '1'),
   ),
+
+  // ===== Solicitudes de acceso y aprobación administrativa =====
+  // Cuando es `true`, elegir plan o desbloquear un idioma entra a lista de espera
+  // hasta que un administrador apruebe la solicitud. Cuando es `false`, opera
+  // la activación directa heredada y las solicitudes manuales quedan deshabilitadas.
+  ACCESS_REQUESTS_ENABLED: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
+  ),
+
+  // Correo opcional para notificar al equipo/administrador cuando entra una nueva solicitud.
+  ADMIN_NOTIFICATION_EMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
 });
 
 /**

@@ -1,9 +1,21 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -14,6 +26,7 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import { ApiOkResponseOf } from '../../common/types/api-envelope.decorators';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
+import { DeleteCategoryQueryDto } from './dto/delete-category.dto';
 import { CategoriesSettingsDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import { UpdateCategoriesDto } from './dto/update-categories.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
@@ -35,11 +48,11 @@ export class SettingsController {
   ) {}
 
   /**
-   * Obtiene el catálogo completo de categorías disponibles y las seleccionadas por el usuario.
+   * Obtiene la biblioteca privada de categorías del usuario y su selección activa.
    */
   @Get('categories')
   @ApiOperation({
-    summary: 'Obtener el catálogo de categorías y la selección actual del usuario',
+    summary: 'Obtener las categorías propias del usuario y su selección activa',
   })
   @ApiOkResponseOf(CategoriesSettingsDto)
   @ApiForbiddenResponse({
@@ -54,11 +67,8 @@ export class SettingsController {
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<CategoriesSettingsDto>> {
     await this.subscriptions.assertSubscriptionActive(current.id);
-    const [catalog, selected] = await Promise.all([
-      this.settings.getGlobalCatalog(),
-      this.settings.getCategories(current.id),
-    ]);
-    return apiOk('Categories settings', { catalog, selected });
+    const state = await this.settings.getCategoriesSettings(current.id);
+    return apiOk('Categories settings', state);
   }
 
   /**
@@ -81,6 +91,11 @@ export class SettingsController {
       'Límite diario de categorías nuevas distintas evaluadas alcanzado (CATEGORY_DAILY_LIMIT_REACHED)',
     type: ApiErrorDto,
   })
+  @ApiServiceUnavailableResponse({
+    description:
+      'El servicio de moderación de categorías no está disponible temporalmente (SERVICE_UNAVAILABLE)',
+    type: ApiErrorDto,
+  })
   @ApiUnauthorizedResponse({
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
@@ -98,12 +113,41 @@ export class SettingsController {
       });
     }
     await this.subscriptions.assertCategoryLimit(current.id, normalized.length);
-    // Primero se guardan (que es lo que moderá y缓存a la categoría): después
-    // se relee el catálogo, para que la respuesta ya muestre las categorías
-    // que el usuario acaba de escribir sin esperar al siguiente GET.
     const selected = await this.settings.setCategories(current.id, normalized);
-    const catalog = await this.settings.getGlobalCatalog();
-    return apiOk('Categories updated', { catalog, selected });
+    const state = await this.settings.getCategoriesSettings(current.id);
+    return apiOk('Categories updated', { catalog: state.catalog, selected });
+  }
+
+  /**
+   * Elimina una categoría de la biblioteca privada del usuario sin borrarla del caché interno de moderación.
+   */
+  @Delete('categories')
+  @ApiOperation({
+    summary: 'Eliminar una categoría del perfil del usuario',
+  })
+  @ApiOkResponseOf(CategoriesSettingsDto)
+  @ApiBadRequestResponse({
+    description: 'No se puede eliminar si dejaría menos de 3 categorías activas (VALIDATION_ERROR)',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'La categoría no existe en la biblioteca del usuario',
+    type: ApiErrorDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  async removeCategory(
+    @CurrentUser() current: AuthUser,
+    @Query() query: DeleteCategoryQueryDto,
+  ): Promise<ApiResponse<CategoriesSettingsDto>> {
+    const state = await this.settings.removeCategory(current.id, query.category);
+    return apiOk('Category removed', state);
   }
 
   /**

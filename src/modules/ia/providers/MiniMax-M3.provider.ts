@@ -83,6 +83,7 @@ export class MiniMaxProvider implements AIProvider {
       apiKey: this.apiKey,
       timeoutMs: minimax.timeoutMs,
       body,
+      logger: this.logger,
     });
 
     return extractChatCompletionText({
@@ -107,6 +108,7 @@ export class MiniMaxProvider implements AIProvider {
       apiKey: this.apiKey,
       timeoutMs: minimax.timeoutMs,
       body,
+      logger: this.logger,
     });
   }
 }

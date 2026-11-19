@@ -1,17 +1,24 @@
 import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
 import type {
+  roles,
   users,
   userSettings,
   authAccessTokens,
   authEmailTokens,
+  accessRequests,
   readings,
   readingExplanations,
   promptLogs,
   moderatedCategories,
   categoryDailyUsage,
+  auditLogs,
+  errorLogs,
 } from './schema';
 
 /** Modelos inferidos de lectura (`Select`) e inserción (`Insert`) a partir del esquema Drizzle. */
+export type Role = InferSelectModel<typeof roles>;
+export type NewRole = InferInsertModel<typeof roles>;
+
 export type User = InferSelectModel<typeof users>;
 export type NewUser = InferInsertModel<typeof users>;
 
@@ -23,6 +30,10 @@ export type NewAccessToken = InferInsertModel<typeof authAccessTokens>;
 
 export type AuthEmailToken = InferSelectModel<typeof authEmailTokens>;
 export type NewAuthEmailToken = InferInsertModel<typeof authEmailTokens>;
+
+export type AccessRequest = InferSelectModel<typeof accessRequests>;
+export type NewAccessRequest = InferInsertModel<typeof accessRequests>;
+export type { AccessRequestType, AccessRequestStatus } from './schema';
 
 export type Reading = InferSelectModel<typeof readings>;
 export type NewReading = InferInsertModel<typeof readings>;
@@ -45,3 +56,11 @@ export type { CategoryPromptProfile } from './schema';
 
 export type CategoryDailyUsage = InferSelectModel<typeof categoryDailyUsage>;
 export type NewCategoryDailyUsage = InferInsertModel<typeof categoryDailyUsage>;
+
+export type AuditLog = InferSelectModel<typeof auditLogs>;
+export type NewAuditLog = InferInsertModel<typeof auditLogs>;
+export type { AuditLogAction } from './schema';
+
+export type ErrorLog = InferSelectModel<typeof errorLogs>;
+export type NewErrorLog = InferInsertModel<typeof errorLogs>;
+export type { ErrorLogSeverity } from './schema';

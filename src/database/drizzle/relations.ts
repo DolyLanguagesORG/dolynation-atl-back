@@ -1,20 +1,49 @@
 import { relations } from 'drizzle-orm';
 import {
+  roles,
   users,
   authAccessTokens,
   authEmailTokens,
+  accessRequests,
   readings,
   readingExplanations,
   promptLogs,
+  auditLogs,
+  errorLogs,
 } from './schema';
 
+/** Relaciones de cada rol con los usuarios asignados. */
+export const rolesRelations = relations(roles, ({ many }) => ({
+  users: many(users),
+}));
+
 /** Relaciones salientes de la tabla `users`. */
-export const usersRelations = relations(users, ({ many }) => ({
+export const usersRelations = relations(users, ({ one, many }) => ({
+  role: one(roles, { fields: [users.roleId], references: [roles.id] }),
   readings: many(readings),
   explanations: many(readingExplanations),
   accessTokens: many(authAccessTokens),
   emailTokens: many(authEmailTokens),
+  accessRequests: many(accessRequests, { relationName: 'accessRequestUser' }),
+  reviewedAccessRequests: many(accessRequests, { relationName: 'accessRequestReviewer' }),
   promptLogs: many(promptLogs),
+  auditLogsAsActor: many(auditLogs, { relationName: 'auditLogActor' }),
+  auditLogsAsTarget: many(auditLogs, { relationName: 'auditLogTarget' }),
+  errorLogs: many(errorLogs),
+}));
+
+/** Relaciones de las solicitudes de acceso con el solicitante y el administrador revisor. */
+export const accessRequestsRelations = relations(accessRequests, ({ one }) => ({
+  user: one(users, {
+    fields: [accessRequests.userId],
+    references: [users.id],
+    relationName: 'accessRequestUser',
+  }),
+  reviewedBy: one(users, {
+    fields: [accessRequests.reviewedByUserId],
+    references: [users.id],
+    relationName: 'accessRequestReviewer',
+  }),
 }));
 
 /** Relaciones de cada lectura con su autor, explicaciones y bitácora de prompts. */
@@ -44,4 +73,23 @@ export const authEmailTokensRelations = relations(authEmailTokens, ({ one }) => 
 export const promptLogsRelations = relations(promptLogs, ({ one }) => ({
   user: one(users, { fields: [promptLogs.userId], references: [users.id] }),
   reading: one(readings, { fields: [promptLogs.textId], references: [readings.id] }),
+}));
+
+/** Relaciones de los registros de auditoría con el usuario actor y el usuario afectado. */
+export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
+  actorUser: one(users, {
+    fields: [auditLogs.actorUserId],
+    references: [users.id],
+    relationName: 'auditLogActor',
+  }),
+  targetUser: one(users, {
+    fields: [auditLogs.targetUserId],
+    references: [users.id],
+    relationName: 'auditLogTarget',
+  }),
+}));
+
+/** Relación opcional de los registros de `error_logs` con el usuario actor. */
+export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
+  actorUser: one(users, { fields: [errorLogs.actorUserId], references: [users.id] }),
 }));

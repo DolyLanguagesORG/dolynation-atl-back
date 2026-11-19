@@ -1,6 +1,7 @@
 import type { ExecutionContext } from '@nestjs/common';
 import { createParamDecorator } from '@nestjs/common';
 import type { Request } from 'express';
+import type { UserRole } from '../types/user-role';
 
 /**
  * `@CurrentUser()` — extrae el usuario autenticado adjuntado por `JwtAuthGuard`.
@@ -12,6 +13,7 @@ export interface AuthUser {
   id: number;
   email: string;
   fullName: string;
+  role?: UserRole;
 }
 
 /** Decorador de parámetro para leer al usuario autenticado (o un campo suyo) desde la petición. */

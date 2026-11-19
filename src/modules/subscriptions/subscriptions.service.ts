@@ -1,10 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { and, eq, gte, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { readingExplanations, readings, users, userSettings } from '../../database/drizzle/schema';
+import { AuditLogService } from '../logs';
 import type {
   AlternativeExpressionItem,
   ExplanationEntryType,
@@ -33,7 +35,11 @@ import type { UserSubscriptionResponseDto } from './dto/user-subscription-respon
  */
 @Injectable()
 export class SubscriptionsService {
-  constructor(@Inject(DRIZZLE) private readonly db: DrizzleDb) {}
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDb,
+    @Optional() private readonly config?: AppConfigService,
+    @Optional() private readonly auditLogs?: AuditLogService,
+  ) {}
 
   private toPlanDto(plan: SubscriptionPlanConfig): SubscriptionPlanItemDto {
     return {
@@ -143,12 +149,20 @@ export class SubscriptionsService {
   }
 
   /**
-   * Permite al usuario seleccionar o cambiar manualmente su nivel de suscripción.
+   * Permite al usuario seleccionar o cambiar manualmente su nivel de suscripción
+   * cuando `ACCESS_REQUESTS_ENABLED` está desactivado.
    */
   async selectSubscription(
     userId: number,
     tier: SubscriptionTier,
   ): Promise<UserSubscriptionResponseDto> {
+    if (this.config?.accessRequests.enabled) {
+      throw new AppHttpException(ErrorCode.ACCESS_REQUEST_REQUIRED, {
+        requestType: 'subscription',
+        requestedTier: tier,
+      });
+    }
+
     if (!isValidSubscriptionTier(tier)) {
       throw new AppHttpException(ErrorCode.SUBSCRIPTION_INVALID_TIER, {
         tier,
@@ -156,15 +170,42 @@ export class SubscriptionsService {
       });
     }
 
+    let beforeTier: string | null = null;
+    if (this.auditLogs) {
+      try {
+        const beforeRows = await this.db
+          .select({ subscriptionTier: users.subscriptionTier })
+          .from(users)
+          .where(eq(users.id, userId))
+          .limit(1);
+        beforeTier = beforeRows[0]?.subscriptionTier ?? null;
+      } catch {
+        beforeTier = null;
+      }
+    }
+
+    const now = new Date();
     const [updated] = await this.db
       .update(users)
-      .set({ subscriptionTier: tier, updatedAt: new Date() })
+      .set({ subscriptionTier: tier, updatedAt: now })
       .where(eq(users.id, userId))
       .returning({ id: users.id });
 
     if (!updated) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
     }
+
+    await this.auditLogs?.logUpdate({
+      module: 'subscriptions',
+      event: 'subscription.tier_changed',
+      entityType: 'users',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Subscription plan updated for user #${userId} (${beforeTier ?? 'none'} -> ${tier})`,
+      beforeState: { id: userId, subscriptionTier: beforeTier },
+      afterState: { id: userId, subscriptionTier: tier, updatedAt: now },
+    });
 
     return this.getUserSubscription(userId);
   }
@@ -362,12 +403,35 @@ export class SubscriptionsService {
       returning?: () => Promise<ReadingExplanation[]>;
     } & Promise<unknown>;
 
+    let persisted: ReadingExplanation | undefined;
     if (typeof query.returning === 'function') {
       const rows = await query.returning();
-      return rows[0];
+      persisted = rows[0];
+    } else {
+      await query;
     }
 
-    await query;
-    return undefined;
+    await this.auditLogs?.logCreate({
+      module: 'subscriptions',
+      event: 'reading_explanation.created',
+      entityType: 'reading_explanations',
+      entityId: persisted?.id ?? null,
+      actorUserId: input.userId,
+      targetUserId: input.userId,
+      summary: `Explanation recorded for "${input.word}" on reading #${input.readingId}`,
+      afterState: {
+        id: persisted?.id ?? null,
+        readingId: input.readingId,
+        userId: input.userId,
+        word: input.word,
+        normalizedWord,
+        entryType,
+        language: input.language ?? 'en',
+        difficulty: input.difficulty ?? 'medium',
+        isSaved: persisted?.isSaved ?? false,
+      },
+    });
+
+    return persisted;
   }
 }

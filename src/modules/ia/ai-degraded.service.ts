@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import { ErrorLogService } from '../logs';
 import { AIProviderFactory } from './providers/ai-provider.factory';
 import type {
   AIRequestOptions,
@@ -55,7 +56,10 @@ export class AiDegradedService {
   private consecutiveFailures = 0;
   private openedAt: number | null = null;
 
-  constructor(private readonly factory: AIProviderFactory) {}
+  constructor(
+    private readonly factory: AIProviderFactory,
+    @Optional() private readonly errorLogs?: ErrorLogService,
+  ) {}
 
   /**
    * Ejecuta la llamada al proveedor aplicando reintentos y protegiendo con el circuit breaker.
@@ -70,10 +74,16 @@ export class AiDegradedService {
     };
 
     if (this.circuitIsOpen(config)) {
-      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
-        reason: 'ai-circuit-open',
-        hint: 'The provider failed several times in a row. It will be retried shortly.',
+      void this.errorLogs?.logError({
+        severity: 'error',
+        source: 'ai_provider',
+        module: 'ia',
+        errorCode: ErrorCode.SERVICE_UNAVAILABLE,
+        httpStatus: 503,
+        message: 'AI circuit breaker is open; rejecting request immediately',
+        details: { reason: 'ai-circuit-open', provider: options?.provider ?? null },
       });
+      throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE);
     }
 
     const aiOptions = buildAiRequestOptions(options);
@@ -98,9 +108,23 @@ export class AiDegradedService {
             `AI provider reached its quota (attempt ${attempt}/${config.retries}): ${describe(err)}`,
           );
           this.recordFailure(config);
+          void this.errorLogs?.logError({
+            severity: 'warn',
+            source: 'ai_provider',
+            module: 'ia',
+            errorCode: ErrorCode.AI_RATE_LIMITED,
+            httpStatus: 429,
+            message: describe(err),
+            errorName: err instanceof Error ? err.name : typeof err,
+            details: {
+              reason: 'ai-rate-limited',
+              attempt,
+              provider: options?.provider ?? null,
+              model: options?.model ?? null,
+            },
+          });
           throw new AppHttpException(ErrorCode.AI_RATE_LIMITED, {
             reason: 'ai-rate-limited',
-            operation: 'ai_call',
           });
         }
 
@@ -115,10 +139,23 @@ export class AiDegradedService {
 
     this.recordFailure(config);
     this.logger.error(`AI provider exhausted retries: ${describe(lastError)}`);
-    throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
-      reason: 'ai-call-failed',
-      operation: 'ai_call',
+    void this.errorLogs?.logError({
+      severity: 'error',
+      source: 'ai_provider',
+      module: 'ia',
+      errorCode: ErrorCode.SERVICE_UNAVAILABLE,
+      httpStatus: 503,
+      message: describe(lastError),
+      errorName: lastError instanceof Error ? lastError.name : typeof lastError,
+      errorStack: lastError instanceof Error ? (lastError.stack ?? null) : null,
+      details: {
+        reason: 'ai-call-failed',
+        retries: config.retries,
+        provider: options?.provider ?? null,
+        model: options?.model ?? null,
+      },
     });
+    throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE);
   }
 
   /** Indica si el circuito se encuentra abierto actualmente (para diagnóstico o health checks). */

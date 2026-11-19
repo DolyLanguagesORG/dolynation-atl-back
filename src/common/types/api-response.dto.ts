@@ -67,6 +67,13 @@ export class AuthUserViewDto {
   fullName!: string | null;
 
   @ApiProperty({
+    example: 'student',
+    enum: ['student', 'admin'],
+    description: 'System role assigned to the user account',
+  })
+  role!: string;
+
+  @ApiProperty({
     example: 'dolly',
     nullable: true,
     enum: ['dolly', 'dolly_plus', 'dolly_pro'],

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { MailModule } from '../mail/mail.module';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminGuard } from './admin.guard';
@@ -8,6 +9,7 @@ import { AdminGuard } from './admin.guard';
  * Agrupa el controlador, servicio y guardia para operaciones restringidas a administradores.
  */
 @Module({
+  imports: [MailModule],
   controllers: [AdminController],
   providers: [AdminService, AdminGuard],
   exports: [AdminGuard],

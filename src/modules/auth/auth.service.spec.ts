@@ -41,6 +41,7 @@ describe('AuthService', () => {
     id: 1,
     email: 'a@b.c',
     fullName: 'A B',
+    role: 'student',
     subscriptionTier: null,
     currentStreak: 0,
     lastStreakDate: null,
@@ -54,6 +55,8 @@ describe('AuthService', () => {
     email: 'a@b.c',
     password: 'hash',
     fullName: 'A B',
+    roleId: 1,
+    role: 'student' as const,
     currentStreak: 0,
     lastStreakDate: null,
     subscriptionTier: null,
@@ -128,18 +131,7 @@ describe('AuthService', () => {
   describe('register', () => {
     it('creates a user, logs the event, and returns tokens', async () => {
       const userRow = {
-        id: 1,
-        email: 'a@b.c',
-        password: 'hash',
-        fullName: 'A B',
-        currentStreak: 0,
-        lastStreakDate: null,
-        subscriptionTier: null,
-        emailVerifiedAt: null,
-        locale: 'es',
-        createdAt: new Date(),
-        updatedAt: null,
-        deletedAt: null,
+        ...userRowFixture,
       };
       usersService.findByEmail.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRow);
@@ -246,21 +238,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('returns tokens for valid credentials', async () => {
-      const userRow = {
-        id: 1,
-        email: 'a@b.c',
-        password: 'hash',
-        fullName: 'A B',
-        currentStreak: 0,
-        lastStreakDate: null,
-        emailVerifiedAt: null,
-        locale: 'es',
-        createdAt: new Date(),
-        updatedAt: null,
-        deletedAt: null,
-        subscriptionTier: null,
-      };
-      usersService.findByEmail.mockResolvedValue(userRow);
+      usersService.findByEmail.mockResolvedValue(userRowFixture);
       usersService.verifyPassword.mockResolvedValue(true);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -275,22 +253,8 @@ describe('AuthService', () => {
     it('persists only a SHA-256 hash of the refresh token', async () => {
       const values = jest.fn().mockResolvedValue(undefined);
       db.insert.mockReturnValue({ values });
-      const userRow = {
-        id: 1,
-        email: 'a@b.c',
-        password: 'hash',
-        fullName: 'A B',
-        currentStreak: 0,
-        lastStreakDate: null,
-        emailVerifiedAt: null,
-        locale: 'es',
-        subscriptionTier: null,
-        createdAt: new Date(),
-        updatedAt: null,
-        deletedAt: null,
-      };
 
-      usersService.findByEmail.mockResolvedValue(userRow);
+      usersService.findByEmail.mockResolvedValue(userRowFixture);
       usersService.verifyPassword.mockResolvedValue(true);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -309,29 +273,16 @@ describe('AuthService', () => {
       );
     });
 
-    it('throws UnauthorizedException for unknown email', async () => {
+    it('throws UnauthorizedException for unknown email after dummy hash check', async () => {
       usersService.findByEmail.mockResolvedValue(null);
       await expect(service.login({ email: 'a@b.c', password: 'x' })).rejects.toBeInstanceOf(
         AppHttpException,
       );
+      expect(usersService.verifyPassword).toHaveBeenCalledTimes(1);
     });
 
     it('throws UnauthorizedException for wrong password', async () => {
-      const userRow = {
-        id: 1,
-        email: 'a@b.c',
-        password: 'hash',
-        fullName: 'A B',
-        currentStreak: 0,
-        lastStreakDate: null,
-        emailVerifiedAt: null,
-        locale: 'es',
-        createdAt: new Date(),
-        updatedAt: null,
-        deletedAt: null,
-        subscriptionTier: null,
-      };
-      usersService.findByEmail.mockResolvedValue(userRow);
+      usersService.findByEmail.mockResolvedValue(userRowFixture);
       usersService.verifyPassword.mockResolvedValue(false);
       await expect(service.login({ email: 'a@b.c', password: 'wrong' })).rejects.toBeInstanceOf(
         AppHttpException,
@@ -498,21 +449,7 @@ describe('AuthService', () => {
 
   describe('me', () => {
     it('returns the public user view', async () => {
-      const userRow = {
-        id: 1,
-        email: 'a@b.c',
-        password: 'x',
-        fullName: 'A B',
-        currentStreak: 0,
-        lastStreakDate: null,
-        emailVerifiedAt: null,
-        locale: 'es',
-        createdAt: new Date(),
-        updatedAt: null,
-        deletedAt: null,
-        subscriptionTier: null,
-      };
-      usersService.findById.mockResolvedValue(userRow);
+      usersService.findById.mockResolvedValue(userRowFixture);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       const me = await service.me(1);
       expect(me.email).toBe('a@b.c');

@@ -10,6 +10,7 @@ import { AppModule } from './app.module';
 import { AppConfigService } from './config/env.config';
 import { appVersion } from './common/version';
 import { versionHeaderMiddleware } from './common/middleware/version-header.middleware';
+import { createRequestContextMiddleware, RequestContextService } from './modules/logs';
 
 /**
  * Punto de entrada de la aplicación NestJS.
@@ -21,6 +22,14 @@ import { versionHeaderMiddleware } from './common/middleware/version-header.midd
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   app.useLogger(app.get(Logger));
+
+  // Confiar en cabeceras de proxy (Cloudflare + Nginx) para resolver req.ip correctamente.
+  const httpInstance = app.getHttpAdapter().getInstance() as {
+    set?: (setting: string, val: unknown) => void;
+  };
+  if (typeof httpInstance.set === 'function') {
+    httpInstance.set('trust proxy', true);
+  }
 
   // Seguridad y rendimiento. Helmet se configura para permitir la CDN de
   // Scalar API Reference (cdn.jsdelivr.net) de modo que /docs pueda cargar su
@@ -52,6 +61,10 @@ async function bootstrap(): Promise<void> {
   // Va antes del enrutado para que cubra también las peticiones que nunca
   // llegan a un controlador. Ver common/middleware/version-header.middleware.ts.
   app.use(versionHeaderMiddleware);
+
+  // Contexto por petición (requestId, IP, User-Agent, duración) para todo el ciclo HTTP,
+  // incluyendo errores 404/401 antes de alcanzar un controlador.
+  app.use(createRequestContextMiddleware(app.get(RequestContextService)));
 
   // Pipe global de validación — class-validator + class-transformer.
   app.useGlobalPipes(

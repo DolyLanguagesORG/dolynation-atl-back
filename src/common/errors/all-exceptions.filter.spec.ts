@@ -5,6 +5,7 @@ import request from 'supertest';
 import { AllExceptionsFilter } from './all-exceptions.filter';
 import { AppHttpException } from './app-http.exception';
 import { ErrorCode } from './error-codes';
+import { ErrorLogService } from '../../modules/logs';
 
 @Controller('test-filter')
 class TestFilterController {
@@ -16,6 +17,15 @@ class TestFilterController {
   @Get('domain-error')
   domainError() {
     throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'Reading', id: 999 });
+  }
+
+  @Get('diagnostic-error')
+  diagnosticError() {
+    throw new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE, {
+      reason: 'ai-circuit-open',
+      hint: 'The provider failed several times',
+      operation: 'ai_chat',
+    });
   }
 
   @Get('not-found')
@@ -115,6 +125,42 @@ describe('AllExceptionsFilter (security audit)', () => {
       const stringified = JSON.stringify(res.body);
       expect(stringified).not.toMatch(/at\s+\w+\s+\(/);
       expect(stringified).not.toMatch(/\.ts:\d+:\d+/);
+    });
+
+    it('strips internal diagnostic hints and reasons from HTTP error responses', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/test-filter/diagnostic-error')
+        .expect(503);
+      expect(res.body.error.code).toBe('SERVICE_UNAVAILABLE');
+      expect(res.body.error.details).toBeUndefined();
+      const stringified = JSON.stringify(res.body);
+      expect(stringified).not.toContain('ai-circuit-open');
+      expect(stringified).not.toContain('ai_chat');
+      expect(stringified).not.toContain('provider failed');
+    });
+  });
+
+  describe('centralized error logging integration', () => {
+    it('forwards exceptions to ErrorLogService when provided', async () => {
+      const logHttpException = jest.fn().mockResolvedValue(undefined);
+      const moduleRef = await Test.createTestingModule({
+        controllers: [TestFilterController],
+        providers: [
+          { provide: ErrorLogService, useValue: { logHttpException } },
+          { provide: APP_FILTER, useClass: AllExceptionsFilter },
+        ],
+      }).compile();
+      const localApp = moduleRef.createNestApplication({ logger: false });
+      await localApp.init();
+
+      await request(localApp.getHttpServer()).get('/test-filter/domain-error').expect(404);
+      expect(logHttpException).toHaveBeenCalledWith(
+        expect.any(AppHttpException),
+        expect.anything(),
+        expect.objectContaining({ status: 404 }),
+      );
+
+      await localApp.close();
     });
   });
 });

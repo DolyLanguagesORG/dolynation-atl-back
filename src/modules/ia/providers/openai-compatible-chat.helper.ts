@@ -1,4 +1,6 @@
 import type { Logger } from '@nestjs/common';
+
+import { fetchWithRetry } from './provider-retry';
 import { ThinkBlockParser } from './think-block.parser';
 
 /** Estructura común de respuesta JSON para endpoints Chat Completions compatibles con OpenAI. */
@@ -22,9 +24,15 @@ export interface OpenAICompatibleRequestConfig {
   apiKey: string;
   timeoutMs: number;
   body: Record<string, unknown>;
+  /** Logger del proveedor: deja traza de los reintentos por fallo transitorio. */
+  logger?: Logger;
 }
 
-/** Ejecuta una petición POST JSON con control de timeout mediante AbortController. */
+/**
+ * Ejecuta una petición POST JSON con control de timeout mediante AbortController
+ * y reintentos con backoff exponencial ante fallos transitorios del proveedor
+ * (`500`, `502`, `503`, `504`, `529` y errores de red).
+ */
 export async function postOpenAICompatibleChat(
   config: OpenAICompatibleRequestConfig,
 ): Promise<OpenAICompatibleChatResponse> {
@@ -32,15 +40,22 @@ export async function postOpenAICompatibleChat(
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const res = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
+    const res = await fetchWithRetry({
+      url: config.endpoint,
+      init: {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(config.body),
       },
-      body: JSON.stringify(config.body),
+      providerLabel: config.providerLabel,
+      timeoutMs: config.timeoutMs,
       signal: controller.signal,
+      ...(config.logger !== undefined ? { logger: config.logger } : {}),
     });
+
     if (!res.ok) {
       const errText = await res.text().catch(() => '<no body>');
       throw new Error(
@@ -83,7 +98,10 @@ export function extractChatCompletionText(params: {
   return cleaned;
 }
 
-/** Abre un flujo SSE compatible con OpenAI y emite fragmentos de texto limpios de bloques `<think>`. */
+/**
+ * Abre un flujo SSE compatible con OpenAI y emite fragmentos de texto limpios de bloques `<think>`.
+ * Reintenta los fallos transitorios del proveedor con backoff exponencial.
+ */
 export async function* streamOpenAICompatibleChat(
   config: OpenAICompatibleRequestConfig,
 ): AsyncIterable<string> {
@@ -91,14 +109,20 @@ export async function* streamOpenAICompatibleChat(
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
   try {
-    const res = await fetch(config.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
+    const res = await fetchWithRetry({
+      url: config.endpoint,
+      init: {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(config.body),
       },
-      body: JSON.stringify(config.body),
+      providerLabel: config.providerLabel,
+      timeoutMs: config.timeoutMs,
       signal: controller.signal,
+      ...(config.logger !== undefined ? { logger: config.logger } : {}),
     });
 
     if (!res.ok) {

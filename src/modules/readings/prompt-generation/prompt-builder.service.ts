@@ -8,6 +8,7 @@ import {
   TEXT_SIZES,
 } from './catalog.constants';
 import type { CategoryPromptProfile } from '../../../database/drizzle/types';
+import { normalizeSmartQuoteStrings } from '../../ia/ai-json';
 import {
   getCategoryConfig,
   getUniqueFocusForCategory,
@@ -160,11 +161,13 @@ Propose one fresh, concrete, engaging facet centered tightly on "${params.catego
    */
   parseEnrichmentResponse(raw: string, fallback: EnrichedTopic): EnrichedTopic {
     try {
-      const cleaned = raw
-        .replace(/<think>[\s\S]*?<\/think>/gi, '')
-        .replace(/```json\s*/gi, '')
-        .replace(/```\s*/g, '')
-        .trim();
+      const cleaned = normalizeSmartQuoteStrings(
+        raw
+          .replace(/<think>[\s\S]*?<\/think>/gi, '')
+          .replace(/```json\s*/gi, '')
+          .replace(/```\s*/g, '')
+          .trim(),
+      );
 
       const jsonStart = cleaned.indexOf('{');
       const jsonEnd = cleaned.lastIndexOf('}');

@@ -89,6 +89,32 @@ Molti baristi conservano la "crema perfetta in tazza.",
       expect(result.difficulty).toBe('hard');
     });
 
+    it('parses JSON whose string delimiters are typographic guillemets', () => {
+      // Reproduce el fallo real observado en produccion: el modelo devolvio
+      // `« »` como delimitador de cadena y `JSON.parse` fallaba con
+      // "Unexpected token '«', ... \"title\": «El enigma"... is not valid JSON".
+      const raw = `{
+  "title": «El enigma de la mente artificial»,
+  "description": «Una lectura sobre la cognición y el lenguaje»,
+  "content": «En la ciudad el rumor crecía mientras los sistemas aprendían a escribir»,
+  "category": «technology»,
+  "difficulty": «medium»
+}`;
+      const result = parser.parseGeneratedText(raw);
+      expect(result.title).toBe('El enigma de la mente artificial');
+      expect(result.description).toBe('Una lectura sobre la cognición y el lenguaje');
+      expect(result.content).toContain('el rumor crecía');
+      expect(result.category).toBe('technology');
+      expect(result.difficulty).toBe('medium');
+    });
+
+    it('keeps guillemets that belong to the text inside a valid JSON string', () => {
+      const raw =
+        '{"title":"X","description":"Il dit « bonjour » en francais","content":"c","category":"culture","difficulty":"easy"}';
+      const result = parser.parseGeneratedText(raw);
+      expect(result.description).toBe('Il dit « bonjour » en francais');
+    });
+
     it('still throws on genuinely truncated JSON without closing brace', () => {
       expect(() => parser.parseGeneratedText('{"title":"Incompleto","content":"manca')).toThrow();
     });

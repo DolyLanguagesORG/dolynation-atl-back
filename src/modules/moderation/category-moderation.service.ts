@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { AppConfigService } from '../../config/env.config';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import type { CategoryPromptProfile } from '../../database/drizzle/types';
 import type { AIRequestOptions } from '../ia/providers/ai-provider.interface';
+import { AuditLogService } from '../logs';
 import { checkCategoryBlacklist } from './category-blacklist';
 import { cleanCategoryDisplayName, normalizeCategoryNames } from './category-normalizer';
 import { checkCategoryRegex } from './category-regex';
@@ -28,6 +29,7 @@ export class CategoryModerationService {
   constructor(
     private readonly config: AppConfigService,
     private readonly aiModerator: CategoryAiModeratorService,
+    @Optional() private readonly auditLogs?: AuditLogService,
   ) {}
 
   /**
@@ -132,6 +134,14 @@ export class CategoryModerationService {
     }
 
     if (rejected.length > 0) {
+      await this.auditLogs?.logEvent({
+        module: 'moderation',
+        action: 'MODERATION',
+        event: 'moderation.categories_rejected',
+        entityType: 'moderated_categories',
+        summary: `Rejected ${rejected.length} category candidate(s): ${rejected.map((r) => r.category).join(', ')}`,
+        metadata: { rejected },
+      });
       throw new AppHttpException(ErrorCode.CATEGORY_MODERATION_REJECTED, {
         rejected,
       });

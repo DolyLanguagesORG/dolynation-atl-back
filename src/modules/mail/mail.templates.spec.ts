@@ -1,4 +1,10 @@
-import { renderAccountConfirmation, renderPasswordReset } from './mail.templates';
+import {
+  renderAccessRequestApproved,
+  renderAccessRequestRejected,
+  renderAccountConfirmation,
+  renderAdminAccessRequestNotice,
+  renderPasswordReset,
+} from './mail.templates';
 import { MAIL_LOCALES, isMailLocale } from './mail.types';
 
 describe('Mail templates', () => {
@@ -128,6 +134,60 @@ describe('Mail templates', () => {
     expect(mail.html).toContain('#525252');
     expect(mail.html).toContain('#737373');
     expect(mail.html).toContain('#e5e5e5');
+  });
+
+  describe('access request email templates', () => {
+    it('renders approval emails for subscription and language unlock across all locales', () => {
+      for (const locale of MAIL_LOCALES) {
+        const subMail = renderAccessRequestApproved(locale, {
+          fullName: 'Sofía Morales',
+          requestType: 'subscription',
+          planName: 'Dolly Plus',
+          actionUrl: 'https://devweb.yacaterkos.tech/setup-preferences',
+        });
+        expect(subMail.html).toContain('Dolly Plus');
+        expect(subMail.text).toContain('Dolly Plus');
+        expect(subMail.html).not.toContain('undefined');
+
+        const langMail = renderAccessRequestApproved(locale, {
+          fullName: 'Sofía Morales',
+          requestType: 'language_unlock',
+          planName: null,
+          actionUrl: 'https://devweb.yacaterkos.tech/profile',
+        });
+        expect(langMail.html).toContain('https://devweb.yacaterkos.tech/profile');
+        expect(langMail.text).toContain('https://devweb.yacaterkos.tech/profile');
+      }
+    });
+
+    it('renders rejection email including escaped rejection reason', () => {
+      const mail = renderAccessRequestRejected('es', {
+        fullName: 'Sofía Morales',
+        requestType: 'subscription',
+        planName: 'Dolly Pro',
+        reason: 'Cupo <temporal> agotado para esta semana',
+        actionUrl: 'https://devweb.yacaterkos.tech/select-plan',
+      });
+
+      expect(mail.html).toContain('Cupo &lt;temporal&gt; agotado para esta semana');
+      expect(mail.html).toContain('Motivo indicado por el administrador');
+      expect(mail.text).toContain('Cupo <temporal> agotado para esta semana');
+    });
+
+    it('renders admin notification email with requester details and escaped message', () => {
+      const mail = renderAdminAccessRequestNotice('es', {
+        requesterName: 'Ana',
+        requesterEmail: 'ana@example.com',
+        requestType: 'subscription',
+        planName: 'Dolly Plus',
+        userMessage: 'Quiero practicar francés <todos los días>',
+        adminUrl: 'https://devweb.yacaterkos.tech/admin',
+      });
+
+      expect(mail.subject).toContain('ana@example.com');
+      expect(mail.html).toContain('Quiero practicar francés &lt;todos los días&gt;');
+      expect(mail.text).toContain('ana@example.com');
+    });
   });
 });
 

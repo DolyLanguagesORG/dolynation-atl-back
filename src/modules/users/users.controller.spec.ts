@@ -11,6 +11,7 @@ describe('UsersController', () => {
     id: 42,
     email: 'a@b.c',
     fullName: 'A B',
+    role: 'student',
     subscriptionTier: 'dolly',
     currentStreak: 3,
     lastStreakDate: '2026-10-17',

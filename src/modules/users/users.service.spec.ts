@@ -10,12 +10,27 @@ describe('UsersService', () => {
     email: 'a@b.c',
     fullName: 'A B',
     password: 'hash',
+    roleId: 1,
     subscriptionTier: 'dolly_plus',
     currentStreak: 3,
     lastStreakDate: '2026-10-17',
+    emailVerifiedAt: null,
+    locale: 'es',
     createdAt: new Date('2026-10-01T00:00:00Z'),
     updatedAt: null,
     deletedAt: null,
+  };
+
+  const mockUserFindSelect = (result: unknown[]): void => {
+    const whereObj = { limit: jest.fn().mockResolvedValue(result) };
+    dbMock.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        leftJoin: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue(whereObj),
+        }),
+        where: jest.fn().mockReturnValue(whereObj),
+      }),
+    });
   };
 
   beforeEach(() => {
@@ -28,57 +43,48 @@ describe('UsersService', () => {
   });
 
   it('returns active selectedLanguages sliced to the user plan limit in getProfile', async () => {
-    dbMock.select
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ ...baseUser, subscriptionTier: 'dolly' }]),
-          }),
+    mockUserFindSelect([{ user: { ...baseUser, subscriptionTier: 'dolly' }, roleName: 'student' }]);
+    dbMock.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['it', 'es', 'fr', 'de'] }]),
         }),
-      })
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['it', 'es', 'fr', 'de'] }]),
-          }),
-        }),
-      });
+      }),
+    });
 
     const profile = await service.getProfile(42);
+    expect(profile.role).toBe('student');
     expect(profile.subscriptionTier).toBe('dolly');
     expect(profile.selectedLanguages).toEqual(['it']);
   });
 
   it('returns empty selectedLanguages when user has no active subscription', async () => {
-    dbMock.select.mockReturnValueOnce({
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          limit: jest.fn().mockResolvedValue([{ ...baseUser, subscriptionTier: null }]),
-        }),
-      }),
-    });
+    mockUserFindSelect([{ user: { ...baseUser, subscriptionTier: null }, roleName: 'student' }]);
 
     const profile = await service.getProfile(42);
     expect(profile.selectedLanguages).toEqual([]);
     expect(dbMock.select).toHaveBeenCalledTimes(1);
   });
 
+  it('resolves admin role in findById and toPublic', async () => {
+    mockUserFindSelect([{ user: { ...baseUser, roleId: 2 }, roleName: 'admin' }]);
+
+    const found = await service.findById(42);
+    expect(found?.role).toBe('admin');
+    expect(service.toPublic(found!).role).toBe('admin');
+  });
+
   it('returns up to 2 languages for dolly_plus in updateProfile', async () => {
-    dbMock.select
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ ...baseUser, subscriptionTier: 'dolly_plus' }]),
-          }),
+    mockUserFindSelect([
+      { user: { ...baseUser, subscriptionTier: 'dolly_plus' }, roleName: 'student' },
+    ]);
+    dbMock.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['fr', 'it', 'es'] }]),
         }),
-      })
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue([{ selectedLanguages: ['fr', 'it', 'es'] }]),
-          }),
-        }),
-      });
+      }),
+    });
     dbMock.update.mockReturnValue({
       set: jest.fn().mockReturnValue({
         where: jest.fn().mockReturnValue({
@@ -97,47 +103,36 @@ describe('UsersService', () => {
   });
 
   it('returns all zeros in activeStreakFor for a new user with no completed readings or streak', async () => {
-    dbMock.select
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest
-              .fn()
-              .mockResolvedValue([{ ...baseUser, currentStreak: 0, lastStreakDate: null }]),
-          }),
-        }),
-      })
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([]),
-        }),
-      });
+    mockUserFindSelect([
+      { user: { ...baseUser, currentStreak: 0, lastStreakDate: null }, roleName: 'student' },
+    ]);
+    dbMock.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue([]),
+      }),
+    });
 
     const days = await service.activeStreakFor(42, 7, new Date('2026-11-13T12:00:00Z'));
     expect(days).toEqual([0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('marks only days with completed readings or active consecutive streak in activeStreakFor', async () => {
-    dbMock.select
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockReturnValue({
-            limit: jest
-              .fn()
-              .mockResolvedValue([{ ...baseUser, currentStreak: 2, lastStreakDate: '2026-11-13' }]),
-          }),
-        }),
-      })
-      .mockReturnValueOnce({
-        from: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue([
-            {
-              updatedAt: new Date('2026-11-09T15:00:00Z'),
-              createdAt: new Date('2026-11-09T14:00:00Z'),
-            },
-          ]),
-        }),
-      });
+    mockUserFindSelect([
+      {
+        user: { ...baseUser, currentStreak: 2, lastStreakDate: '2026-11-13' },
+        roleName: 'student',
+      },
+    ]);
+    dbMock.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockResolvedValue([
+          {
+            updatedAt: new Date('2026-11-09T15:00:00Z'),
+            createdAt: new Date('2026-11-09T14:00:00Z'),
+          },
+        ]),
+      }),
+    });
 
     const days = await service.activeStreakFor(42, 7, new Date('2026-11-13T12:00:00Z'));
     // Window: Nov 7, 8, 9, 10, 11, 12, 13 -> active on Nov 9 (reading) and Nov 12–13 (2-day streak)
@@ -175,30 +170,24 @@ describe('UsersService', () => {
     dbMock.update.mockReturnValue({ set: setMock });
 
     // Consecutive day (Nov 12 -> Nov 13): 2 -> 3
-    dbMock.select.mockReturnValueOnce({
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          limit: jest
-            .fn()
-            .mockResolvedValue([{ ...baseUser, currentStreak: 2, lastStreakDate: '2026-11-12' }]),
-        }),
-      }),
-    });
+    mockUserFindSelect([
+      {
+        user: { ...baseUser, currentStreak: 2, lastStreakDate: '2026-11-12' },
+        roleName: 'student',
+      },
+    ]);
     await service.recordDailyActivity(42, new Date('2026-11-13T12:00:00Z'));
     expect(setMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ currentStreak: 3, lastStreakDate: '2026-11-13' }),
     );
 
     // Gap (> 1 day): 4 -> 1
-    dbMock.select.mockReturnValueOnce({
-      from: jest.fn().mockReturnValue({
-        where: jest.fn().mockReturnValue({
-          limit: jest
-            .fn()
-            .mockResolvedValue([{ ...baseUser, currentStreak: 4, lastStreakDate: '2026-11-10' }]),
-        }),
-      }),
-    });
+    mockUserFindSelect([
+      {
+        user: { ...baseUser, currentStreak: 4, lastStreakDate: '2026-11-10' },
+        roleName: 'student',
+      },
+    ]);
     await service.recordDailyActivity(42, new Date('2026-11-13T12:00:00Z'));
     expect(setMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ currentStreak: 1, lastStreakDate: '2026-11-13' }),

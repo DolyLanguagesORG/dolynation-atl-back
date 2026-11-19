@@ -18,6 +18,13 @@ export class ProfileResponseDto {
   fullName!: string | null;
 
   @ApiProperty({
+    example: 'student',
+    enum: ['student', 'admin'],
+    description: 'System role assigned to the user account',
+  })
+  role!: string;
+
+  @ApiProperty({
     example: 'dolly',
     nullable: true,
     description: 'Nivel de suscripción actual (`dolly`, `dolly_plus`, `dolly_pro` o nulo)',

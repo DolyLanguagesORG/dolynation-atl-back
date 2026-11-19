@@ -1,15 +1,22 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { moderatedCategories, userSettings } from '../../database/drizzle/schema';
+import { userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
+import { AuditLogService } from '../logs';
 import { CategoryModerationService } from '../moderation/category-moderation.service';
+import { canonicalCategoryKey, cleanCategoryDisplayName } from '../moderation/category-normalizer';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CategoryDailyLimitService } from './category-daily-limit.service';
-import type { CatalogItemDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
+import type {
+  CatalogItemDto,
+  CategoriesSettingsDto,
+  LanguagesSettingsDto,
+} from './dto/settings-catalog.dto';
 import {
   arraysEqual,
   canUseFreeAnnualChange,
@@ -20,7 +27,7 @@ import {
   sanitizeSelectedLanguages,
 } from './language-selection.helpers';
 import {
-  GLOBAL_CATALOG_LIMIT,
+  MAX_USER_SAVED_CATEGORIES,
   MIN_USER_CATEGORIES,
   SUPPORTED_LANGUAGE_IDS,
   SUPPORTED_LANGUAGES,
@@ -29,6 +36,7 @@ import {
 
 interface SettingsUpsertPatch {
   preferredCategories?: string[];
+  savedCategories?: string[];
   selectedLanguages?: LanguageId[];
   preferredLanguage?: string | null;
   lastLanguageChangeAt?: Date | null;
@@ -46,6 +54,8 @@ export class SettingsService {
     private readonly moderation: CategoryModerationService,
     private readonly subscriptions: SubscriptionsService,
     @Optional() private readonly dailyLimit?: CategoryDailyLimitService,
+    @Optional() private readonly config?: AppConfigService,
+    @Optional() private readonly auditLogs?: AuditLogService,
   ) {}
 
   /**
@@ -61,7 +71,7 @@ export class SettingsService {
   }
 
   /**
-   * Devuelve las categorías preferidas del usuario (arreglo vacío si no configuró ninguna).
+   * Devuelve las categorías activas del usuario (arreglo vacío si no configuró ninguna).
    */
   async getCategories(userId: number): Promise<string[]> {
     const row = await this.findByUserId(userId);
@@ -69,32 +79,18 @@ export class SettingsService {
   }
 
   /**
-   * Devuelve el catálogo global de categorías dinámicas: las que ya pasaron la
-   * moderación en algún momento, guardadas en `moderated_categories`.
-   *
-   * El catálogo **no es una lista fija**: cada categoría que un usuario
-   * escribe y supera la moderación queda disponible para todos. Así el
-   * selector de la interfaz nunca está vacío y la lista crece con el uso real.
-   *
-   * Solo se sirven las **aprobadas**: una categoría rechazada (blacklist,
-   * regex o IA) no puede aparecer nunca.
-   *
-   * El `id` es el nombre mostrable de la categoría, que es lo que se guarda en
-   * `user_settings.preferred_categories`: así el selector, lo que el usuario
-   * ve y lo que se persiste son la misma cadena.
+   * Devuelve únicamente el catálogo privado del usuario (`savedCategories ∪ preferredCategories`)
+   * y su selección activa. Nunca expone categorías creadas por otros usuarios: la tabla
+   * `moderated_categories` es solo caché interna de moderación/blueprints.
    */
-  async getGlobalCatalog(limit = GLOBAL_CATALOG_LIMIT): Promise<CatalogItemDto[]> {
-    const rows = await this.db
-      .select({
-        id: moderatedCategories.sampleCategory,
-        name: moderatedCategories.sampleCategory,
-      })
-      .from(moderatedCategories)
-      .where(eq(moderatedCategories.allowed, true))
-      .orderBy(desc(moderatedCategories.updatedAt))
-      .limit(limit);
-
-    return rows;
+  async getCategoriesSettings(userId: number): Promise<CategoriesSettingsDto> {
+    const row = await this.findByUserId(userId);
+    const selected = row?.preferredCategories ?? [];
+    const library = mergeUniqueCategories(row?.savedCategories ?? [], selected);
+    return {
+      catalog: library.map((name): CatalogItemDto => ({ id: name, name })),
+      selected,
+    };
   }
 
   /**
@@ -118,7 +114,8 @@ export class SettingsService {
   }
 
   /**
-   * Modera, valida el tope diario anti-abuso, normaliza y actualiza o crea las categorías preferidas del usuario.
+   * Modera, valida el tope diario anti-abuso, normaliza y actualiza o crea las categorías
+   * activas del usuario conservando su biblioteca privada para poder deseleccionarlas sin perderlas.
    */
   async setCategories(userId: number, categories: string[]): Promise<string[]> {
     if (categories.length < MIN_USER_CATEGORIES) {
@@ -128,13 +125,157 @@ export class SettingsService {
         message: `Debes registrar al menos ${MIN_USER_CATEGORIES} categorías únicas.`,
       });
     }
+
+    const existingRow = await this.findByUserId(userId);
+    const existingSelected = existingRow?.preferredCategories ?? [];
+    const existingLibrary = mergeUniqueCategories(
+      existingRow?.savedCategories ?? [],
+      existingSelected,
+    );
+
+    let acquiredKeys: string[] = [];
     if (this.dailyLimit) {
-      const existingCategories = await this.getCategories(userId);
-      await this.dailyLimit.assertAndRecordDailyQuota(userId, categories, existingCategories);
+      if (typeof this.dailyLimit.acquireDailyQuota === 'function') {
+        acquiredKeys = await this.dailyLimit.acquireDailyQuota(userId, categories, existingLibrary);
+      } else {
+        await this.dailyLimit.assertAndRecordDailyQuota(userId, categories, existingLibrary);
+      }
     }
-    const moderated = await this.moderation.assertCategoriesAllowed(categories);
-    await this.upsert(userId, { preferredCategories: moderated });
+
+    let moderated: string[];
+    try {
+      moderated = await this.moderation.assertCategoriesAllowed(categories);
+    } catch (err) {
+      if (
+        this.dailyLimit &&
+        acquiredKeys.length > 0 &&
+        typeof this.dailyLimit.releaseDailyQuotaKeys === 'function' &&
+        err instanceof AppHttpException &&
+        err.getStatus() === 503
+      ) {
+        await this.dailyLimit.releaseDailyQuotaKeys(userId, acquiredKeys);
+      }
+      throw err;
+    }
+
+    const nextSaved = mergeUniqueCategories(existingLibrary, moderated);
+    await this.upsert(userId, {
+      preferredCategories: moderated,
+      savedCategories: nextSaved,
+    });
+
+    const beforeState = {
+      preferredCategories: existingSelected,
+      savedCategories: existingRow?.savedCategories ?? [],
+    };
+    const afterState = {
+      preferredCategories: moderated,
+      savedCategories: nextSaved,
+    };
+    if (!existingRow) {
+      await this.auditLogs?.logCreate({
+        module: 'settings',
+        event: 'settings.categories_created',
+        entityType: 'user_settings',
+        entityId: userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Initial categories configured for user #${userId} (${moderated.length} selected)`,
+        afterState,
+        metadata: { acquiredDailyQuotaKeys: acquiredKeys },
+      });
+    } else {
+      await this.auditLogs?.logUpdate({
+        module: 'settings',
+        event: 'settings.categories_updated',
+        entityType: 'user_settings',
+        entityId: userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Categories updated for user #${userId} (${moderated.length} selected)`,
+        beforeState,
+        afterState,
+        metadata: { acquiredDailyQuotaKeys: acquiredKeys },
+      });
+    }
+
     return moderated;
+  }
+
+  /**
+   * Elimina una categoría de la biblioteca privada (y de la selección activa si estaba marcada)
+   * del usuario sin borrarla de `moderated_categories`, preservando el ahorro de llamadas a la IA.
+   */
+  async removeCategory(userId: number, rawCategory: string): Promise<CategoriesSettingsDto> {
+    await this.subscriptions.assertSubscriptionActive(userId);
+    const cleaned = cleanCategoryDisplayName(rawCategory);
+    const targetKey = canonicalCategoryKey(cleaned);
+    if (!targetKey) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        field: 'category',
+        message: 'Debes indicar una categoría válida para eliminar.',
+      });
+    }
+
+    const row = await this.findByUserId(userId);
+    const existingSelected = row?.preferredCategories ?? [];
+    const existingLibrary = mergeUniqueCategories(row?.savedCategories ?? [], existingSelected);
+
+    const existsInLibrary = existingLibrary.some(
+      (item) => canonicalCategoryKey(item) === targetKey,
+    );
+    if (!existsInLibrary) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+        resource: 'Category',
+        category: cleaned,
+      });
+    }
+
+    const nextSelected = existingSelected.filter(
+      (item) => canonicalCategoryKey(item) !== targetKey,
+    );
+    const wasSelected = nextSelected.length !== existingSelected.length;
+    if (wasSelected && nextSelected.length < MIN_USER_CATEGORIES) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        minCategories: MIN_USER_CATEGORIES,
+        remainingSelected: nextSelected.length,
+        message: `Debes mantener al menos ${MIN_USER_CATEGORIES} categorías activas para generar lecturas. Agrega o activa otra antes de eliminar "${cleaned}".`,
+      });
+    }
+
+    const nextSaved = existingLibrary.filter((item) => canonicalCategoryKey(item) !== targetKey);
+    await this.upsert(userId, {
+      preferredCategories: nextSelected,
+      savedCategories: nextSaved,
+    });
+
+    await this.auditLogs?.logUpdate({
+      module: 'settings',
+      event: 'settings.category_removed',
+      entityType: 'user_settings',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Category "${cleaned}" removed from user #${userId} library`,
+      beforeState: {
+        preferredCategories: existingSelected,
+        savedCategories: existingLibrary,
+      },
+      afterState: {
+        preferredCategories: nextSelected,
+        savedCategories: nextSaved,
+      },
+      metadata: {
+        removedCategory: cleaned,
+        canonicalKey: targetKey,
+        wasSelected,
+      },
+    });
+
+    return {
+      catalog: nextSaved.map((name): CatalogItemDto => ({ id: name, name })),
+      selected: nextSelected,
+    };
   }
 
   /**
@@ -174,6 +315,25 @@ export class SettingsService {
     // 1. Primera selección libre: fija el candado anual a partir de hoy.
     if (saved.length === 0) {
       await this.persistLanguages(userId, requested, now, credits);
+      await this.auditLogs?.logUpdate({
+        module: 'settings',
+        event: 'settings.languages_selected',
+        entityType: 'user_settings',
+        entityId: userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Initial study languages selected for user #${userId}: [${requested.join(', ')}]`,
+        beforeState: {
+          selectedLanguages: saved,
+          lastLanguageChangeAt: lastChangeAt,
+          languageChangeCredits: credits,
+        },
+        afterState: {
+          selectedLanguages: requested,
+          lastLanguageChangeAt: now,
+          languageChangeCredits: credits,
+        },
+      });
       return this.buildLanguagesDtoFromValues(requested, now, credits, plan.maxLanguages, now);
     }
 
@@ -191,6 +351,26 @@ export class SettingsService {
     if (isUnlimitedLanguagesPlan || !removedAnySaved) {
       const effectiveLockDate = isUnlimitedLanguagesPlan ? now : (lastChangeAt ?? now);
       await this.persistLanguages(userId, requested, effectiveLockDate, credits);
+      await this.auditLogs?.logUpdate({
+        module: 'settings',
+        event: 'settings.languages_updated',
+        entityType: 'user_settings',
+        entityId: userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Study languages updated for user #${userId}: [${saved.join(', ')}] -> [${requested.join(', ')}]`,
+        beforeState: {
+          selectedLanguages: saved,
+          lastLanguageChangeAt: lastChangeAt,
+          languageChangeCredits: credits,
+        },
+        afterState: {
+          selectedLanguages: requested,
+          lastLanguageChangeAt: effectiveLockDate,
+          languageChangeCredits: credits,
+        },
+        metadata: { plan: plan.id },
+      });
       return this.buildLanguagesDtoFromValues(
         requested,
         effectiveLockDate,
@@ -209,6 +389,27 @@ export class SettingsService {
       now,
     );
     await this.persistLanguages(userId, requested, now, nextCredits);
+    await this.auditLogs?.logUpdate({
+      module: 'settings',
+      event: 'settings.languages_replaced',
+      entityType: 'user_settings',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Study languages replaced for user #${userId}: [${saved.join(', ')}] -> [${requested.join(', ')}]`,
+      beforeState: {
+        selectedLanguages: saved,
+        activeLanguages: activeBefore,
+        lastLanguageChangeAt: lastChangeAt,
+        languageChangeCredits: credits,
+      },
+      afterState: {
+        selectedLanguages: requested,
+        lastLanguageChangeAt: now,
+        languageChangeCredits: nextCredits,
+      },
+      metadata: { plan: plan.id, creditConsumed: nextCredits < credits },
+    });
     return this.buildLanguagesDtoFromValues(requested, now, nextCredits, plan.maxLanguages, now);
   }
 
@@ -256,6 +457,27 @@ export class SettingsService {
 
     if (!introducesNewActive) {
       await this.persistLanguages(userId, requested, lastChangeAt, credits);
+      await this.auditLogs?.logUpdate({
+        module: 'settings',
+        event: 'settings.languages_reordered',
+        entityType: 'user_settings',
+        entityId: userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Study languages reordered for user #${userId}: [${saved.join(', ')}] -> [${requested.join(', ')}]`,
+        beforeState: {
+          selectedLanguages: saved,
+          activeLanguages: activeBefore,
+          lastLanguageChangeAt: lastChangeAt,
+          languageChangeCredits: credits,
+        },
+        afterState: {
+          selectedLanguages: requested,
+          activeLanguages: activeAfter,
+          lastLanguageChangeAt: lastChangeAt,
+          languageChangeCredits: credits,
+        },
+      });
       return this.buildLanguagesDtoFromValues(
         requested,
         lastChangeAt,
@@ -273,6 +495,28 @@ export class SettingsService {
       now,
     );
     await this.persistLanguages(userId, requested, now, nextCredits);
+    await this.auditLogs?.logUpdate({
+      module: 'settings',
+      event: 'settings.languages_reordered_promoted',
+      entityType: 'user_settings',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Study language promoted via reorder for user #${userId}: [${saved.join(', ')}] -> [${requested.join(', ')}]`,
+      beforeState: {
+        selectedLanguages: saved,
+        activeLanguages: activeBefore,
+        lastLanguageChangeAt: lastChangeAt,
+        languageChangeCredits: credits,
+      },
+      afterState: {
+        selectedLanguages: requested,
+        activeLanguages: activeAfter,
+        lastLanguageChangeAt: now,
+        languageChangeCredits: nextCredits,
+      },
+      metadata: { creditConsumed: nextCredits < credits },
+    });
     return this.buildLanguagesDtoFromValues(requested, now, nextCredits, plan.maxLanguages, now);
   }
 
@@ -281,13 +525,31 @@ export class SettingsService {
    * antes de cumplir los 365 días, sin ampliar el límite de idiomas simultáneos del plan.
    */
   async unlockLanguageChange(userId: number): Promise<LanguagesSettingsDto> {
+    if (this.config?.accessRequests.enabled) {
+      throw new AppHttpException(ErrorCode.ACCESS_REQUEST_REQUIRED, {
+        requestType: 'language_unlock',
+      });
+    }
+
     const plan = await this.subscriptions.assertSubscriptionActive(userId);
     const row = await this.findByUserId(userId);
     const saved = sanitizeSelectedLanguages(row?.selectedLanguages);
     const lastChangeAt = row?.lastLanguageChangeAt ?? null;
-    const nextCredits = Math.max(0, row?.languageChangeCredits ?? 0) + 1;
+    const previousCredits = Math.max(0, row?.languageChangeCredits ?? 0);
+    const nextCredits = previousCredits + 1;
 
     await this.upsert(userId, { languageChangeCredits: nextCredits });
+    await this.auditLogs?.logUpdate({
+      module: 'settings',
+      event: 'settings.language_change_unlocked',
+      entityType: 'user_settings',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Language change unlock credit granted to user #${userId} (${previousCredits} -> ${nextCredits})`,
+      beforeState: { languageChangeCredits: previousCredits },
+      afterState: { languageChangeCredits: nextCredits },
+    });
     return this.buildLanguagesDtoFromValues(
       saved,
       lastChangeAt,
@@ -385,6 +647,7 @@ export class SettingsService {
       .values({
         userId,
         preferredCategories: patch.preferredCategories ?? [],
+        savedCategories: patch.savedCategories ?? [],
         selectedLanguages: patch.selectedLanguages ?? [],
         preferredLanguage: patch.preferredLanguage ?? null,
         lastLanguageChangeAt: patch.lastLanguageChangeAt ?? null,
@@ -396,4 +659,41 @@ export class SettingsService {
         set: { ...patch, updatedAt: now },
       });
   }
+}
+
+function mergeUniqueCategories(
+  existingSaved: readonly string[],
+  activeOrAdded: readonly string[],
+): string[] {
+  const byKey = new Map<string, string>();
+  const orderedKeys: string[] = [];
+
+  const upsertEntry = (raw: string): void => {
+    const cleaned = cleanCategoryDisplayName(raw);
+    const key = canonicalCategoryKey(cleaned);
+    if (!key) return;
+    if (!byKey.has(key)) {
+      orderedKeys.push(key);
+    }
+    byKey.set(key, cleaned);
+  };
+
+  for (const cat of existingSaved) upsertEntry(cat);
+  for (const cat of activeOrAdded) upsertEntry(cat);
+
+  const merged = orderedKeys
+    .map((key) => byKey.get(key))
+    .filter((value): value is string => typeof value === 'string');
+
+  if (merged.length <= MAX_USER_SAVED_CATEGORIES) {
+    return merged;
+  }
+
+  const activeKeys = new Set(
+    activeOrAdded.map((cat) => canonicalCategoryKey(cat)).filter((key) => key.length > 0),
+  );
+  const activeItems = merged.filter((cat) => activeKeys.has(canonicalCategoryKey(cat)));
+  const inactiveItems = merged.filter((cat) => !activeKeys.has(canonicalCategoryKey(cat)));
+  const remainingSlots = Math.max(0, MAX_USER_SAVED_CATEGORIES - activeItems.length);
+  return [...inactiveItems.slice(-remainingSlots), ...activeItems];
 }

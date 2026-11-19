@@ -3,6 +3,8 @@ import { checkCategoryRegex } from './category-regex';
 describe('category-regex (Filter 2)', () => {
   it('blocks gibberish, keyboard mashing across layouts, long consonant runs and repeated char/word spam', () => {
     expect(checkCategoryRegex('asdfghjkl').blocked).toBe(true);
+    expect(checkCategoryRegex('gatos asdf').blocked).toBe(true);
+    expect(checkCategoryRegex('historia qwer').blocked).toBe(true);
     expect(checkCategoryRegex('qwertyuiop').blocked).toBe(true);
     expect(checkCategoryRegex('azertyuiop').blocked).toBe(true);
     expect(checkCategoryRegex('qwertzuiop').blocked).toBe(true);
@@ -51,12 +53,20 @@ describe('category-regex (Filter 2)', () => {
       'SQL',
       'HTML',
       'CSS',
+      'CNC',
+      'MRI',
+      'ECG',
+      'HVAC',
       'UI/UX Design',
       '3D Printing',
       'Quantum Physics',
       'World War III',
       'Catchphrase',
       'Strengths and Weaknesses',
+      'Liberty and Powertool Design',
+      'Nikola Tesla',
+      'Otorrinolaringología',
+      'Ebanistería',
       'Café & Literatura',
       'Node.js & TypeScript',
       'Français Contemporain',

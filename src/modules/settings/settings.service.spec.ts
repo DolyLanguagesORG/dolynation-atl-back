@@ -322,26 +322,111 @@ describe('SettingsService', () => {
     });
   });
 
-  describe('getGlobalCatalog', () => {
-    it('devuelve el catalogo global de categorias dinamicas aprobadas', async () => {
-      selectLimit.mockResolvedValue([
-        { id: 'Historia de Mexico', name: 'Historia de Mexico' },
-        { id: 'Ciencia', name: 'Ciencia' },
-      ]);
+  describe('getCategoriesSettings & personal category library (toggle/delete)', () => {
+    it('returns empty private catalog and selection for a new user without leaking global categories', async () => {
+      mockSettingsRow(null);
 
-      const catalog = await service.getGlobalCatalog();
-
-      expect(catalog).toEqual([
-        { id: 'Historia de Mexico', name: 'Historia de Mexico' },
-        { id: 'Ciencia', name: 'Ciencia' },
-      ]);
-      expect(selectLimit).toHaveBeenCalledWith(100);
+      await expect(service.getCategoriesSettings(42)).resolves.toEqual({
+        catalog: [],
+        selected: [],
+      });
     });
 
-    it('devuelve un catalogo vacio cuando aun no hay categorias moderadas', async () => {
-      selectLimit.mockResolvedValue([]);
+    it('preserves deselected user categories in savedCategories while keeping only active ones in selected', async () => {
+      mockSettingsRow({
+        preferredCategories: ['Gatos', 'Historia', 'Ciencia', 'Cocina'],
+        savedCategories: ['Gatos', 'Historia', 'Ciencia', 'Cocina'],
+      });
+      moderation.assertCategoriesAllowed.mockResolvedValueOnce(['Gatos', 'Historia', 'Ciencia']);
 
-      await expect(service.getGlobalCatalog()).resolves.toEqual([]);
+      const result = await service.setCategories(42, ['Gatos', 'Historia', 'Ciencia']);
+
+      expect(result).toEqual(['Gatos', 'Historia', 'Ciencia']);
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 42,
+          preferredCategories: ['Gatos', 'Historia', 'Ciencia'],
+          savedCategories: ['Gatos', 'Historia', 'Ciencia', 'Cocina'],
+        }),
+      );
+
+      mockSettingsRow({
+        preferredCategories: ['Gatos', 'Historia', 'Ciencia'],
+        savedCategories: ['Gatos', 'Historia', 'Ciencia', 'Cocina'],
+      });
+      const settingsDto = await service.getCategoriesSettings(42);
+      expect(settingsDto).toEqual({
+        catalog: [
+          { id: 'Gatos', name: 'Gatos' },
+          { id: 'Historia', name: 'Historia' },
+          { id: 'Ciencia', name: 'Ciencia' },
+          { id: 'Cocina', name: 'Cocina' },
+        ],
+        selected: ['Gatos', 'Historia', 'Ciencia'],
+      });
+    });
+
+    it('releases acquired daily quota keys when moderation fails closed with 503', async () => {
+      const dailyLimitMock = {
+        acquireDailyQuota: jest.fn().mockResolvedValueOnce(['astronomia']),
+        releaseDailyQuotaKeys: jest.fn().mockResolvedValueOnce(undefined),
+      };
+      const serviceWithQuota = new SettingsService(
+        db as unknown as DrizzleDb,
+        moderation as unknown as CategoryModerationService,
+        subscriptions as unknown as SubscriptionsService,
+        dailyLimitMock as never,
+      );
+      mockSettingsRow({
+        preferredCategories: ['Gatos', 'Historia', 'Ciencia'],
+        savedCategories: ['Gatos', 'Historia', 'Ciencia'],
+      });
+      moderation.assertCategoriesAllowed.mockRejectedValueOnce(
+        new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE),
+      );
+
+      await expect(
+        serviceWithQuota.setCategories(42, ['Gatos', 'Historia', 'Astronomía']),
+      ).rejects.toMatchObject({
+        status: 503,
+        response: expect.objectContaining({ code: ErrorCode.SERVICE_UNAVAILABLE }),
+      });
+
+      expect(dailyLimitMock.releaseDailyQuotaKeys).toHaveBeenCalledWith(42, ['astronomia']);
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('removes a deselected or extra category from the user profile without dropping below 3 active', async () => {
+      mockSettingsRow({
+        preferredCategories: ['Gatos', 'Historia', 'Ciencia'],
+        savedCategories: ['Gatos', 'Historia', 'Ciencia', 'Cocina'],
+      });
+
+      const afterDeleteDeselected = await service.removeCategory(42, 'cocina');
+      expect(afterDeleteDeselected).toEqual({
+        catalog: [
+          { id: 'Gatos', name: 'Gatos' },
+          { id: 'Historia', name: 'Historia' },
+          { id: 'Ciencia', name: 'Ciencia' },
+        ],
+        selected: ['Gatos', 'Historia', 'Ciencia'],
+      });
+
+      // Removing one of the last 3 active categories is blocked with VALIDATION_ERROR
+      mockSettingsRow({
+        preferredCategories: ['Gatos', 'Historia', 'Ciencia'],
+        savedCategories: ['Gatos', 'Historia', 'Ciencia'],
+      });
+      await expect(service.removeCategory(42, 'Gatos')).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+      });
+
+      // Unknown category returns RESOURCE_NOT_FOUND
+      await expect(service.removeCategory(42, 'NoExiste')).rejects.toMatchObject({
+        status: 404,
+        response: expect.objectContaining({ code: ErrorCode.RESOURCE_NOT_FOUND }),
+      });
     });
   });
 });
