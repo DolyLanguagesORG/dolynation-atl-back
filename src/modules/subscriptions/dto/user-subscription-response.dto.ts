@@ -1,6 +1,38 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SUBSCRIPTION_TIERS, type SubscriptionTier } from '../subscriptions.constants';
 import { SubscriptionPlanItemDto } from './subscription-plan-response.dto';
+
+/**
+ * Resumen compacto del estado de facturación en Stripe asociado al usuario.
+ */
+export class UserBillingInfoDto {
+  @ApiProperty({
+    example: 'stripe',
+    enum: ['manual', 'stripe'],
+    description: 'Active billing provider',
+  })
+  provider!: 'manual' | 'stripe';
+
+  @ApiProperty({
+    example: 'active',
+    nullable: true,
+    description: 'Stripe subscription status or null when on free tier',
+  })
+  status!: string | null;
+
+  @ApiProperty({
+    example: '2026-12-20T10:00:00.000Z',
+    nullable: true,
+    description: 'End of the current billing period',
+  })
+  currentPeriodEnd!: Date | null;
+
+  @ApiProperty({
+    example: false,
+    description: 'True if subscription will cancel at period end',
+  })
+  cancelAtPeriodEnd!: boolean;
+}
 
 /**
  * DTO con el uso actual del usuario frente a las cuotas permitidas por su suscripción.
@@ -103,4 +135,11 @@ export class UserSubscriptionResponseDto {
     description: 'Contadores de consumo diario del usuario',
   })
   usage!: SubscriptionUsageDto;
+
+  @ApiPropertyOptional({
+    type: UserBillingInfoDto,
+    nullable: true,
+    description: 'Stripe billing status summary when billing integration is enabled',
+  })
+  billing?: UserBillingInfoDto | null;
 }

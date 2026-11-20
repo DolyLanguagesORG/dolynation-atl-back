@@ -10,6 +10,8 @@ import {
   promptLogs,
   auditLogs,
   errorLogs,
+  billingSubscriptions,
+  billingPayments,
 } from './schema';
 
 /** Relaciones de cada rol con los usuarios asignados. */
@@ -30,6 +32,11 @@ export const usersRelations = relations(users, ({ one, many }) => ({
   auditLogsAsActor: many(auditLogs, { relationName: 'auditLogActor' }),
   auditLogsAsTarget: many(auditLogs, { relationName: 'auditLogTarget' }),
   errorLogs: many(errorLogs),
+  billingSubscription: one(billingSubscriptions, {
+    fields: [users.id],
+    references: [billingSubscriptions.userId],
+  }),
+  billingPayments: many(billingPayments),
 }));
 
 /** Relaciones de las solicitudes de acceso con el solicitante y el administrador revisor. */
@@ -92,4 +99,14 @@ export const auditLogsRelations = relations(auditLogs, ({ one }) => ({
 /** Relación opcional de los registros de `error_logs` con el usuario actor. */
 export const errorLogsRelations = relations(errorLogs, ({ one }) => ({
   actorUser: one(users, { fields: [errorLogs.actorUserId], references: [users.id] }),
+}));
+
+/** Relación 1:1 entre suscripción de Stripe y usuario propietario. */
+export const billingSubscriptionsRelations = relations(billingSubscriptions, ({ one }) => ({
+  user: one(users, { fields: [billingSubscriptions.userId], references: [users.id] }),
+}));
+
+/** Relación de pagos de Stripe con su usuario propietario. */
+export const billingPaymentsRelations = relations(billingPayments, ({ one }) => ({
+  user: one(users, { fields: [billingPayments.userId], references: [users.id] }),
 }));

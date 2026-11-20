@@ -12,6 +12,7 @@ describe('UsersService', () => {
     password: 'hash',
     roleId: 1,
     subscriptionTier: 'dolly_plus',
+    stripeCustomerId: null,
     currentStreak: 3,
     lastStreakDate: '2026-10-17',
     emailVerifiedAt: null,

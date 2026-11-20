@@ -210,6 +210,60 @@ export class AppConfigService {
     };
   }
 
+  // ===== Pasarela de pagos (Stripe Sandbox / manual) =====
+  get billing(): {
+    provider: 'manual' | 'stripe';
+    envTag: string;
+    currency: string;
+    checkoutUiMode: 'custom' | 'hosted';
+    stripe: {
+      secretKey: string | undefined;
+      publishableKey: string | undefined;
+      webhookSecret: string | undefined;
+      prices: {
+        dolly: string | undefined;
+        dollyPlus: string | undefined;
+        dollyPro: string | undefined;
+        languageUnlock: string | undefined;
+      };
+    };
+  } {
+    const rawProvider: unknown = this.config.get('BILLING_PROVIDER', { infer: true });
+    const rawUiMode: unknown = this.config.get('STRIPE_CHECKOUT_UI_MODE', { infer: true });
+    const rawCurrency: unknown = this.config.get('STRIPE_CURRENCY', { infer: true });
+
+    const provider = rawProvider === 'stripe' ? 'stripe' : 'manual';
+    const checkoutUiMode = rawUiMode === 'hosted' ? 'hosted' : 'custom';
+
+    return {
+      provider,
+      envTag: nonEmptyString(this.config.get('BILLING_ENV_TAG', { infer: true }), 'local'),
+      currency: nonEmptyString(rawCurrency, 'mxn').toLowerCase(),
+      checkoutUiMode,
+      stripe: {
+        secretKey: optionalTrimmedString(this.config.get('STRIPE_SECRET_KEY', { infer: true })),
+        publishableKey: optionalTrimmedString(
+          this.config.get('STRIPE_PUBLISHABLE_KEY', { infer: true }),
+        ),
+        webhookSecret: optionalTrimmedString(
+          this.config.get('STRIPE_WEBHOOK_SECRET', { infer: true }),
+        ),
+        prices: {
+          dolly: optionalTrimmedString(this.config.get('STRIPE_PRICE_DOLLY', { infer: true })),
+          dollyPlus: optionalTrimmedString(
+            this.config.get('STRIPE_PRICE_DOLLY_PLUS', { infer: true }),
+          ),
+          dollyPro: optionalTrimmedString(
+            this.config.get('STRIPE_PRICE_DOLLY_PRO', { infer: true }),
+          ),
+          languageUnlock: optionalTrimmedString(
+            this.config.get('STRIPE_PRICE_LANGUAGE_UNLOCK', { infer: true }),
+          ),
+        },
+      },
+    };
+  }
+
   // ===== Moderación de categorías =====
   get moderation(): {
     enabled: boolean;

@@ -20,7 +20,7 @@ import { createRequestContextMiddleware, RequestContextService } from './modules
  * OpenAPI/Scalar en `/docs` y la ruta raíz de verificación.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.useLogger(app.get(Logger));
 
   // Confiar en cabeceras de proxy (Cloudflare + Nginx) para resolver req.ip correctamente.
@@ -113,6 +113,10 @@ async function bootstrap(): Promise<void> {
     .addTag('auth', 'Registro, inicio y cierre de sesión, renovación de tokens y perfil actual')
     .addTag('user', 'Perfil del usuario y racha de actividad')
     .addTag('subscriptions', 'Planes de suscripción, estado actual y cuotas de uso')
+    .addTag(
+      'billing',
+      'Stripe checkout, in-app subscription management, payment methods, invoices, and webhooks',
+    )
     .addTag('settings', 'Preferencias de categorías e idioma de estudio')
     .addTag('readings', 'Lecturas generadas por IA, evaluaciones de comprensión y vocabulario')
     .addTag('content', 'Generación de lecturas usando preferencias guardadas como respaldo')

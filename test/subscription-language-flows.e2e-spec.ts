@@ -177,6 +177,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     process.env.LOG_LEVEL = 'silent';
     process.env.EMAIL_VERIFICATION_REQUIRED = 'false';
     process.env.ACCESS_REQUESTS_ENABLED = 'false';
+    process.env.BILLING_PROVIDER = 'manual';
     process.env.CATEGORY_MODERATION_ENABLED = 'true';
     process.env.CATEGORY_MODERATION_AI_ENABLED = 'true';
     process.env.CATEGORY_MODERATION_AI_PROVIDER = 'minimax';
@@ -321,6 +322,7 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
       }
     }
     await app.close();
+    delete process.env.BILLING_PROVIDER;
   });
 
   it('Test 1: blocks all system services until user selects a plan, allowing only public, logout, logout-all and POST /user/subscription', async () => {

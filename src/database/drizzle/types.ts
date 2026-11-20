@@ -13,6 +13,9 @@ import type {
   categoryDailyUsage,
   auditLogs,
   errorLogs,
+  billingSubscriptions,
+  billingPayments,
+  billingWebhookEvents,
 } from './schema';
 
 /** Modelos inferidos de lectura (`Select`) e inserción (`Insert`) a partir del esquema Drizzle. */
@@ -64,3 +67,14 @@ export type { AuditLogAction } from './schema';
 export type ErrorLog = InferSelectModel<typeof errorLogs>;
 export type NewErrorLog = InferInsertModel<typeof errorLogs>;
 export type { ErrorLogSeverity } from './schema';
+
+export type BillingSubscription = InferSelectModel<typeof billingSubscriptions>;
+export type NewBillingSubscription = InferInsertModel<typeof billingSubscriptions>;
+export type { BillingSubscriptionStatus } from './schema';
+
+export type BillingPayment = InferSelectModel<typeof billingPayments>;
+export type NewBillingPayment = InferInsertModel<typeof billingPayments>;
+export type { BillingPaymentKind } from './schema';
+
+export type BillingWebhookEvent = InferSelectModel<typeof billingWebhookEvents>;
+export type NewBillingWebhookEvent = InferInsertModel<typeof billingWebhookEvents>;

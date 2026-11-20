@@ -186,4 +186,68 @@ describe('validateEnv', () => {
       expect(env.OPENAI_API_KEY).toBe('k');
     });
   });
+
+  describe('BILLING_PROVIDER y configuracion Stripe', () => {
+    it('usa valores por defecto seguros con BILLING_PROVIDER=manual', () => {
+      const env = validateEnv(base);
+
+      expect(env.BILLING_PROVIDER).toBe('manual');
+      expect(env.BILLING_ENV_TAG).toBe('local');
+      expect(env.STRIPE_CURRENCY).toBe('mxn');
+      expect(env.STRIPE_CHECKOUT_UI_MODE).toBe('custom');
+    });
+
+    it('cae a defaults cuando las variables de billing llegan vacias desde GitHub Actions', () => {
+      const env = validateEnv({
+        ...base,
+        BILLING_PROVIDER: '',
+        BILLING_ENV_TAG: '',
+        STRIPE_CURRENCY: '',
+        STRIPE_CHECKOUT_UI_MODE: '',
+        STRIPE_SECRET_KEY: '',
+        STRIPE_PUBLISHABLE_KEY: '',
+        STRIPE_WEBHOOK_SECRET: '',
+        STRIPE_PRICE_DOLLY: '',
+        STRIPE_PRICE_DOLLY_PLUS: '',
+        STRIPE_PRICE_DOLLY_PRO: '',
+        STRIPE_PRICE_LANGUAGE_UNLOCK: '',
+      });
+
+      expect(env.BILLING_PROVIDER).toBe('manual');
+      expect(env.BILLING_ENV_TAG).toBe('local');
+      expect(env.STRIPE_CURRENCY).toBe('mxn');
+      expect(env.STRIPE_CHECKOUT_UI_MODE).toBe('custom');
+      expect(env.STRIPE_SECRET_KEY).toBeUndefined();
+    });
+
+    it('exige las 6 variables obligatorias de Stripe cuando BILLING_PROVIDER=stripe', () => {
+      const validStripe = {
+        ...base,
+        BILLING_PROVIDER: 'stripe',
+        BILLING_ENV_TAG: 'staging',
+        STRIPE_SECRET_KEY: 'sk_test_mocksecretkey',
+        STRIPE_PUBLISHABLE_KEY: 'pk_test_mockpublishablekey',
+        STRIPE_WEBHOOK_SECRET: 'whsec_mockwebhooksecret',
+        STRIPE_PRICE_DOLLY_PLUS: 'price_mock_plus',
+        STRIPE_PRICE_DOLLY_PRO: 'price_mock_pro',
+        STRIPE_PRICE_LANGUAGE_UNLOCK: 'price_mock_unlock',
+      };
+
+      expect(validateEnv(validStripe).BILLING_PROVIDER).toBe('stripe');
+
+      const requiredKeys = [
+        'STRIPE_SECRET_KEY',
+        'STRIPE_PUBLISHABLE_KEY',
+        'STRIPE_WEBHOOK_SECRET',
+        'STRIPE_PRICE_DOLLY_PLUS',
+        'STRIPE_PRICE_DOLLY_PRO',
+        'STRIPE_PRICE_LANGUAGE_UNLOCK',
+      ] as const;
+
+      for (const missingKey of requiredKeys) {
+        const partial = { ...validStripe, [missingKey]: '' };
+        expect(() => validateEnv(partial)).toThrow(new RegExp(missingKey));
+      }
+    });
+  });
 });

@@ -154,6 +154,18 @@ jobs:
           FRONTEND_BASE_URL: ${{ vars.FRONTEND_BASE_URL }}
           # Exige confirmar el correo antes de poder iniciar sesion.
           EMAIL_VERIFICATION_REQUIRED: ${{ vars.EMAIL_VERIFICATION_REQUIRED }}
+          # Pasarela de pagos (Stripe Sandbox / manual). En dev tras VPN suele quedar en `manual`.
+          BILLING_PROVIDER: ${{ vars.BILLING_PROVIDER }}
+          BILLING_ENV_TAG: ${{ vars.BILLING_ENV_TAG }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_PUBLISHABLE_KEY: ${{ vars.STRIPE_PUBLISHABLE_KEY }}
+          STRIPE_CURRENCY: ${{ vars.STRIPE_CURRENCY }}
+          STRIPE_CHECKOUT_UI_MODE: ${{ vars.STRIPE_CHECKOUT_UI_MODE }}
+          STRIPE_PRICE_DOLLY: ${{ vars.STRIPE_PRICE_DOLLY }}
+          STRIPE_PRICE_DOLLY_PLUS: ${{ vars.STRIPE_PRICE_DOLLY_PLUS }}
+          STRIPE_PRICE_DOLLY_PRO: ${{ vars.STRIPE_PRICE_DOLLY_PRO }}
+          STRIPE_PRICE_LANGUAGE_UNLOCK: ${{ vars.STRIPE_PRICE_LANGUAGE_UNLOCK }}
         run: |
           set -euo pipefail
           # El agente SSH se creo en el paso anterior, en otro shell: hay que
@@ -206,6 +218,17 @@ jobs:
             printf 'SMTP_SECURE=%s\n'     "$SMTP_SECURE"
             printf 'FRONTEND_BASE_URL=%s\n' "$FRONTEND_BASE_URL"
             printf 'EMAIL_VERIFICATION_REQUIRED=%s\n' "$EMAIL_VERIFICATION_REQUIRED"
+            printf 'BILLING_PROVIDER=%s\n' "$BILLING_PROVIDER"
+            printf 'BILLING_ENV_TAG=%s\n'  "$BILLING_ENV_TAG"
+            printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
+            printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$STRIPE_WEBHOOK_SECRET"
+            printf 'STRIPE_PUBLISHABLE_KEY=%s\n' "$STRIPE_PUBLISHABLE_KEY"
+            printf 'STRIPE_CURRENCY=%s\n'  "$STRIPE_CURRENCY"
+            printf 'STRIPE_CHECKOUT_UI_MODE=%s\n' "$STRIPE_CHECKOUT_UI_MODE"
+            printf 'STRIPE_PRICE_DOLLY=%s\n' "$STRIPE_PRICE_DOLLY"
+            printf 'STRIPE_PRICE_DOLLY_PLUS=%s\n' "$STRIPE_PRICE_DOLLY_PLUS"
+            printf 'STRIPE_PRICE_DOLLY_PRO=%s\n' "$STRIPE_PRICE_DOLLY_PRO"
+            printf 'STRIPE_PRICE_LANGUAGE_UNLOCK=%s\n' "$STRIPE_PRICE_LANGUAGE_UNLOCK"
           } > /tmp/backend.env
           base64 -w0 /tmp/backend.env | ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \
