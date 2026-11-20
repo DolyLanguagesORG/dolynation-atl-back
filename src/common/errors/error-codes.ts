@@ -47,6 +47,7 @@ export enum ErrorCode {
   BILLING_SUBSCRIPTION_CONFLICT = 'BILLING_SUBSCRIPTION_CONFLICT',
   BILLING_PROVIDER_ERROR = 'BILLING_PROVIDER_ERROR',
   BILLING_NOT_CONFIGURED = 'BILLING_NOT_CONFIGURED',
+  BILLING_RATE_LIMITED = 'BILLING_RATE_LIMITED',
 
   // === Solicitudes de acceso (4xx) ===
   ACCESS_REQUEST_REQUIRED = 'ACCESS_REQUEST_REQUIRED',
@@ -231,6 +232,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.BILLING_NOT_CONFIGURED,
     503,
     'Payment billing is not configured on this environment',
+  ),
+  [ErrorCode.BILLING_RATE_LIMITED]: entry(
+    ErrorCode.BILLING_RATE_LIMITED,
+    429,
+    'Too many billing requests. Please wait a moment and try again.',
   ),
   [ErrorCode.ACCESS_REQUEST_REQUIRED]: entry(
     ErrorCode.ACCESS_REQUEST_REQUIRED,

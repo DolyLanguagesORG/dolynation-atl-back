@@ -20,6 +20,7 @@ import {
   type SubscriptionTier,
 } from '../subscriptions/subscriptions.constants';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { BillingRateLimitService } from './billing-rate-limit.service';
 import {
   isActiveSubscriptionStatus,
   isPaidSubscriptionTier,
@@ -68,6 +69,9 @@ function parsePositiveInt(raw: string | undefined): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+const CHECKOUT_SESSION_ID_REGEX = /^cs_[A-Za-z0-9_]{3,128}$/;
+const IDEMPOTENCY_KEY_REGEX = /^[A-Za-z0-9._:-]{1,128}$/;
+
 /**
  * Servicio central de pagos, checkout, gestión in-app de suscripciones, métodos de pago,
  * facturas e idempotencia de webhooks para DolyNation.
@@ -76,6 +80,22 @@ function parsePositiveInt(raw: string | undefined): number | null {
 export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private readonly priceCache = new Map<string, CachedPriceEntry>();
+  private readonly priceInFlight = new Map<string, Promise<GatewayPriceInfo | null>>();
+  private readonly customerLocks = new Map<
+    number,
+    Promise<{
+      user: {
+        id: number;
+        email: string;
+        fullName: string | null;
+        locale: string;
+        subscriptionTier: string | null;
+        stripeCustomerId: string | null;
+      };
+      customerId: string;
+    }>
+  >();
+  private readonly userMutationLocks = new Map<string, Promise<void>>();
 
   constructor(
     @Inject(DRIZZLE) private readonly db: DrizzleDb,
@@ -85,6 +105,7 @@ export class BillingService {
     private readonly subscriptions: SubscriptionsService,
     @Optional() private readonly auditLogs?: AuditLogService,
     @Optional() private readonly errorLogs?: ErrorLogService,
+    @Optional() private readonly rateLimiter?: BillingRateLimitService,
   ) {}
 
   private ensureStripeEnabled(): void {
@@ -105,6 +126,47 @@ export class BillingService {
     return this.config.mail.frontendBaseUrl.replace(/\/+$/, '');
   }
 
+  private buildScopedIdempotencyKey(
+    userId: number,
+    operation: string,
+    rawKey: string | undefined,
+  ): string | undefined {
+    if (!rawKey) return undefined;
+    const trimmed = rawKey.trim();
+    if (!trimmed) return undefined;
+    if (!IDEMPOTENCY_KEY_REGEX.test(trimmed)) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        fields: [
+          {
+            field: 'idempotency-key',
+            message: 'Idempotency-Key must contain 1-128 alphanumeric or ._:- characters',
+          },
+        ],
+      });
+    }
+    return `doly:${this.config.billing.envTag}:u${userId}:${operation}:${trimmed}`;
+  }
+
+  private async withUserLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
+    const previous = this.userMutationLocks.get(lockKey) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chain = previous.then(() => gate);
+    this.userMutationLocks.set(lockKey, chain);
+
+    await previous;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (this.userMutationLocks.get(lockKey) === chain) {
+        this.userMutationLocks.delete(lockKey);
+      }
+    }
+  }
+
   private async getCachedPriceInfo(priceId: string | undefined): Promise<GatewayPriceInfo | null> {
     if (!priceId || this.config.billing.provider !== 'stripe') {
       return null;
@@ -116,19 +178,56 @@ export class BillingService {
       return cached.value;
     }
 
-    try {
-      const value = await this.gateway.retrievePrice(priceId);
-      this.priceCache.set(priceId, { value, expiresAt: now + PRICE_CACHE_TTL_MS });
-      return value;
-    } catch (error) {
-      this.logger.warn(
-        `Could not retrieve Stripe price '${priceId}': ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
+    const existingFlight = this.priceInFlight.get(priceId);
+    if (existingFlight) {
+      return existingFlight;
     }
+
+    const request = (async (): Promise<GatewayPriceInfo | null> => {
+      try {
+        const value = await this.gateway.retrievePrice(priceId);
+        this.priceCache.set(priceId, { value, expiresAt: Date.now() + PRICE_CACHE_TTL_MS });
+        return value;
+      } catch (error) {
+        this.logger.warn(
+          `Could not retrieve Stripe price '${priceId}': ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return null;
+      } finally {
+        this.priceInFlight.delete(priceId);
+      }
+    })();
+
+    this.priceInFlight.set(priceId, request);
+    return request;
   }
 
   private async getOrCreateCustomerId(userId: number): Promise<{
+    user: {
+      id: number;
+      email: string;
+      fullName: string | null;
+      locale: string;
+      subscriptionTier: string | null;
+      stripeCustomerId: string | null;
+    };
+    customerId: string;
+  }> {
+    const inFlight = this.customerLocks.get(userId);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const task = this.resolveOrCreateCustomerId(userId).finally(() => {
+      if (this.customerLocks.get(userId) === task) {
+        this.customerLocks.delete(userId);
+      }
+    });
+    this.customerLocks.set(userId, task);
+    return task;
+  }
+
+  private async resolveOrCreateCustomerId(userId: number): Promise<{
     user: {
       id: number;
       email: string;
@@ -168,14 +267,26 @@ export class BillingService {
         userId: String(user.id),
         env: this.config.billing.envTag,
       },
+      idempotencyKey: `doly-cust-${this.config.billing.envTag}-${user.id}`,
     });
 
-    await this.db
+    const updatedRows = await this.db
       .update(users)
       .set({ stripeCustomerId: created.id, updatedAt: new Date() })
-      .where(eq(users.id, user.id));
+      .where(and(eq(users.id, user.id), isNull(users.stripeCustomerId)))
+      .returning({ stripeCustomerId: users.stripeCustomerId });
 
-    return { user, customerId: created.id };
+    if (updatedRows[0]?.stripeCustomerId) {
+      return { user, customerId: updatedRows[0].stripeCustomerId };
+    }
+
+    const freshRows = await this.db
+      .select({ stripeCustomerId: users.stripeCustomerId })
+      .from(users)
+      .where(eq(users.id, user.id))
+      .limit(1);
+
+    return { user, customerId: freshRows[0]?.stripeCustomerId ?? created.id };
   }
 
   /**
@@ -233,6 +344,7 @@ export class BillingService {
   async createSubscriptionCheckout(
     userId: number,
     dto: CreateSubscriptionCheckoutDto,
+    idempotencyKey?: string,
   ): Promise<CheckoutSessionResponseDto> {
     this.ensureStripeEnabled();
     const publishableKey = this.getPublishableKeyOrThrow();
@@ -248,70 +360,80 @@ export class BillingService {
       throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
     }
 
-    const existingSubRows = await this.db
-      .select({
-        id: billingSubscriptions.id,
-        status: billingSubscriptions.status,
-      })
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.userId, userId))
-      .limit(1);
+    const scopedIdempotencyKey = this.buildScopedIdempotencyKey(
+      userId,
+      'checkout_sub',
+      idempotencyKey,
+    );
+    this.rateLimiter?.assertWithinLimit(userId, 'checkout');
 
-    const existingSub = existingSubRows[0];
-    if (existingSub && isActiveSubscriptionStatus(existingSub.status)) {
-      throw new AppHttpException(ErrorCode.BILLING_SUBSCRIPTION_CONFLICT, {
-        currentStatus: existingSub.status,
-        requestedTier: dto.tier,
-      });
-    }
+    return this.withUserLock(`checkout:${userId}`, async () => {
+      const existingSubRows = await this.db
+        .select({
+          id: billingSubscriptions.id,
+          status: billingSubscriptions.status,
+        })
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
 
-    const { user, customerId } = await this.getOrCreateCustomerId(userId);
-    const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
-    const frontendBase = this.getFrontendBaseUrl();
-    const metadata: Record<string, string> = {
-      userId: String(userId),
-      tier: dto.tier,
-      kind: 'subscription',
-      env: this.config.billing.envTag,
-    };
+      const existingSub = existingSubRows[0];
+      if (existingSub && isActiveSubscriptionStatus(existingSub.status)) {
+        throw new AppHttpException(ErrorCode.BILLING_SUBSCRIPTION_CONFLICT, {
+          currentStatus: existingSub.status,
+          requestedTier: dto.tier,
+        });
+      }
 
-    const session = await this.gateway.createCheckoutSession({
-      customerId,
-      mode: 'subscription',
-      priceId,
-      uiMode,
-      locale: user.locale,
-      returnUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
-      successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${frontendBase}/profile#subscription`,
-      metadata,
-      subscriptionMetadata: {
+      const { user, customerId } = await this.getOrCreateCustomerId(userId);
+      const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
+      const frontendBase = this.getFrontendBaseUrl();
+      const metadata: Record<string, string> = {
         userId: String(userId),
         tier: dto.tier,
+        kind: 'subscription',
         env: this.config.billing.envTag,
-      },
-    });
+      };
 
-    await this.auditLogs?.logEvent({
-      module: 'billing',
-      action: 'ACTION',
-      event: 'billing.checkout_subscription_created',
-      entityType: 'billing_checkout_session',
-      entityId: session.id,
-      actorUserId: userId,
-      targetUserId: userId,
-      summary: `Subscription checkout session created for user #${userId} (${dto.tier})`,
-      metadata: { tier: dto.tier, uiMode, sessionId: session.id },
-    });
+      const session = await this.gateway.createCheckoutSession({
+        customerId,
+        mode: 'subscription',
+        priceId,
+        uiMode,
+        locale: user.locale,
+        returnUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+        successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${frontendBase}/profile#subscription`,
+        metadata,
+        subscriptionMetadata: {
+          userId: String(userId),
+          tier: dto.tier,
+          env: this.config.billing.envTag,
+        },
+        ...(scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : {}),
+      });
 
-    return {
-      sessionId: session.id,
-      clientSecret: session.clientSecret,
-      url: session.url,
-      publishableKey,
-      uiMode,
-      tier: dto.tier,
-    };
+      await this.auditLogs?.logEvent({
+        module: 'billing',
+        action: 'ACTION',
+        event: 'billing.checkout_subscription_created',
+        entityType: 'billing_checkout_session',
+        entityId: session.id,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Subscription checkout session created for user #${userId} (${dto.tier})`,
+        metadata: { tier: dto.tier, uiMode, sessionId: session.id },
+      });
+
+      return {
+        sessionId: session.id,
+        clientSecret: session.clientSecret,
+        url: session.url,
+        publishableKey,
+        uiMode,
+        tier: dto.tier,
+      };
+    });
   }
 
   /**
@@ -320,76 +442,88 @@ export class BillingService {
   async createLanguageUnlockCheckout(
     userId: number,
     dto: CreateLanguageUnlockCheckoutDto,
+    idempotencyKey?: string,
   ): Promise<CheckoutSessionResponseDto> {
     this.ensureStripeEnabled();
     const publishableKey = this.getPublishableKeyOrThrow();
-    await this.subscriptions.assertSubscriptionActive(userId);
 
     const priceId = this.config.billing.stripe.prices.languageUnlock;
     if (!priceId) {
       throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
     }
 
-    const { user, customerId } = await this.getOrCreateCustomerId(userId);
-    const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
-    const frontendBase = this.getFrontendBaseUrl();
-    const metadata: Record<string, string> = {
-      userId: String(userId),
-      kind: 'language_unlock',
-      env: this.config.billing.envTag,
-    };
+    const scopedIdempotencyKey = this.buildScopedIdempotencyKey(
+      userId,
+      'checkout_unlock',
+      idempotencyKey,
+    );
+    this.rateLimiter?.assertWithinLimit(userId, 'checkout');
 
-    const session = await this.gateway.createCheckoutSession({
-      customerId,
-      mode: 'payment',
-      priceId,
-      uiMode,
-      locale: user.locale,
-      returnUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
-      successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
-      cancelUrl: `${frontendBase}/profile#preferences`,
-      metadata,
-    });
+    return this.withUserLock(`checkout:${userId}`, async () => {
+      await this.subscriptions.assertSubscriptionActive(userId);
 
-    const now = new Date();
-    await this.db
-      .insert(billingPayments)
-      .values({
-        userId,
-        provider: 'stripe',
+      const { user, customerId } = await this.getOrCreateCustomerId(userId);
+      const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
+      const frontendBase = this.getFrontendBaseUrl();
+      const metadata: Record<string, string> = {
+        userId: String(userId),
         kind: 'language_unlock',
-        tier: null,
-        stripeCheckoutSessionId: session.id,
-        stripePaymentIntentId: session.paymentIntentId,
-        amountCents: session.amountTotal ?? 0,
-        currency: session.currency ?? this.config.billing.currency,
-        status: 'pending',
+        env: this.config.billing.envTag,
+      };
+
+      const session = await this.gateway.createCheckoutSession({
+        customerId,
+        mode: 'payment',
+        priceId,
+        uiMode,
+        locale: user.locale,
+        returnUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+        successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl: `${frontendBase}/profile#preferences`,
         metadata,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoNothing({ target: billingPayments.stripeCheckoutSessionId });
+        ...(scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : {}),
+      });
 
-    await this.auditLogs?.logEvent({
-      module: 'billing',
-      action: 'ACTION',
-      event: 'billing.checkout_language_unlock_created',
-      entityType: 'billing_checkout_session',
-      entityId: session.id,
-      actorUserId: userId,
-      targetUserId: userId,
-      summary: `Language unlock checkout session created for user #${userId}`,
-      metadata: { uiMode, sessionId: session.id },
+      const now = new Date();
+      await this.db
+        .insert(billingPayments)
+        .values({
+          userId,
+          provider: 'stripe',
+          kind: 'language_unlock',
+          tier: null,
+          stripeCheckoutSessionId: session.id,
+          stripePaymentIntentId: session.paymentIntentId,
+          amountCents: session.amountTotal ?? 0,
+          currency: session.currency ?? this.config.billing.currency,
+          status: 'pending',
+          metadata,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoNothing({ target: billingPayments.stripeCheckoutSessionId });
+
+      await this.auditLogs?.logEvent({
+        module: 'billing',
+        action: 'ACTION',
+        event: 'billing.checkout_language_unlock_created',
+        entityType: 'billing_checkout_session',
+        entityId: session.id,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Language unlock checkout session created for user #${userId}`,
+        metadata: { uiMode, sessionId: session.id },
+      });
+
+      return {
+        sessionId: session.id,
+        clientSecret: session.clientSecret,
+        url: session.url,
+        publishableKey,
+        uiMode,
+        tier: null,
+      };
     });
-
-    return {
-      sessionId: session.id,
-      clientSecret: session.clientSecret,
-      url: session.url,
-      publishableKey,
-      uiMode,
-      tier: null,
-    };
   }
 
   /**
@@ -398,9 +532,12 @@ export class BillingService {
   async syncCheckoutSession(userId: number, sessionId: string): Promise<BillingStatusResponseDto> {
     this.ensureStripeEnabled();
     const trimmedSessionId = sessionId.trim();
-    if (!trimmedSessionId) {
-      throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID);
+    if (!CHECKOUT_SESSION_ID_REGEX.test(trimmedSessionId)) {
+      throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID, {
+        sessionId: trimmedSessionId,
+      });
     }
+    this.rateLimiter?.assertWithinLimit(userId, 'sync');
 
     const session = await this.gateway.retrieveCheckoutSession(trimmedSessionId);
     const metaUserId = parsePositiveInt(session.metadata['userId']);
@@ -477,7 +614,11 @@ export class BillingService {
   /**
    * Cambia de plan pagado (`dolly_plus` ↔ `dolly_pro`) in-app con prorrateo en Stripe.
    */
-  async changePlan(userId: number, dto: ChangePlanDto): Promise<BillingStatusResponseDto> {
+  async changePlan(
+    userId: number,
+    dto: ChangePlanDto,
+    idempotencyKey?: string,
+  ): Promise<BillingStatusResponseDto> {
     this.ensureStripeEnabled();
 
     if (!isPaidSubscriptionTier(dto.tier)) {
@@ -491,36 +632,54 @@ export class BillingService {
       throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
     }
 
-    const subRows = await this.db
-      .select()
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.userId, userId))
-      .limit(1);
+    const scopedIdempotencyKey = this.buildScopedIdempotencyKey(
+      userId,
+      'change_plan',
+      idempotencyKey,
+    );
+    this.rateLimiter?.assertWithinLimit(userId, 'mutation');
 
-    const existing = subRows[0];
-    if (!existing || !isActiveSubscriptionStatus(existing.status)) {
-      throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
-        action: 'checkout_required',
-        targetTier: dto.tier,
+    return this.withUserLock(`sub:${userId}`, async () => {
+      const subRows = await this.db
+        .select()
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
+
+      const existing = subRows[0];
+      if (!existing || !isActiveSubscriptionStatus(existing.status)) {
+        throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+          action: 'checkout_required',
+          targetTier: dto.tier,
+        });
+      }
+
+      if (existing.status === 'past_due') {
+        throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+          reason: 'subscription_past_due',
+          currentStatus: existing.status,
+          targetTier: dto.tier,
+        });
+      }
+
+      if (existing.tier === dto.tier && !existing.cancelAtPeriodEnd) {
+        return this.getBillingStatus(userId);
+      }
+
+      const updated = await this.gateway.updateSubscriptionPlan({
+        subscriptionId: existing.stripeSubscriptionId,
+        newPriceId,
+        metadata: {
+          userId: String(userId),
+          tier: dto.tier,
+          env: this.config.billing.envTag,
+        },
+        ...(scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : {}),
       });
-    }
 
-    if (existing.tier === dto.tier && !existing.cancelAtPeriodEnd) {
+      await this.syncSubscriptionState(updated, userId, dto.tier);
       return this.getBillingStatus(userId);
-    }
-
-    const updated = await this.gateway.updateSubscriptionPlan({
-      subscriptionId: existing.stripeSubscriptionId,
-      newPriceId,
-      metadata: {
-        userId: String(userId),
-        tier: dto.tier,
-        env: this.config.billing.envTag,
-      },
     });
-
-    await this.syncSubscriptionState(updated, userId, dto.tier);
-    return this.getBillingStatus(userId);
   }
 
   /**
@@ -528,32 +687,35 @@ export class BillingService {
    */
   async cancelSubscription(userId: number): Promise<BillingStatusResponseDto> {
     this.ensureStripeEnabled();
+    this.rateLimiter?.assertWithinLimit(userId, 'mutation');
 
-    const subRows = await this.db
-      .select()
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.userId, userId))
-      .limit(1);
+    return this.withUserLock(`sub:${userId}`, async () => {
+      const subRows = await this.db
+        .select()
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
 
-    const existing = subRows[0];
-    if (!existing || !isActiveSubscriptionStatus(existing.status)) {
-      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
-        resource: 'Subscription',
+      const existing = subRows[0];
+      if (!existing || !isActiveSubscriptionStatus(existing.status)) {
+        throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+          resource: 'Subscription',
+        });
+      }
+
+      if (existing.cancelAtPeriodEnd) {
+        return this.getBillingStatus(userId);
+      }
+
+      const updated = await this.gateway.setSubscriptionCancelAtPeriodEnd({
+        subscriptionId: existing.stripeSubscriptionId,
+        cancelAtPeriodEnd: true,
       });
-    }
 
-    if (existing.cancelAtPeriodEnd) {
+      const tierHint = isValidSubscriptionTier(existing.tier) ? existing.tier : undefined;
+      await this.syncSubscriptionState(updated, userId, tierHint);
       return this.getBillingStatus(userId);
-    }
-
-    const updated = await this.gateway.setSubscriptionCancelAtPeriodEnd({
-      subscriptionId: existing.stripeSubscriptionId,
-      cancelAtPeriodEnd: true,
     });
-
-    const tierHint = isValidSubscriptionTier(existing.tier) ? existing.tier : undefined;
-    await this.syncSubscriptionState(updated, userId, tierHint);
-    return this.getBillingStatus(userId);
   }
 
   /**
@@ -561,40 +723,52 @@ export class BillingService {
    */
   async resumeSubscription(userId: number): Promise<BillingStatusResponseDto> {
     this.ensureStripeEnabled();
+    this.rateLimiter?.assertWithinLimit(userId, 'mutation');
 
-    const subRows = await this.db
-      .select()
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.userId, userId))
-      .limit(1);
+    return this.withUserLock(`sub:${userId}`, async () => {
+      const subRows = await this.db
+        .select()
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
 
-    const existing = subRows[0];
-    if (!existing || (existing.status !== 'active' && existing.status !== 'trialing')) {
-      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
-        resource: 'Subscription',
+      const existing = subRows[0];
+      if (!existing || (existing.status !== 'active' && existing.status !== 'trialing')) {
+        throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+          resource: 'Subscription',
+        });
+      }
+
+      if (!existing.cancelAtPeriodEnd) {
+        return this.getBillingStatus(userId);
+      }
+
+      const updated = await this.gateway.setSubscriptionCancelAtPeriodEnd({
+        subscriptionId: existing.stripeSubscriptionId,
+        cancelAtPeriodEnd: false,
       });
-    }
 
-    if (!existing.cancelAtPeriodEnd) {
+      const tierHint = isValidSubscriptionTier(existing.tier) ? existing.tier : undefined;
+      await this.syncSubscriptionState(updated, userId, tierHint);
       return this.getBillingStatus(userId);
-    }
-
-    const updated = await this.gateway.setSubscriptionCancelAtPeriodEnd({
-      subscriptionId: existing.stripeSubscriptionId,
-      cancelAtPeriodEnd: false,
     });
-
-    const tierHint = isValidSubscriptionTier(existing.tier) ? existing.tier : undefined;
-    await this.syncSubscriptionState(updated, userId, tierHint);
-    return this.getBillingStatus(userId);
   }
 
   /**
    * Crea un `SetupIntent` para capturar o actualizar la tarjeta in-app mediante Stripe Elements.
    */
-  async createSetupIntent(userId: number): Promise<SetupIntentResponseDto> {
+  async createSetupIntent(
+    userId: number,
+    idempotencyKey?: string,
+  ): Promise<SetupIntentResponseDto> {
     this.ensureStripeEnabled();
     const publishableKey = this.getPublishableKeyOrThrow();
+    const scopedIdempotencyKey = this.buildScopedIdempotencyKey(
+      userId,
+      'setup_intent',
+      idempotencyKey,
+    );
+    this.rateLimiter?.assertWithinLimit(userId, 'setup_intent');
     const { customerId } = await this.getOrCreateCustomerId(userId);
 
     const intent = await this.gateway.createSetupIntent({
@@ -603,6 +777,7 @@ export class BillingService {
         userId: String(userId),
         env: this.config.billing.envTag,
       },
+      ...(scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : {}),
     });
 
     if (!intent.clientSecret) {
@@ -626,58 +801,62 @@ export class BillingService {
     dto: SetDefaultPaymentMethodDto,
   ): Promise<BillingPaymentMethodSummaryDto> {
     this.ensureStripeEnabled();
-    const { customerId } = await this.getOrCreateCustomerId(userId);
+    this.rateLimiter?.assertWithinLimit(userId, 'mutation');
 
-    const subRows = await this.db
-      .select({
-        id: billingSubscriptions.id,
-        stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId,
-        status: billingSubscriptions.status,
-      })
-      .from(billingSubscriptions)
-      .where(eq(billingSubscriptions.userId, userId))
-      .limit(1);
+    return this.withUserLock(`pm:${userId}`, async () => {
+      const { customerId } = await this.getOrCreateCustomerId(userId);
 
-    const activeSub =
-      subRows[0] && isActiveSubscriptionStatus(subRows[0].status) ? subRows[0] : null;
-
-    const summary = await this.gateway.attachAndSetDefaultPaymentMethod({
-      customerId,
-      paymentMethodId: dto.paymentMethodId.trim(),
-      subscriptionId: activeSub?.stripeSubscriptionId ?? null,
-    });
-
-    if (subRows[0]) {
-      await this.db
-        .update(billingSubscriptions)
-        .set({
-          paymentMethodBrand: summary.brand,
-          paymentMethodLast4: summary.last4,
-          paymentMethodExpMonth: summary.expMonth,
-          paymentMethodExpYear: summary.expYear,
-          updatedAt: new Date(),
+      const subRows = await this.db
+        .select({
+          id: billingSubscriptions.id,
+          stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId,
+          status: billingSubscriptions.status,
         })
-        .where(eq(billingSubscriptions.id, subRows[0].id));
-    }
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
 
-    await this.auditLogs?.logEvent({
-      module: 'billing',
-      action: 'ACTION',
-      event: 'billing.payment_method_updated',
-      entityType: 'billing_subscriptions',
-      entityId: activeSub?.id ?? userId,
-      actorUserId: userId,
-      targetUserId: userId,
-      summary: `Default payment method updated for user #${userId}`,
-      metadata: { brand: summary.brand, last4: summary.last4 },
+      const activeSub =
+        subRows[0] && isActiveSubscriptionStatus(subRows[0].status) ? subRows[0] : null;
+
+      const summary = await this.gateway.attachAndSetDefaultPaymentMethod({
+        customerId,
+        paymentMethodId: dto.paymentMethodId.trim(),
+        subscriptionId: activeSub?.stripeSubscriptionId ?? null,
+      });
+
+      if (subRows[0]) {
+        await this.db
+          .update(billingSubscriptions)
+          .set({
+            paymentMethodBrand: summary.brand,
+            paymentMethodLast4: summary.last4,
+            paymentMethodExpMonth: summary.expMonth,
+            paymentMethodExpYear: summary.expYear,
+            updatedAt: new Date(),
+          })
+          .where(eq(billingSubscriptions.id, subRows[0].id));
+      }
+
+      await this.auditLogs?.logEvent({
+        module: 'billing',
+        action: 'ACTION',
+        event: 'billing.payment_method_updated',
+        entityType: 'billing_subscriptions',
+        entityId: activeSub?.id ?? userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Default payment method updated for user #${userId}`,
+        metadata: { brand: summary.brand, last4: summary.last4 },
+      });
+
+      return {
+        brand: summary.brand,
+        last4: summary.last4,
+        expMonth: summary.expMonth,
+        expYear: summary.expYear,
+      };
     });
-
-    return {
-      brand: summary.brand,
-      last4: summary.last4,
-      expMonth: summary.expMonth,
-      expYear: summary.expYear,
-    };
   }
 
   /**
@@ -685,6 +864,7 @@ export class BillingService {
    */
   async listInvoices(userId: number): Promise<BillingInvoiceDto[]> {
     this.ensureStripeEnabled();
+    this.rateLimiter?.assertWithinLimit(userId, 'invoices');
     const userRows = await this.db
       .select({ stripeCustomerId: users.stripeCustomerId })
       .from(users)
@@ -723,6 +903,7 @@ export class BillingService {
    */
   async createPortalSession(userId: number): Promise<BillingPortalResponseDto> {
     this.ensureStripeEnabled();
+    this.rateLimiter?.assertWithinLimit(userId, 'mutation');
     const { customerId } = await this.getOrCreateCustomerId(userId);
     const returnUrl = `${this.getFrontendBaseUrl()}/profile#subscription`;
     return this.gateway.createBillingPortalSession({ customerId, returnUrl });
@@ -1044,6 +1225,7 @@ export class BillingService {
 
     const now = new Date();
     let previousUserTier: string | null = null;
+    let ignoredStale = false;
 
     await this.db.transaction(async (tx) => {
       const userRows = await tx
@@ -1056,8 +1238,34 @@ export class BillingService {
         .limit(1);
 
       const userRow = userRows[0];
-      if (!userRow) return;
+      if (!userRow) {
+        ignoredStale = true;
+        return;
+      }
       previousUserTier = userRow.subscriptionTier;
+
+      const currentSubRows = await tx
+        .select({
+          stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId,
+          status: billingSubscriptions.status,
+        })
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
+
+      const currentSub = currentSubRows[0];
+      if (
+        currentSub &&
+        currentSub.stripeSubscriptionId !== subscription.id &&
+        isActiveSubscriptionStatus(currentSub.status) &&
+        !isActiveSubscriptionStatus(subscription.status)
+      ) {
+        this.logger.warn(
+          `Ignoring stale inactive subscription event '${subscription.id}' (${subscription.status}) while '${currentSub.stripeSubscriptionId}' (${currentSub.status}) is active for user #${userId}`,
+        );
+        ignoredStale = true;
+        return;
+      }
 
       await tx
         .insert(billingSubscriptions)
@@ -1117,6 +1325,10 @@ export class BillingService {
         })
         .where(eq(users.id, userId));
     });
+
+    if (ignoredStale) {
+      return;
+    }
 
     await this.auditLogs?.logUpdate({
       module: 'billing',

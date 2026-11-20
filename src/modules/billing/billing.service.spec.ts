@@ -6,6 +6,7 @@ import type { AuditLogService, ErrorLogService } from '../logs';
 import type { SettingsService } from '../settings/settings.service';
 import { SUBSCRIPTION_PLANS } from '../subscriptions/subscriptions.constants';
 import type { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { BILLING_RATE_LIMITS, BillingRateLimitService } from './billing-rate-limit.service';
 import { BillingService } from './billing.service';
 import type {
   GatewayCheckoutSession,
@@ -28,6 +29,7 @@ describe('BillingService', () => {
   let subscriptions: { assertSubscriptionActive: jest.Mock };
   let auditLogs: { logEvent: jest.Mock; logUpdate: jest.Mock };
   let errorLogs: { logError: jest.Mock };
+  let rateLimiter: BillingRateLimitService;
   let configMock: AppConfigService;
   let service: BillingService;
 
@@ -165,6 +167,8 @@ describe('BillingService', () => {
       logError: jest.fn().mockResolvedValue(undefined),
     };
 
+    rateLimiter = new BillingRateLimitService();
+
     configMock = {
       mail: {
         frontendBaseUrl: 'https://app.dolynation.test/',
@@ -198,6 +202,7 @@ describe('BillingService', () => {
       subscriptions as unknown as SubscriptionsService,
       auditLogs as unknown as AuditLogService,
       errorLogs as unknown as ErrorLogService,
+      rateLimiter,
     );
   });
 
@@ -301,16 +306,23 @@ describe('BillingService', () => {
       ]);
       dbMock.update.mockReturnValueOnce({
         set: jest.fn().mockReturnValue({
-          where: jest.fn().mockResolvedValue(undefined),
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([{ stripeCustomerId: 'cus_mock_1' }]),
+          }),
         }),
       });
 
-      const res = await service.createSubscriptionCheckout(42, { tier: 'dolly_plus' });
+      const res = await service.createSubscriptionCheckout(
+        42,
+        { tier: 'dolly_plus' },
+        'client-key-1',
+      );
 
       expect(gateway.createCustomer).toHaveBeenCalledWith({
         email: 'user@dolynation.test',
         name: 'Ada',
         metadata: { userId: '42', env: 'local' },
+        idempotencyKey: 'doly-cust-local-42',
       });
       expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -318,6 +330,7 @@ describe('BillingService', () => {
           mode: 'subscription',
           priceId: 'price_mock_plus',
           uiMode: 'custom',
+          idempotencyKey: 'doly:local:u42:checkout_sub:client-key-1',
         }),
       );
       expect(res).toEqual({
@@ -513,6 +526,7 @@ describe('BillingService', () => {
 
     const mockSyncDbWrites = (): void => {
       mockLimitSelect([{ subscriptionTier: 'dolly_plus', stripeCustomerId: 'cus_mock_1' }]);
+      mockLimitSelect([]);
       dbMock.insert.mockReturnValueOnce({
         values: jest.fn().mockReturnValue({
           onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
@@ -769,6 +783,7 @@ describe('BillingService', () => {
       });
       // syncSubscriptionState tx + final processed update
       mockLimitSelect([{ subscriptionTier: 'dolly', stripeCustomerId: 'cus_mock_1' }]);
+      mockLimitSelect([]);
       dbMock.insert.mockReturnValueOnce({
         values: jest.fn().mockReturnValue({
           onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
@@ -834,6 +849,7 @@ describe('BillingService', () => {
         }),
       });
       mockLimitSelect([{ subscriptionTier: 'dolly_pro', stripeCustomerId: 'cus_mock_1' }]);
+      mockLimitSelect([]);
       dbMock.insert.mockReturnValueOnce({
         values: jest.fn().mockReturnValue({
           onConflictDoUpdate: jest.fn().mockResolvedValue(undefined),
@@ -856,6 +872,140 @@ describe('BillingService', () => {
         expect.objectContaining({ subscriptionTier: 'dolly' }),
       );
       expect(settings.grantLanguageChangeCredit).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('money-flow hardening (concurrency, guards, rate limiting, idempotency)', () => {
+    it('coalesces concurrent cold-start getPublicConfig price lookups to one gateway call per price', async () => {
+      const [first, second] = await Promise.all([
+        service.getPublicConfig(),
+        service.getPublicConfig(),
+      ]);
+
+      expect(gateway.retrievePrice).toHaveBeenCalledTimes(3);
+      expect(first.plans).toEqual(second.plans);
+    });
+
+    it('deduplicates concurrent customer creation calls for the same user', async () => {
+      mockLimitSelect([
+        {
+          id: 42,
+          email: 'user@dolynation.test',
+          fullName: 'Ada',
+          locale: 'es',
+          subscriptionTier: 'dolly',
+          stripeCustomerId: null,
+        },
+      ]);
+      dbMock.update.mockReturnValueOnce({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([{ stripeCustomerId: 'cus_mock_1' }]),
+          }),
+        }),
+      });
+
+      const [a, b] = await Promise.all([
+        service.createPortalSession(42),
+        service.createPortalSession(42),
+      ]);
+
+      expect(gateway.createCustomer).toHaveBeenCalledTimes(1);
+      expect(a.url).toBe(b.url);
+    });
+
+    it('rejects malformed checkout sessionId in syncCheckoutSession before calling Stripe', async () => {
+      await expect(service.syncCheckoutSession(42, 'bad-session-id')).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({ code: ErrorCode.BILLING_CHECKOUT_INVALID }),
+      });
+      expect(gateway.retrieveCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid Idempotency-Key header characters with 400 VALIDATION_ERROR', async () => {
+      await expect(
+        service.createSubscriptionCheckout(42, { tier: 'dolly_plus' }, 'invalid key with spaces!'),
+      ).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+      });
+      expect(gateway.createCheckoutSession).not.toHaveBeenCalled();
+    });
+
+    it('blocks changePlan with 402 BILLING_PAYMENT_REQUIRED when subscription status is past_due', async () => {
+      mockLimitSelect([
+        {
+          id: 1,
+          userId: 42,
+          stripeCustomerId: 'cus_mock_1',
+          stripeSubscriptionId: 'sub_mock_1',
+          tier: 'dolly_plus',
+          status: 'past_due',
+          cancelAtPeriodEnd: false,
+        },
+      ]);
+
+      await expect(service.changePlan(42, { tier: 'dolly_pro' })).rejects.toMatchObject({
+        status: 402,
+        response: expect.objectContaining({
+          code: ErrorCode.BILLING_PAYMENT_REQUIRED,
+          details: expect.objectContaining({ reason: 'subscription_past_due' }),
+        }),
+      });
+      expect(gateway.updateSubscriptionPlan).not.toHaveBeenCalled();
+    });
+
+    it('ignores stale out-of-order customer.subscription.deleted webhook when a newer active subscription exists', async () => {
+      gateway.constructWebhookEvent.mockReturnValueOnce({
+        id: 'evt_stale_del',
+        type: 'customer.subscription.deleted',
+        envTag: 'local',
+        subscription: makeGatewaySubscription({
+          id: 'sub_old_1',
+          status: 'canceled',
+        }),
+      });
+      dbMock.insert.mockReturnValueOnce({
+        values: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([{ eventId: 'evt_stale_del' }]),
+          }),
+        }),
+      });
+      mockLimitSelect([{ subscriptionTier: 'dolly_pro', stripeCustomerId: 'cus_mock_1' }]);
+      mockLimitSelect([{ stripeSubscriptionId: 'sub_newer_2', status: 'active' }]);
+      const markProcessedWhere = jest.fn().mockResolvedValue(undefined);
+      dbMock.update.mockReturnValueOnce({
+        set: jest.fn().mockReturnValue({ where: markProcessedWhere }),
+      });
+
+      const res = await service.handleWebhook(Buffer.from('{}'), 'sig');
+
+      expect(res).toEqual({ received: true, ignored: false });
+      // No upsert on billingSubscriptions and no downgrade update on users
+      expect(dbMock.insert).toHaveBeenCalledTimes(1);
+      expect(dbMock.update).toHaveBeenCalledTimes(1);
+    });
+
+    it('enforces per-user rate limits with 429 BILLING_RATE_LIMITED on setupIntent bursts', async () => {
+      for (let i = 0; i < BILLING_RATE_LIMITS.setup_intent.maxRequests; i++) {
+        mockLimitSelect([
+          {
+            id: 42,
+            email: 'u@test.dev',
+            fullName: 'U',
+            locale: 'es',
+            subscriptionTier: 'dolly_plus',
+            stripeCustomerId: 'cus_mock_1',
+          },
+        ]);
+        await service.createSetupIntent(42);
+      }
+
+      await expect(service.createSetupIntent(42)).rejects.toMatchObject({
+        status: 429,
+        response: expect.objectContaining({ code: ErrorCode.BILLING_RATE_LIMITED }),
+      });
     });
   });
 });

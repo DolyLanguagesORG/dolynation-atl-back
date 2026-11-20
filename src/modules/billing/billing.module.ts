@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../../database/database.module';
 import { SettingsModule } from '../settings/settings.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { BillingRateLimitService } from './billing-rate-limit.service';
 import { PAYMENT_GATEWAY } from './billing.constants';
 import { BillingController } from './billing.controller';
 import { BillingService } from './billing.service';
@@ -19,8 +20,9 @@ import { StripeGateway } from './gateway/stripe.gateway';
       provide: PAYMENT_GATEWAY,
       useExisting: StripeGateway,
     },
+    BillingRateLimitService,
     BillingService,
   ],
-  exports: [BillingService],
+  exports: [BillingService, BillingRateLimitService],
 })
 export class BillingModule {}

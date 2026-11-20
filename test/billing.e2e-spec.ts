@@ -585,9 +585,53 @@ describe('Billing & Stripe flows (e2e)', () => {
     const upgradedRes = await supertest(server)
       .post('/api/v1/billing/subscription/change-plan')
       .set('Authorization', authHeader)
+      .set('Idempotency-Key', 'e2e-upgrade-pro-1')
       .send({ tier: 'dolly_pro' })
       .expect(200);
     expect(asEnvelope<BillingStatusResponseDto>(upgradedRes.body).data.tier).toBe('dolly_pro');
+
+    // Out-of-order stale canceled webhook for an old subscription does not downgrade active sub
+    const staleOldDeletedSigned = signStripeEvent({
+      id: makeStripeEventId(),
+      object: 'event',
+      type: 'customer.subscription.deleted',
+      data: {
+        object: {
+          id: 'sub_old_stale',
+          object: 'subscription',
+          customer: paidSubSession.customerId,
+          status: 'canceled',
+          cancel_at_period_end: false,
+          canceled_at: Math.floor(Date.now() / 1000),
+          metadata: { userId: String(createdUserId), env: 'test-e2e' },
+          items: {
+            object: 'list',
+            data: [
+              {
+                id: 'si_old',
+                price: { id: PRICE_PLUS },
+                current_period_start: 1,
+                current_period_end: 2,
+              },
+            ],
+          },
+        },
+      },
+    });
+    await supertest(server)
+      .post('/api/v1/billing/webhook')
+      .set('content-type', 'application/json')
+      .set('stripe-signature', staleOldDeletedSigned.sig)
+      .send(staleOldDeletedSigned.body)
+      .expect(200);
+
+    const statusStillProRes = await supertest(server)
+      .get('/api/v1/billing/status')
+      .set('Authorization', authHeader)
+      .expect(200);
+    expect(asEnvelope<BillingStatusResponseDto>(statusStillProRes.body).data.tier).toBe(
+      'dolly_pro',
+    );
 
     const canceledRes = await supertest(server)
       .post('/api/v1/billing/subscription/cancel')
@@ -727,5 +771,42 @@ describe('Billing & Stripe flows (e2e)', () => {
     expect(finalLangs.selected).toEqual(['en', 'fr']);
     expect(finalLangs.active).toEqual(['en']);
     expect(finalLangs.maxLanguages).toBe(1);
+
+    // 11. Hardening checks: input validation, Idempotency-Key validation, stale subscription webhook ignored, and rate limit 429
+    const badSyncRes = await supertest(server)
+      .post('/api/v1/billing/checkout/invalid_session/sync')
+      .set('Authorization', authHeader)
+      .expect(400);
+    expect(asEnvelope<null>(badSyncRes.body).error?.code).toBe('BILLING_CHECKOUT_INVALID');
+
+    const badPmRes = await supertest(server)
+      .post('/api/v1/billing/payment-method/default')
+      .set('Authorization', authHeader)
+      .send({ paymentMethodId: 'invalid_pm' })
+      .expect(400);
+    expect(asEnvelope<null>(badPmRes.body).error?.code).toBe('VALIDATION_ERROR');
+
+    const badIdemRes = await supertest(server)
+      .post('/api/v1/billing/payment-method/setup-intent')
+      .set('Authorization', authHeader)
+      .set('Idempotency-Key', 'invalid key!!')
+      .expect(400);
+    expect(asEnvelope<null>(badIdemRes.body).error?.code).toBe('VALIDATION_ERROR');
+
+    // Step 8 used 1 of 5 setup-intent slots in the 60s window; 4 more succeed, 5th hits 429
+    for (let i = 0; i < 4; i++) {
+      await supertest(server)
+        .post('/api/v1/billing/payment-method/setup-intent')
+        .set('Authorization', authHeader)
+        .set('Idempotency-Key', `e2e-setup-${i}`)
+        .expect(201);
+    }
+    const rateLimitedRes = await supertest(server)
+      .post('/api/v1/billing/payment-method/setup-intent')
+      .set('Authorization', authHeader)
+      .expect(429);
+    const rateBody = asEnvelope<null>(rateLimitedRes.body);
+    expect(rateBody.error?.code).toBe('BILLING_RATE_LIMITED');
+    expect(typeof rateBody.error?.details?.['retryAfterSeconds']).toBe('number');
   });
 });

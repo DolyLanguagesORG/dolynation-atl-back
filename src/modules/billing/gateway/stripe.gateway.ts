@@ -85,7 +85,10 @@ export class StripeGateway implements PaymentGateway {
     }
 
     if (!this.client || this.clientSecretKey !== secretKey) {
-      this.client = new Stripe(secretKey);
+      this.client = new Stripe(secretKey, {
+        timeout: 15_000,
+        maxNetworkRetries: 2,
+      });
       this.clientSecretKey = secretKey;
     }
 
@@ -114,6 +117,15 @@ export class StripeGateway implements PaymentGateway {
         details: { operation },
       });
 
+      if (error instanceof Stripe.errors.StripeCardError) {
+        throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+          operation,
+          declineCode: error.decline_code ?? null,
+        });
+      }
+      if (error instanceof Stripe.errors.StripeRateLimitError) {
+        throw new AppHttpException(ErrorCode.BILLING_RATE_LIMITED, { operation });
+      }
       if (error instanceof Stripe.errors.StripeInvalidRequestError && error.statusCode === 404) {
         throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'StripeResource' });
       }
@@ -128,11 +140,14 @@ export class StripeGateway implements PaymentGateway {
   async createCustomer(input: CreateCustomerInput): Promise<{ id: string }> {
     const stripe = this.getClient();
     const customer = await this.runStripe('customers.create', () =>
-      stripe.customers.create({
-        email: input.email,
-        ...(input.name ? { name: input.name } : {}),
-        metadata: input.metadata,
-      }),
+      stripe.customers.create(
+        {
+          email: input.email,
+          ...(input.name ? { name: input.name } : {}),
+          metadata: input.metadata,
+        },
+        input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
+      ),
     );
     return { id: customer.id };
   }
@@ -172,7 +187,10 @@ export class StripeGateway implements PaymentGateway {
     };
 
     const session = await this.runStripe('checkout.sessions.create', () =>
-      stripe.checkout.sessions.create(baseParams),
+      stripe.checkout.sessions.create(
+        baseParams,
+        input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
+      ),
     );
     return this.mapCheckoutSession(session);
   }
@@ -208,13 +226,18 @@ export class StripeGateway implements PaymentGateway {
     }
 
     const updated = await this.runStripe('subscriptions.update', () =>
-      stripe.subscriptions.update(input.subscriptionId, {
-        items: [{ id: primaryItemId, price: input.newPriceId }],
-        proration_behavior: 'create_prorations',
-        cancel_at_period_end: false,
-        ...(input.metadata ? { metadata: input.metadata } : {}),
-        expand: ['default_payment_method'],
-      }),
+      stripe.subscriptions.update(
+        input.subscriptionId,
+        {
+          items: [{ id: primaryItemId, price: input.newPriceId }],
+          proration_behavior: 'create_prorations',
+          payment_behavior: 'pending_if_incomplete',
+          cancel_at_period_end: false,
+          ...(input.metadata ? { metadata: input.metadata } : {}),
+          expand: ['default_payment_method'],
+        },
+        input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
+      ),
     );
     return this.mapSubscription(updated);
   }
@@ -235,15 +258,19 @@ export class StripeGateway implements PaymentGateway {
   async createSetupIntent(input: {
     customerId: string;
     metadata: Record<string, string>;
+    idempotencyKey?: string;
   }): Promise<GatewaySetupIntent> {
     const stripe = this.getClient();
     const intent = await this.runStripe('setupIntents.create', () =>
-      stripe.setupIntents.create({
-        customer: input.customerId,
-        usage: 'off_session',
-        automatic_payment_methods: { enabled: true },
-        metadata: input.metadata,
-      }),
+      stripe.setupIntents.create(
+        {
+          customer: input.customerId,
+          usage: 'off_session',
+          automatic_payment_methods: { enabled: true },
+          metadata: input.metadata,
+        },
+        input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined,
+      ),
     );
     return {
       id: intent.id,

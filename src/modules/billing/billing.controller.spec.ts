@@ -73,22 +73,27 @@ describe('BillingController', () => {
     };
     billingMock.createSubscriptionCheckout.mockResolvedValue(checkoutData);
     expect(
-      await controller.createSubscriptionCheckout(user, { tier: 'dolly_plus', uiMode: 'custom' }),
+      await controller.createSubscriptionCheckout(
+        user,
+        { tier: 'dolly_plus', uiMode: 'custom' },
+        'idem-sub-1',
+      ),
     ).toEqual({
       message: 'Subscription checkout session created',
       data: checkoutData,
     });
-    expect(billingMock.createSubscriptionCheckout).toHaveBeenCalledWith(42, {
-      tier: 'dolly_plus',
-      uiMode: 'custom',
-    });
+    expect(billingMock.createSubscriptionCheckout).toHaveBeenCalledWith(
+      42,
+      { tier: 'dolly_plus', uiMode: 'custom' },
+      'idem-sub-1',
+    );
 
     billingMock.createLanguageUnlockCheckout.mockResolvedValue({ ...checkoutData, tier: null });
-    expect(await controller.createLanguageUnlockCheckout(user, {})).toEqual({
+    expect(await controller.createLanguageUnlockCheckout(user, {}, 'idem-unlock-1')).toEqual({
       message: 'Language unlock checkout session created',
       data: expect.objectContaining({ sessionId: 'cs_1', tier: null }),
     });
-    expect(billingMock.createLanguageUnlockCheckout).toHaveBeenCalledWith(42, {});
+    expect(billingMock.createLanguageUnlockCheckout).toHaveBeenCalledWith(42, {}, 'idem-unlock-1');
 
     const statusData = {
       provider: 'stripe' as const,
@@ -111,11 +116,11 @@ describe('BillingController', () => {
     expect(billingMock.getBillingStatus).toHaveBeenCalledWith(42);
 
     billingMock.changePlan.mockResolvedValue(statusData);
-    expect(await controller.changePlan(user, { tier: 'dolly_pro' })).toEqual({
+    expect(await controller.changePlan(user, { tier: 'dolly_pro' }, 'idem-plan-1')).toEqual({
       message: 'Subscription plan updated',
       data: statusData,
     });
-    expect(billingMock.changePlan).toHaveBeenCalledWith(42, { tier: 'dolly_pro' });
+    expect(billingMock.changePlan).toHaveBeenCalledWith(42, { tier: 'dolly_pro' }, 'idem-plan-1');
 
     billingMock.cancelSubscription.mockResolvedValue(statusData);
     expect(await controller.cancelSubscription(user)).toEqual({
@@ -137,11 +142,11 @@ describe('BillingController', () => {
       publishableKey: 'stripe-mock-pk',
     };
     billingMock.createSetupIntent.mockResolvedValue(intentData);
-    expect(await controller.createSetupIntent(user)).toEqual({
+    expect(await controller.createSetupIntent(user, 'idem-setup-1')).toEqual({
       message: 'Setup intent created',
       data: intentData,
     });
-    expect(billingMock.createSetupIntent).toHaveBeenCalledWith(42);
+    expect(billingMock.createSetupIntent).toHaveBeenCalledWith(42, 'idem-setup-1');
 
     const pmData = { brand: 'visa', last4: '4242', expMonth: 12, expYear: 2030 };
     billingMock.setDefaultPaymentMethod.mockResolvedValue(pmData);

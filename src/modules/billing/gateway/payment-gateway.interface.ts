@@ -77,6 +77,7 @@ export interface CreateCustomerInput {
   email: string;
   name?: string | null;
   metadata: Record<string, string>;
+  idempotencyKey?: string;
 }
 
 export interface CreateCheckoutSessionInput {
@@ -90,12 +91,14 @@ export interface CreateCheckoutSessionInput {
   cancelUrl?: string;
   metadata: Record<string, string>;
   subscriptionMetadata?: Record<string, string>;
+  idempotencyKey?: string;
 }
 
 export interface UpdateSubscriptionPlanInput {
   subscriptionId: string;
   newPriceId: string;
   metadata?: Record<string, string>;
+  idempotencyKey?: string;
 }
 
 export interface SetSubscriptionCancelInput {
@@ -123,6 +126,7 @@ export interface PaymentGateway {
   createSetupIntent(input: {
     customerId: string;
     metadata: Record<string, string>;
+    idempotencyKey?: string;
   }): Promise<GatewaySetupIntent>;
   attachAndSetDefaultPaymentMethod(
     input: AttachDefaultPaymentMethodInput,

@@ -22,6 +22,7 @@ import {
   ApiResponse as ApiSwaggerResponse,
   ApiServiceUnavailableResponse,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -88,11 +89,18 @@ export class BillingController {
     description: 'Stripe billing is not configured on this environment',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: false,
+    description: 'Optional idempotency key to safely retry payment operations',
+  })
   async createSubscriptionCheckout(
     @CurrentUser() current: AuthUser,
     @Body() dto: CreateSubscriptionCheckoutDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApiResponse<CheckoutSessionResponseDto>> {
-    const session = await this.billing.createSubscriptionCheckout(current.id, dto);
+    const session = await this.billing.createSubscriptionCheckout(current.id, dto, idempotencyKey);
     return apiOk('Subscription checkout session created', session);
   }
 
@@ -113,11 +121,22 @@ export class BillingController {
     description: 'Stripe billing is not configured on this environment',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: false,
+    description: 'Optional idempotency key to safely retry payment operations',
+  })
   async createLanguageUnlockCheckout(
     @CurrentUser() current: AuthUser,
     @Body() dto: CreateLanguageUnlockCheckoutDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApiResponse<CheckoutSessionResponseDto>> {
-    const session = await this.billing.createLanguageUnlockCheckout(current.id, dto);
+    const session = await this.billing.createLanguageUnlockCheckout(
+      current.id,
+      dto,
+      idempotencyKey,
+    );
     return apiOk('Language unlock checkout session created', session);
   }
 
@@ -145,6 +164,7 @@ export class BillingController {
     description: 'Checkout session belongs to another user',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
   async syncCheckoutSession(
     @CurrentUser() current: AuthUser,
     @Param('sessionId') sessionId: string,
@@ -183,11 +203,18 @@ export class BillingController {
     description: 'No active paid subscription exists; use checkout first',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: false,
+    description: 'Optional idempotency key to safely retry payment operations',
+  })
   async changePlan(
     @CurrentUser() current: AuthUser,
     @Body() dto: ChangePlanDto,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApiResponse<BillingStatusResponseDto>> {
-    const status = await this.billing.changePlan(current.id, dto);
+    const status = await this.billing.changePlan(current.id, dto, idempotencyKey);
     return apiOk('Subscription plan updated', status);
   }
 
@@ -201,6 +228,7 @@ export class BillingController {
   @ApiOkResponseOf(BillingStatusResponseDto)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid access token', type: ApiErrorDto })
   @ApiNotFoundResponse({ description: 'No active paid subscription found', type: ApiErrorDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
   async cancelSubscription(
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<BillingStatusResponseDto>> {
@@ -217,6 +245,7 @@ export class BillingController {
   @ApiOkResponseOf(BillingStatusResponseDto)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid access token', type: ApiErrorDto })
   @ApiNotFoundResponse({ description: 'No resumable active subscription found', type: ApiErrorDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
   async resumeSubscription(
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<BillingStatusResponseDto>> {
@@ -236,10 +265,17 @@ export class BillingController {
     description: 'Stripe billing is not configured on this environment',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
+  @ApiHeader({
+    name: 'idempotency-key',
+    required: false,
+    description: 'Optional idempotency key to safely retry payment operations',
+  })
   async createSetupIntent(
     @CurrentUser() current: AuthUser,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ): Promise<ApiResponse<SetupIntentResponseDto>> {
-    const intent = await this.billing.createSetupIntent(current.id);
+    const intent = await this.billing.createSetupIntent(current.id, idempotencyKey);
     return apiOk('Setup intent created', intent);
   }
 
@@ -256,6 +292,7 @@ export class BillingController {
     description: 'PaymentMethod belongs to another customer',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
   async setDefaultPaymentMethod(
     @CurrentUser() current: AuthUser,
     @Body() dto: SetDefaultPaymentMethodDto,
@@ -272,6 +309,7 @@ export class BillingController {
   @ApiOkResponseOfArray(BillingInvoiceDto)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid access token', type: ApiErrorDto })
   @ApiNotFoundResponse({ description: 'User not found', type: ApiErrorDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
   async listInvoices(@CurrentUser() current: AuthUser): Promise<ApiResponse<BillingInvoiceDto[]>> {
     const invoices = await this.billing.listInvoices(current.id);
     return apiOk('Billing invoices', invoices);
@@ -285,6 +323,7 @@ export class BillingController {
   })
   @ApiOkResponseOf(BillingPortalResponseDto)
   @ApiUnauthorizedResponse({ description: 'Missing or invalid access token', type: ApiErrorDto })
+  @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
   async createPortal(
     @CurrentUser() current: AuthUser,
   ): Promise<ApiResponse<BillingPortalResponseDto>> {

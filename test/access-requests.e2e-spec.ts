@@ -132,6 +132,7 @@ describe('Access requests, roles & admin review flows (e2e)', () => {
     process.env.LOG_LEVEL = 'silent';
     process.env.EMAIL_VERIFICATION_REQUIRED = 'true';
     process.env.ACCESS_REQUESTS_ENABLED = 'true';
+    process.env.BILLING_PROVIDER = 'manual';
     process.env.ADMIN_NOTIFICATION_EMAIL = 'owners@dolynation.test';
 
     const { AppModule } = await import('../src/app.module');
@@ -161,6 +162,7 @@ describe('Access requests, roles & admin review flows (e2e)', () => {
     await app.close();
     delete process.env.EMAIL_VERIFICATION_REQUIRED;
     delete process.env.ACCESS_REQUESTS_ENABLED;
+    delete process.env.BILLING_PROVIDER;
     delete process.env.ADMIN_NOTIFICATION_EMAIL;
   });
 
