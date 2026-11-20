@@ -208,10 +208,44 @@ const baseEnvSchema = z.object({
 
   // ===== Pasarela de pagos (Stripe Sandbox / manual) =====
   BILLING_PROVIDER: z.preprocess(emptyToUndefined, z.enum(['manual', 'stripe']).default('manual')),
-  BILLING_ENV_TAG: z.preprocess(emptyToUndefined, z.string().default('local')),
-  STRIPE_SECRET_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
-  STRIPE_PUBLISHABLE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
-  STRIPE_WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+  // El tag entra en la clave de idempotencia de Stripe, que tiene un tope
+  // de 255 caracteres: un tag sin limite lo desbordaria.
+  BILLING_ENV_TAG: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .min(1)
+      .max(32)
+      .regex(
+        /^[A-Za-z0-9._-]+$/,
+        'BILLING_ENV_TAG solo admite letras, digitos, punto, guion y guion bajo',
+      )
+      .default('local'),
+  ),
+  // El formato se valida aqui y no en el arranque de Stripe: una clave mal
+  // pegada (con espacios o truncada) fallaba en runtime, en el checkout,
+  // con un error de la pasarela que no dice nada util.
+  STRIPE_SECRET_KEY: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(/^(sk|rk)_(test|live)_[A-Za-z0-9_]+$/, 'STRIPE_SECRET_KEY tiene un formato invalido')
+      .optional(),
+  ),
+  STRIPE_PUBLISHABLE_KEY: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(/^pk_(test|live)_[A-Za-z0-9_]+$/, 'STRIPE_PUBLISHABLE_KEY tiene un formato invalido')
+      .optional(),
+  ),
+  STRIPE_WEBHOOK_SECRET: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .regex(/^whsec_[A-Za-z0-9_]+$/, 'STRIPE_WEBHOOK_SECRET tiene un formato invalido')
+      .optional(),
+  ),
   STRIPE_CURRENCY: z.preprocess(
     emptyToUndefined,
     z

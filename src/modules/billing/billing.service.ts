@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { desc, eq, and, isNull } from 'drizzle-orm';
+import { desc, eq, and, isNull, or } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
@@ -24,10 +24,12 @@ import { BillingRateLimitService } from './billing-rate-limit.service';
 import {
   isActiveSubscriptionStatus,
   isPaidSubscriptionTier,
+  NON_ENTITLING_STRIPE_SUBSCRIPTION_STATUSES,
   PAYMENT_GATEWAY,
   PRICE_CACHE_TTL_MS,
   resolvePriceIdForTier,
   resolveTierForPriceId,
+  STALE_WEBHOOK_PROCESSING_MS,
   type PaidSubscriptionTier,
 } from './billing.constants';
 import type {
@@ -54,6 +56,7 @@ import type {
   GatewayInvoice,
   GatewayPaymentMethodSummary,
   GatewayPriceInfo,
+  GatewayRefund,
   GatewaySubscription,
   PaymentGateway,
 } from './gateway/payment-gateway.interface';
@@ -386,6 +389,20 @@ export class BillingService {
       }
 
       const { user, customerId } = await this.getOrCreateCustomerId(userId);
+
+      // Se pregunta a la pasarela, no solo a la base local. La base solo
+      // refleja lo que han contado los webhooks: si uno se perdio (evento
+      // atascado, despliegue a mitad), la base diria que el usuario no tiene
+      // suscripcion y se crearia una segunda. Stripe admite varias
+      // suscripciones por cliente, asi que el usuario acabaria pagando dos.
+      const activeInProvider = await this.gateway.listActiveSubscriptions({ customerId });
+      if (activeInProvider.length > 0) {
+        throw new AppHttpException(ErrorCode.BILLING_SUBSCRIPTION_CONFLICT, {
+          currentStatus: activeInProvider[0].status,
+          requestedTier: dto.tier,
+        });
+      }
+
       const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
       const frontendBase = this.getFrontendBaseUrl();
       const metadata: Record<string, string> = {
@@ -574,6 +591,8 @@ export class BillingService {
    * Consulta el estado actual de suscripción Stripe y pagos recientes del usuario.
    */
   async getBillingStatus(userId: number): Promise<BillingStatusResponseDto> {
+    this.rateLimiter?.assertWithinLimit(userId, 'status');
+
     const userRows = await this.db
       .select({ id: users.id, subscriptionTier: users.subscriptionTier })
       .from(users)
@@ -958,6 +977,25 @@ export class BillingService {
           }
           break;
         }
+        case 'checkout.session.async_payment_succeeded': {
+          // Pago asincrono (SPEI, OXXO, BOLETO): el cobro se confirma DESPUES
+          // de 'checkout.session.completed'. Sin este caso el evento caia en
+          // el 'default' y el credito (o la suscripcion) no se entregaba
+          // nunca, aunque el usuario hubiera pagado.
+          if (event.checkoutSession) {
+            await this.fulfillCheckoutSession(event.checkoutSession, undefined, false);
+          }
+          break;
+        }
+        case 'checkout.session.async_payment_failed':
+        case 'checkout.session.expired': {
+          // El pago fallo o el usuario abandono el checkout: la fila 'pending'
+          // no debe quedarse colgada apareciendo como un pago fantasma.
+          if (event.checkoutSession) {
+            await this.markCheckoutSessionFailed(event.checkoutSession);
+          }
+          break;
+        }
         case 'customer.subscription.created':
         case 'customer.subscription.updated':
         case 'customer.subscription.deleted': {
@@ -973,6 +1011,16 @@ export class BillingService {
               event.invoice,
               event.type === 'invoice.payment_succeeded' ? 'paid' : 'failed',
             );
+          }
+          break;
+        }
+        case 'charge.refunded':
+        case 'refund.created': {
+          // Un reembolso tiene que revertir lo que concedio el cobro: si no,
+          // el usuario se queda con el plan pagado (y en la tabla de pagos)
+          // despues de que le devuelvan el dinero.
+          if (event.refund) {
+            await this.applyRefund(event.refund);
           }
           break;
         }
@@ -1035,24 +1083,65 @@ export class BillingService {
     }
 
     const existingRows = await this.db
-      .select({ status: billingWebhookEvents.status })
+      .select({
+        status: billingWebhookEvents.status,
+        createdAt: billingWebhookEvents.createdAt,
+      })
       .from(billingWebhookEvents)
       .where(eq(billingWebhookEvents.eventId, eventId))
       .limit(1);
 
-    if (existingRows[0]?.status !== 'failed') {
+    const existing = existingRows[0];
+    if (!existing) {
       return false;
     }
 
-    const retried = await this.db
-      .update(billingWebhookEvents)
-      .set({ status: 'processing', errorMessage: null })
-      .where(
-        and(eq(billingWebhookEvents.eventId, eventId), eq(billingWebhookEvents.status, 'failed')),
-      )
-      .returning({ eventId: billingWebhookEvents.eventId });
+    // Un evento que quedo en 'failed' se reintenta: el handler devolvio 500
+    // y Stripe vuelve a entregarlo.
+    if (existing.status === 'failed') {
+      const retried = await this.db
+        .update(billingWebhookEvents)
+        .set({ status: 'processing', errorMessage: null, createdAt: now })
+        .where(
+          and(eq(billingWebhookEvents.eventId, eventId), eq(billingWebhookEvents.status, 'failed')),
+        )
+        .returning({ eventId: billingWebhookEvents.eventId });
 
-    return retried.length > 0;
+      return retried.length > 0;
+    }
+
+    // Un evento que quedo en 'processing' se considera atascado cuando el
+    // proceso murio a mitad (OOM, kill, reinicio del contenedor) o el handler
+    // se cuelgo: el INSERT se hizo pero el UPDATE final nunca llego. Sin
+    // este reclamo, Stripe recibia un 200 y DEJABA de entregar el evento, y
+    // la activacion de la suscripcion se perdia en silencio para siempre.
+    if (existing.status === 'processing') {
+      const claimedAt = existing.createdAt ? new Date(existing.createdAt).getTime() : 0;
+      const age = Date.now() - claimedAt;
+      if (!Number.isFinite(claimedAt) || age < STALE_WEBHOOK_PROCESSING_MS) {
+        return false;
+      }
+
+      const reclaimed = await this.db
+        .update(billingWebhookEvents)
+        .set({ status: 'processing', errorMessage: null, createdAt: now })
+        .where(
+          and(
+            eq(billingWebhookEvents.eventId, eventId),
+            eq(billingWebhookEvents.status, 'processing'),
+          ),
+        )
+        .returning({ eventId: billingWebhookEvents.eventId });
+
+      if (reclaimed.length > 0) {
+        this.logger.warn(
+          `Webhook event ${eventId} was stuck in 'processing' for ${Math.round(age / 1000)}s and has been reclaimed`,
+        );
+      }
+      return reclaimed.length > 0;
+    }
+
+    return false;
   }
 
   private async fulfillCheckoutSession(
@@ -1203,25 +1292,36 @@ export class BillingService {
       return;
     }
 
+    // Fallback FAIL-CERRADO: si el price no es ninguno de los configurados,
+    // no se regala el plan pagado. Antes caia en 'dolly_plus' y cualquier
+    // desajuste de configuracion concedia cuotas de pago sin cobrar.
     const resolvedTier: PaidSubscriptionTier | SubscriptionTier =
       resolveTierForPriceId(subscription.priceId, this.config) ??
       (isValidSubscriptionTier(subscription.metadata['tier'])
         ? subscription.metadata['tier']
         : null) ??
       tierHint ??
-      'dolly_plus';
+      'dolly';
 
     const pmSummary: GatewayPaymentMethodSummary | null =
       subscription.defaultPaymentMethod && typeof subscription.defaultPaymentMethod === 'object'
         ? subscription.defaultPaymentMethod
         : null;
 
-    const effectiveUserTier: SubscriptionTier =
-      subscription.status === 'canceled' ||
-      subscription.status === 'unpaid' ||
-      subscription.status === 'incomplete_expired'
-        ? 'dolly'
-        : resolvedTier;
+    // Un plan pagado solo se concede si el pago esta CONFIRMADO.
+    // 'incomplete' es lo que Stripe emite en cuanto arranca el cobro (3DS
+    // abandonado, SPEI/OXXO sin confirmar, tarjeta rechazada): el dinero
+    // todavia no esta. 'paused' es un cobro suspendido. Antes solo se
+    // degradaban 'canceled', 'unpaid' e 'incomplete_expired', asi que una
+    // suscripcion sin pagar concedia el plan pagado hasta que Stripe avisaba
+    // (~23 h despues) y el usuario ya habia consumido las cuotas de pago.
+    // 'past_due' NO se degrada: es dunning (se reintenta el cobro) y el
+    // usuario mantiene lo que pago.
+    const effectiveUserTier: SubscriptionTier = NON_ENTITLING_STRIPE_SUBSCRIPTION_STATUSES.includes(
+      subscription.status as (typeof NON_ENTITLING_STRIPE_SUBSCRIPTION_STATUSES)[number],
+    )
+      ? 'dolly'
+      : resolvedTier;
 
     const now = new Date();
     let previousUserTier: string | null = null;
@@ -1367,38 +1467,177 @@ export class BillingService {
     const now = new Date();
     const amountCents = outcome === 'paid' ? invoice.amountPaidCents : invoice.amountDueCents;
 
+    // El tipo de pago se deduce de la propia factura: una factura SIN
+    // suscripcion es un pago de una sola vez (desbloqueo de idioma). Antes
+    // todo se guardaba como 'subscription_invoice', asi que una compra de
+    // idioma aparecia DOS veces en `recentPayments` (una por la sesion de
+    // checkout y otra por la factura) con el importe duplicado.
+    const kind = invoice.subscriptionId ? 'subscription_invoice' : 'language_unlock';
+
     await this.db.transaction(async (tx) => {
-      await tx
-        .insert(billingPayments)
-        .values({
-          userId,
-          provider: 'stripe',
-          kind: 'subscription_invoice',
-          tier: isValidSubscriptionTier(invoice.metadata['tier']) ? invoice.metadata['tier'] : null,
-          stripeInvoiceId: invoice.id,
-          amountCents,
-          currency: invoice.currency,
-          status: outcome,
-          fulfilledAt: outcome === 'paid' ? now : null,
-          metadata: invoice.metadata,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .onConflictDoUpdate({
-          target: billingPayments.stripeInvoiceId,
-          set: {
+      // Si ya hay una fila para este PaymentIntent (la creo el checkout),
+      // se actualiza esa en vez de insertar otra: un mismo cobro es una
+      // sola fila.
+      const existingByIntent = invoice.paymentIntentId
+        ? await tx
+            .select({ id: billingPayments.id })
+            .from(billingPayments)
+            .where(eq(billingPayments.stripePaymentIntentId, invoice.paymentIntentId))
+            .limit(1)
+        : [];
+
+      if (existingByIntent[0]) {
+        await tx
+          .update(billingPayments)
+          .set({
             amountCents,
             status: outcome,
             fulfilledAt: outcome === 'paid' ? now : null,
             updatedAt: now,
-          },
-        });
+          })
+          .where(eq(billingPayments.id, existingByIntent[0].id));
+      } else {
+        await tx
+          .insert(billingPayments)
+          .values({
+            userId,
+            provider: 'stripe',
+            kind,
+            tier: isValidSubscriptionTier(invoice.metadata['tier'])
+              ? invoice.metadata['tier']
+              : null,
+            stripeInvoiceId: invoice.id,
+            stripePaymentIntentId: invoice.paymentIntentId,
+            amountCents,
+            currency: invoice.currency,
+            status: outcome,
+            fulfilledAt: outcome === 'paid' ? now : null,
+            metadata: invoice.metadata,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: billingPayments.stripeInvoiceId,
+            set: {
+              amountCents,
+              status: outcome,
+              fulfilledAt: outcome === 'paid' ? now : null,
+              updatedAt: now,
+            },
+          });
+      }
 
       if (outcome === 'failed' && invoice.subscriptionId) {
         await tx
           .update(billingSubscriptions)
           .set({ status: 'past_due', updatedAt: now })
           .where(eq(billingSubscriptions.stripeSubscriptionId, invoice.subscriptionId));
+      }
+    });
+  }
+
+  /**
+   * Marca como fallido el pago de una sesion de checkout que no se llevo a
+   * cabo (pago asincrono rechazado o checkout expirado).
+   *
+   * Sin esto, la fila `pending` se quedaba para siempre y aparecia en
+   * `recentPayments` como un pago fantasma que el usuario nunca hizo.
+   */
+  private async markCheckoutSessionFailed(session: GatewayCheckoutSession): Promise<void> {
+    const now = new Date();
+    await this.db
+      .update(billingPayments)
+      .set({ status: 'failed', fulfilledAt: null, updatedAt: now })
+      .where(
+        and(
+          eq(billingPayments.stripeCheckoutSessionId, session.id),
+          eq(billingPayments.status, 'pending'),
+        ),
+      );
+  }
+
+  /**
+   * Revierte los derechos de un reembolso.
+   *
+   * Un reembolso tiene que deshacer lo que concedio el cobro: si no, el
+   * usuario se queda con el plan pagado y con el pago marcado como pagado
+   * despues de que le devuelvan el dinero.
+   */
+  private async applyRefund(refund: GatewayRefund): Promise<void> {
+    const conditions = [];
+    if (refund.paymentIntentId) {
+      conditions.push(eq(billingPayments.stripePaymentIntentId, refund.paymentIntentId));
+    }
+    if (refund.invoiceId) {
+      conditions.push(eq(billingPayments.stripeInvoiceId, refund.invoiceId));
+    }
+
+    if (conditions.length === 0) {
+      this.logger.warn(`Refund ${refund.id} has no payment intent nor invoice to match`);
+      return;
+    }
+
+    const now = new Date();
+    const rows = await this.db
+      .select({
+        id: billingPayments.id,
+        userId: billingPayments.userId,
+        kind: billingPayments.kind,
+        status: billingPayments.status,
+        tier: billingPayments.tier,
+      })
+      .from(billingPayments)
+      .where(or(...conditions))
+      .limit(1);
+
+    const payment = rows[0];
+    if (!payment) {
+      this.logger.warn(`Refund ${refund.id} did not match any recorded payment`);
+      return;
+    }
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(billingPayments)
+        .set({
+          status: refund.fullyRefunded ? 'refunded' : 'partially_refunded',
+          updatedAt: now,
+        })
+        .where(eq(billingPayments.id, payment.id));
+
+      // Si el reembolso es total y el pago era de una suscripcion, el plan
+      // pagado se revoca: el dinero ya no esta.
+      if (!refund.fullyRefunded) {
+        return;
+      }
+
+      const isSubscriptionPayment =
+        payment.kind === 'subscription' ||
+        payment.kind === 'subscription_invoice' ||
+        payment.kind === 'plan_change';
+
+      if (isSubscriptionPayment) {
+        await tx
+          .update(users)
+          .set({ subscriptionTier: 'dolly', updatedAt: now })
+          .where(eq(users.id, payment.userId));
+
+        await tx
+          .update(billingSubscriptions)
+          .set({ status: 'canceled', updatedAt: now })
+          .where(eq(billingSubscriptions.userId, payment.userId));
+
+        await this.auditLogs?.logUpdate({
+          module: 'billing',
+          event: 'billing.subscription_refunded',
+          entityType: 'user',
+          entityId: payment.userId,
+          actorUserId: payment.userId,
+          targetUserId: payment.userId,
+          summary: `Subscription refunded for user #${payment.userId}; plan downgraded to dolly`,
+          beforeState: { subscriptionTier: payment.tier },
+          afterState: { subscriptionTier: 'dolly' },
+        });
       }
     });
   }

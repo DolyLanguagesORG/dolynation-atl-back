@@ -3,7 +3,8 @@ import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 
 /** Acciones de facturación protegidas por límite de tasa por usuario. */
-export type BillingRateLimitAction = 'checkout' | 'setup_intent' | 'mutation' | 'sync' | 'invoices';
+export type BillingRateLimitAction =
+  'checkout' | 'setup_intent' | 'mutation' | 'sync' | 'invoices' | 'status';
 
 export interface BillingRateLimitRule {
   maxRequests: number;
@@ -20,6 +21,9 @@ export const BILLING_RATE_LIMITS: Record<BillingRateLimitAction, BillingRateLimi
   mutation: { maxRequests: 10, windowMs: 60_000 },
   sync: { maxRequests: 15, windowMs: 60_000 },
   invoices: { maxRequests: 20, windowMs: 60_000 },
+  // El estado de facturacion golpea la base en cada render del perfil:
+  // sin limite, un bucle de reintentos del frontend la martillea.
+  status: { maxRequests: 30, windowMs: 60_000 },
 };
 
 const MAX_TRACKED_BUCKETS = 2000;

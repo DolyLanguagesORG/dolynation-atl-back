@@ -61,6 +61,12 @@ export interface GatewayInvoice {
   hostedInvoiceUrl: string | null;
   subscriptionId: string | null;
   customerId: string | null;
+  /**
+   * Intent de pago que esta factura liquida. Es lo que permite emparejar un
+   * reembolso (`charge.refunded`) con el pago registrado, y deduplicar la
+   * fila cuando el checkout ya la habia creado.
+   */
+  paymentIntentId: string | null;
   metadata: Record<string, string>;
 }
 
@@ -71,6 +77,20 @@ export interface GatewayWebhookEvent {
   checkoutSession?: GatewayCheckoutSession;
   subscription?: GatewaySubscription;
   invoice?: GatewayInvoice;
+  refund?: GatewayRefund;
+}
+
+/** Datos de un reembolso, para revertir los derechos que dio el cobro. */
+export interface GatewayRefund {
+  id: string;
+  chargeId: string | null;
+  paymentIntentId: string | null;
+  invoiceId: string | null;
+  customerId: string | null;
+  amountRefundedCents: number;
+  amountCents: number;
+  currency: string;
+  fullyRefunded: boolean;
 }
 
 export interface CreateCustomerInput {
@@ -132,6 +152,15 @@ export interface PaymentGateway {
     input: AttachDefaultPaymentMethodInput,
   ): Promise<GatewayPaymentMethodSummary>;
   listInvoices(input: { customerId: string; limit?: number }): Promise<GatewayInvoice[]>;
+  /**
+   * Lista las suscripciones VIGENTES de un cliente en la pasarela.
+   *
+   * La base local solo refleja lo que han contado los webhooks: si uno se
+   * pierde, la base dice que el usuario no tiene suscripcion y crearia una
+   * segunda (que Stripe admite y el usuario pagaria dos veces). Preguntar a
+   * la pasarela antes de cobrar es lo que cierra ese agujero.
+   */
+  listActiveSubscriptions(input: { customerId: string }): Promise<GatewaySubscription[]>;
   createBillingPortalSession(input: {
     customerId: string;
     returnUrl: string;

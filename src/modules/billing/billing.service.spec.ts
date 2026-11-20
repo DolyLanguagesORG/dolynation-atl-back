@@ -139,6 +139,9 @@ describe('BillingService', () => {
         expYear: 2029,
       }),
       listInvoices: jest.fn().mockResolvedValue([]),
+      // Por defecto, el usuario no tiene suscripcion en la pasarela: el
+      // servicio la consulta antes de permitir un cobro.
+      listActiveSubscriptions: jest.fn().mockResolvedValue([]),
       createBillingPortalSession: jest
         .fn()
         .mockResolvedValue({ url: 'https://billing.stripe.com/p/session/mock' }),
@@ -684,6 +687,7 @@ describe('BillingService', () => {
         hostedInvoiceUrl: 'https://invoice.stripe.com/in_mock_1',
         subscriptionId: 'sub_mock_1',
         customerId: 'cus_mock_1',
+        paymentIntentId: 'pi_mock_1',
         metadata: {},
       };
       mockLimitSelect([{ stripeCustomerId: 'cus_mock_1' }]);

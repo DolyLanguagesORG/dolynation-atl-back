@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
@@ -568,9 +568,15 @@ export class SettingsService {
     const saved = sanitizeSelectedLanguages(row?.selectedLanguages);
     const lastChangeAt = row?.lastLanguageChangeAt ?? null;
     const previousCredits = Math.max(0, row?.languageChangeCredits ?? 0);
+
+    // El incremento es ATOMICO (`credits = credits + 1`), no un
+    // leer-modificar-escribir. Dos compras simultaneas del mismo usuario
+    // (dos sesiones de checkout distintas) leian las dos 0 y escribian las
+    // dos 1: el usuario pagaba dos y recibia un solo credito.
+    await this.incrementLanguageChangeCredits(userId, dbClient);
+
     const nextCredits = previousCredits + 1;
 
-    await this.upsert(userId, { languageChangeCredits: nextCredits }, dbClient);
     await this.auditLogs?.logUpdate({
       module: 'settings',
       event: 'settings.language_change_unlocked',
@@ -667,6 +673,53 @@ export class SettingsService {
   /**
    * Inserta o actualiza (`upsert`) el registro de configuración en `user_settings`.
    */
+  /**
+   * Incrementa atomicamente el credito de cambio de idioma.
+   *
+   * El incremento lo hace la base (`credits = credits + 1`), no el proceso:
+   * dos compras simultaneas del mismo usuario se serializan solas.
+   */
+  private async incrementLanguageChangeCredits(
+    userId: number,
+    dbClient: DrizzleExecutor = this.db,
+  ): Promise<void> {
+    const now = new Date();
+
+    const updated = await dbClient
+      .update(userSettings)
+      .set({
+        languageChangeCredits: sql`COALESCE(${userSettings.languageChangeCredits}, 0) + 1`,
+        updatedAt: now,
+      })
+      .where(eq(userSettings.userId, userId))
+      .returning({ userId: userSettings.userId });
+
+    if (updated.length > 0) {
+      return;
+    }
+
+    // La fila no existia: se crea. El ON CONFLICT tambien SUMA, no fija,
+    // asi que dos inserciones simultaneas no se pisan.
+    await dbClient
+      .insert(userSettings)
+      .values({
+        userId,
+        selectedLanguages: [],
+        preferredCategories: [],
+        savedCategories: [],
+        languageChangeCredits: 1,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: userSettings.userId,
+        set: {
+          languageChangeCredits: sql`COALESCE(${userSettings.languageChangeCredits}, 0) + 1`,
+          updatedAt: now,
+        },
+      });
+  }
+
   private async upsert(
     userId: number,
     patch: SettingsUpsertPatch,

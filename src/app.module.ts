@@ -49,6 +49,9 @@ import { VersionModule } from './modules/version/version.module';
             'req.headers.authorization',
             'req.headers.cookie',
             'req.headers["x-api-key"]',
+            // La firma del webhook de Stripe es un valor reutilizable durante
+            // su ventana de tolerancia: no se escribe en los registros.
+            'req.headers["stripe-signature"]',
             '*.password',
             '*.newPassword',
             '*.currentPassword',

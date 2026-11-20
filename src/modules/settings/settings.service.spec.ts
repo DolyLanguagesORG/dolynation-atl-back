@@ -11,7 +11,9 @@ describe('SettingsService', () => {
   let values: jest.Mock;
   let selectLimit: jest.Mock;
   let selectOrderBy: jest.Mock;
-  let db: { insert: jest.Mock; select: jest.Mock };
+  let updateSet: jest.Mock;
+  let updateReturning: jest.Mock;
+  let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock };
   let moderation: jest.Mocked<Pick<CategoryModerationService, 'assertCategoriesAllowed'>>;
   let subscriptions: { assertSubscriptionActive: jest.Mock };
   let service: SettingsService;
@@ -28,6 +30,13 @@ describe('SettingsService', () => {
     // `where()` devuelve un objeto con `limit` (findByUserId) y con
     // `orderBy` (getGlobalCatalog): las dos consultas encadenan distinto.
     const selectWhereResult = { limit: selectLimit, orderBy: selectOrderBy };
+    // El incremento del credito de idioma es un UPDATE atomico
+    // (`credits = credits + 1`), no un insert con el valor calculado en el
+    // proceso: asi dos compras simultaneas no se pisan.
+    updateReturning = jest.fn().mockResolvedValue([{ userId: 42 }]);
+    updateSet = jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnValue({ returning: updateReturning }),
+    });
     db = {
       insert: jest.fn().mockReturnValue({ values }),
       select: jest.fn().mockReturnValue({
@@ -35,6 +44,7 @@ describe('SettingsService', () => {
           where: jest.fn().mockReturnValue(selectWhereResult),
         }),
       }),
+      update: jest.fn().mockReturnValue({ set: updateSet }),
     };
     moderation = {
       assertCategoriesAllowed: jest
@@ -462,12 +472,17 @@ describe('SettingsService', () => {
       expect(result.previousCredits).toBe(2);
       expect(result.nextCredits).toBe(3);
       expect(result.saved).toEqual(['en', 'fr']);
-      expect(values).toHaveBeenCalledWith(
-        expect.objectContaining({
-          userId: 42,
-          languageChangeCredits: 3,
-        }),
-      );
+
+      // El incremento se pide a la base (`credits = credits + 1`), no se
+      // calcula en el proceso: dos compras simultaneas no pueden pisarse.
+      expect(db.update).toHaveBeenCalledTimes(1);
+      expect(updateSet).toHaveBeenCalledTimes(1);
+      const patch = updateSet.mock.calls[0][0] as Record<string, unknown>;
+      expect(patch).toHaveProperty('languageChangeCredits');
+      // No es un numero: es la expresion SQL del incremento.
+      expect(typeof patch.languageChangeCredits).not.toBe('number');
+      // La fila ya existia, asi que no hace falta insertar.
+      expect(db.insert).not.toHaveBeenCalled();
     });
   });
 });

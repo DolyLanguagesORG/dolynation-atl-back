@@ -4,6 +4,7 @@ import { AppHttpException } from '../../../common/errors/app-http.exception';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { AppConfigService } from '../../../config/env.config';
 import { ErrorLogService } from '../../logs';
+import { isActiveSubscriptionStatus } from '../billing.constants';
 import type {
   AttachDefaultPaymentMethodInput,
   CreateCheckoutSessionInput,
@@ -12,6 +13,7 @@ import type {
   GatewayInvoice,
   GatewayPaymentMethodSummary,
   GatewayPriceInfo,
+  GatewayRefund,
   GatewaySetupIntent,
   GatewaySubscription,
   GatewayWebhookEvent,
@@ -20,6 +22,15 @@ import type {
   UpdateSubscriptionPlanInput,
 } from './payment-gateway.interface';
 
+/**
+ * Version de la API de Stripe con la que se habla.
+ *
+ * El codigo depende de formas que solo existen en esta version (ver el
+ * constructor). Fijarla aqui hace que un `npm update` del SDK no cambie el
+ * contrato en silencio.
+ */
+const STRIPE_API_VERSION = '2026-11-18.endive' as const;
+
 function toDateFromUnix(seconds: number | null | undefined): Date | null {
   return typeof seconds === 'number' && Number.isFinite(seconds) ? new Date(seconds * 1000) : null;
 }
@@ -27,6 +38,31 @@ function toDateFromUnix(seconds: number | null | undefined): Date | null {
 function extractId(ref: string | { id: string } | null | undefined): string | null {
   if (!ref) return null;
   return typeof ref === 'string' ? ref : ref.id;
+}
+
+/**
+ * Extrae el PaymentIntent que liquida una factura.
+ *
+ * En la version de la API en uso, el intent ya no va en la raiz de la
+ * factura: esta en `invoice.payments[].payment.payment_intent`, y solo viene
+ * desplegado si se pide con `expand`. Sin el, un reembolso no se puede
+ * emparejar con el pago registrado.
+ */
+function extractInvoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
+  const payments = (
+    invoice as unknown as {
+      payments?: { data?: { payment?: { payment_intent?: unknown } }[] };
+    }
+  ).payments;
+
+  const paymentIntent = payments?.data?.[0]?.payment?.payment_intent;
+  if (!paymentIntent) return null;
+  if (typeof paymentIntent === 'string') return paymentIntent;
+  if (typeof paymentIntent === 'object' && paymentIntent !== null) {
+    const id = (paymentIntent as { id?: string }).id;
+    return typeof id === 'string' ? id : null;
+  }
+  return null;
 }
 
 function toStringMetadata(meta: Stripe.Metadata | null | undefined): Record<string, string> {
@@ -86,6 +122,13 @@ export class StripeGateway implements PaymentGateway {
 
     if (!this.client || this.clientSecretKey !== secretKey) {
       this.client = new Stripe(secretKey, {
+        // La version de la API se fija a proposito: el codigo depende de
+        // `invoice.parent.subscription_details` (solo existe desde la API
+        // 2025-04-30) y de `SubscriptionItem.current_period_*` (el periodo
+        // se movio del objeto Subscription al SubscriptionItem). Si un
+        // `npm update` del SDK cambia el `apiVersion` por defecto, esas
+        // formas desaparecen y el cobro se desincroniza en silencio.
+        apiVersion: STRIPE_API_VERSION,
         timeout: 15_000,
         maxNetworkRetries: 2,
       });
@@ -327,9 +370,34 @@ export class StripeGateway implements PaymentGateway {
       stripe.invoices.list({
         customer: input.customerId,
         limit: input.limit ?? 24,
+        // Sin esto la factura no trae el PaymentIntent, y un reembolso no se
+        // puede emparejar con el pago registrado.
+        expand: ['data.payments.data.payment'],
       }),
     );
     return list.data.map((inv) => this.mapInvoice(inv));
+  }
+
+  /**
+   * Suscripciones VIGENTES del cliente segun Stripe (la fuente de verdad).
+   *
+   * La base local solo refleja lo que han contado los webhooks. Si uno se
+   * pierde (un evento atascado, un despliegue a mitad), la base diria que el
+   * usuario no tiene suscripcion y se crearia una segunda: Stripe admite
+   * varias y el usuario pagaria dos veces.
+   */
+  async listActiveSubscriptions(input: { customerId: string }): Promise<GatewaySubscription[]> {
+    const stripe = this.getClient();
+    const list = await this.runStripe('subscriptions.list', () =>
+      stripe.subscriptions.list({
+        customer: input.customerId,
+        status: 'all',
+        limit: 10,
+      }),
+    );
+    return list.data
+      .filter((sub) => isActiveSubscriptionStatus(sub.status))
+      .map((sub) => this.mapSubscription(sub));
   }
 
   async createBillingPortalSession(input: {
@@ -363,7 +431,13 @@ export class StripeGateway implements PaymentGateway {
     }
 
     switch (event.type) {
-      case 'checkout.session.completed': {
+      case 'checkout.session.completed':
+      // Pago asincrono (SPEI, OXXO, BOLETO): Stripe confirma el cobro DESPUES
+      // de 'checkout.session.completed', asi que sin estos casos el credito
+      // nunca se entrega.
+      case 'checkout.session.async_payment_succeeded':
+      case 'checkout.session.async_payment_failed':
+      case 'checkout.session.expired': {
         const session = event.data.object;
         const mapped = this.mapCheckoutSession(session);
         return {
@@ -396,6 +470,19 @@ export class StripeGateway implements PaymentGateway {
           invoice: mapped,
         };
       }
+      case 'charge.refunded':
+      // 'refund.created' es el evento nuevo (API 2025+); 'charge.refunded' es
+      // el clasico. Se tratan los dos: un reembolso tiene que revertir los
+      // derechos que concedio el cobro.
+      case 'refund.created': {
+        const refund = this.mapRefund(event);
+        return {
+          id: event.id,
+          type: event.type,
+          envTag: null,
+          refund,
+        };
+      }
       default:
         return {
           id: event.id,
@@ -403,6 +490,48 @@ export class StripeGateway implements PaymentGateway {
           envTag: null,
         };
     }
+  }
+
+  /**
+   * Normaliza un reembolso (o un cargo reembolsado) a la forma que usa el
+   * servicio. Los dos eventos traen cosas distintas: `charge.refunded` trae
+   * el cargo, `refund.created` trae el reembolso.
+   */
+  private mapRefund(event: Stripe.Event): GatewayRefund {
+    if (event.type === 'refund.created') {
+      const refund = event.data.object;
+      const amount = refund.amount ?? 0;
+      return {
+        id: refund.id,
+        chargeId: extractId(refund.charge),
+        paymentIntentId: extractId(refund.payment_intent),
+        invoiceId: null,
+        customerId: null,
+        amountRefundedCents: amount,
+        amountCents: amount,
+        currency: refund.currency ?? 'mxn',
+        fullyRefunded: true,
+      };
+    }
+
+    const charge = event.data.object as Stripe.Charge;
+    const amount = charge.amount ?? 0;
+    const amountRefunded = charge.amount_refunded ?? 0;
+    // En las versiones recientes de la API el cargo no lleva la factura en la
+    // raiz. Se lee de forma defensiva: si viene, se usa; si no, el reembolso
+    // se empareja por el PaymentIntent, que si esta siempre.
+    const invoiceRef = (charge as unknown as { invoice?: string | { id: string } | null }).invoice;
+    return {
+      id: charge.id,
+      chargeId: charge.id,
+      paymentIntentId: extractId(charge.payment_intent),
+      invoiceId: typeof invoiceRef === 'string' ? invoiceRef : (invoiceRef?.id ?? null),
+      customerId: extractId(charge.customer),
+      amountRefundedCents: amountRefunded,
+      amountCents: amount,
+      currency: charge.currency ?? 'mxn',
+      fullyRefunded: charge.refunded === true || amountRefunded >= amount,
+    };
   }
 
   private mapCheckoutSession(session: Stripe.Checkout.Session): GatewayCheckoutSession {
@@ -462,6 +591,7 @@ export class StripeGateway implements PaymentGateway {
       hostedInvoiceUrl: invoice.hosted_invoice_url ?? null,
       subscriptionId,
       customerId: extractId(invoice.customer),
+      paymentIntentId: extractInvoicePaymentIntentId(invoice),
       metadata: { ...subMeta, ...invoiceMeta },
     };
   }
