@@ -40,6 +40,14 @@ export enum ErrorCode {
   LANGUAGE_NOT_SELECTED = 'LANGUAGE_NOT_SELECTED',
   LANGUAGE_CHANGE_LOCKED = 'LANGUAGE_CHANGE_LOCKED',
 
+  // === Pagos y facturación (4xx/5xx) ===
+  BILLING_PAYMENT_REQUIRED = 'BILLING_PAYMENT_REQUIRED',
+  BILLING_CHECKOUT_INVALID = 'BILLING_CHECKOUT_INVALID',
+  BILLING_WEBHOOK_SIGNATURE_INVALID = 'BILLING_WEBHOOK_SIGNATURE_INVALID',
+  BILLING_SUBSCRIPTION_CONFLICT = 'BILLING_SUBSCRIPTION_CONFLICT',
+  BILLING_PROVIDER_ERROR = 'BILLING_PROVIDER_ERROR',
+  BILLING_NOT_CONFIGURED = 'BILLING_NOT_CONFIGURED',
+
   // === Solicitudes de acceso (4xx) ===
   ACCESS_REQUEST_REQUIRED = 'ACCESS_REQUEST_REQUIRED',
   ACCESS_REQUESTS_DISABLED = 'ACCESS_REQUESTS_DISABLED',
@@ -193,6 +201,36 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.LANGUAGE_CHANGE_LOCKED,
     403,
     'Your selected languages are locked. You can change them once per year or unlock an immediate change with a payment',
+  ),
+  [ErrorCode.BILLING_PAYMENT_REQUIRED]: entry(
+    ErrorCode.BILLING_PAYMENT_REQUIRED,
+    402,
+    'Payment is required to complete this action. Please use the checkout flow.',
+  ),
+  [ErrorCode.BILLING_CHECKOUT_INVALID]: entry(
+    ErrorCode.BILLING_CHECKOUT_INVALID,
+    400,
+    'The checkout session is invalid or cannot be processed',
+  ),
+  [ErrorCode.BILLING_WEBHOOK_SIGNATURE_INVALID]: entry(
+    ErrorCode.BILLING_WEBHOOK_SIGNATURE_INVALID,
+    400,
+    'Invalid webhook signature',
+  ),
+  [ErrorCode.BILLING_SUBSCRIPTION_CONFLICT]: entry(
+    ErrorCode.BILLING_SUBSCRIPTION_CONFLICT,
+    409,
+    'An active paid subscription already exists. Use the plan change flow instead.',
+  ),
+  [ErrorCode.BILLING_PROVIDER_ERROR]: entry(
+    ErrorCode.BILLING_PROVIDER_ERROR,
+    502,
+    'The payment provider could not complete the request. Please try again.',
+  ),
+  [ErrorCode.BILLING_NOT_CONFIGURED]: entry(
+    ErrorCode.BILLING_NOT_CONFIGURED,
+    503,
+    'Payment billing is not configured on this environment',
   ),
   [ErrorCode.ACCESS_REQUEST_REQUIRED]: entry(
     ErrorCode.ACCESS_REQUEST_REQUIRED,

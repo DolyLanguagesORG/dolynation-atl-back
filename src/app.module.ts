@@ -9,6 +9,7 @@ import { MailModule } from './modules/mail/mail.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
+import { BillingModule } from './modules/billing/billing.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { AccessRequestsModule } from './modules/access-requests/access-requests.module';
 import { ReadingsModule } from './modules/readings/readings.module';
@@ -72,6 +73,7 @@ import { VersionModule } from './modules/version/version.module';
     AuthModule,
     UsersModule,
     SubscriptionsModule,
+    BillingModule,
     SettingsModule,
     AccessRequestsModule,
     ReadingsModule,

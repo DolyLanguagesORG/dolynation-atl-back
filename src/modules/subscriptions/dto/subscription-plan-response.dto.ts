@@ -1,5 +1,42 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { SUBSCRIPTION_TIERS, type SubscriptionTier } from '../subscriptions.constants';
+
+/**
+ * Información comercial de precios asociada a un plan de suscripción.
+ */
+export class SubscriptionPlanPricingDto {
+  @ApiProperty({
+    example: true,
+    description: 'Indicates whether this plan is free ($0) and requires no checkout',
+  })
+  isFree!: boolean;
+
+  @ApiProperty({
+    example: false,
+    description: 'Indicates whether activating this plan requires Stripe checkout',
+  })
+  checkoutRequired!: boolean;
+
+  @ApiProperty({
+    example: 0,
+    nullable: true,
+    description: 'Unit amount in smallest currency unit (e.g. centavos), or null if unavailable',
+  })
+  amountCents!: number | null;
+
+  @ApiProperty({
+    example: 'mxn',
+    description: 'ISO 4217 lowercase currency code',
+  })
+  currency!: string;
+
+  @ApiProperty({
+    example: 'month',
+    nullable: true,
+    description: 'Recurring billing interval (e.g. month), or null for free plans',
+  })
+  interval!: string | null;
+}
 
 /**
  * DTO descriptivo de un plan de suscripción y sus cuotas configuradas.
@@ -55,6 +92,12 @@ export class SubscriptionPlanItemDto {
     description: 'Límite diario de preguntas o explicaciones sobre lecturas (`null` = ilimitado)',
   })
   dailyQuestionsLimit!: number | null;
+
+  @ApiPropertyOptional({
+    type: SubscriptionPlanPricingDto,
+    description: 'Pricing and checkout metadata when billing configuration is active',
+  })
+  pricing?: SubscriptionPlanPricingDto;
 }
 
 /**

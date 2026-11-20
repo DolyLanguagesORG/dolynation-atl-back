@@ -14,6 +14,7 @@ import { DRIZZLE } from './database.tokens';
 import type { drizzle as drizzleType } from 'drizzle-orm/node-postgres';
 
 export type DrizzleDb = ReturnType<typeof drizzleType>;
+export type DrizzleExecutor = Pick<DrizzleDb, 'select' | 'insert' | 'update' | 'delete'>;
 
 /**
  * Módulo global de base de datos.

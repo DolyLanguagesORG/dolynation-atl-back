@@ -46,6 +46,7 @@ export const users = pgTable(
       .default(1)
       .references(() => roles.id),
     subscriptionTier: varchar('subscription_tier', { length: 30 }),
+    stripeCustomerId: varchar('stripe_customer_id', { length: 64 }),
     currentStreak: integer('current_streak').notNull().default(0),
     lastStreakDate: date('last_streak_date'),
     /**
@@ -66,6 +67,9 @@ export const users = pgTable(
   (table) => ({
     emailUnique: uniqueIndex('users_email_unique').on(table.email),
     roleIdIdx: index('idx_users_role_id').on(table.roleId),
+    stripeCustomerIdUnique: uniqueIndex('uq_users_stripe_customer_id')
+      .on(table.stripeCustomerId)
+      .where(sql`stripe_customer_id IS NOT NULL`),
   }),
 );
 
@@ -463,6 +467,102 @@ export const errorLogs = pgTable(
   }),
 );
 
+/** Estado de suscripción recurrente reflejado desde Stripe. */
+export type BillingSubscriptionStatus =
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'canceled'
+  | 'unpaid'
+  | 'paused';
+
+/** Espejo de la suscripción recurrente de Stripe por usuario. */
+export const billingSubscriptions = pgTable(
+  'billing_subscriptions',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+    stripeCustomerId: varchar('stripe_customer_id', { length: 64 }).notNull(),
+    stripeSubscriptionId: varchar('stripe_subscription_id', { length: 64 }).notNull().unique(),
+    stripePriceId: varchar('stripe_price_id', { length: 64 }).notNull(),
+    tier: varchar('tier', { length: 30 }).notNull(),
+    status: varchar('status', { length: 30 })
+      .$type<BillingSubscriptionStatus | (string & {})>()
+      .notNull(),
+    currentPeriodStart: timestamp('current_period_start', { withTimezone: false }),
+    currentPeriodEnd: timestamp('current_period_end', { withTimezone: false }),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').notNull().default(false),
+    canceledAt: timestamp('canceled_at', { withTimezone: false }),
+    paymentMethodBrand: varchar('payment_method_brand', { length: 30 }),
+    paymentMethodLast4: varchar('payment_method_last4', { length: 4 }),
+    paymentMethodExpMonth: integer('payment_method_exp_month'),
+    paymentMethodExpYear: integer('payment_method_exp_year'),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    customerIdx: index('idx_billing_subscriptions_customer').on(table.stripeCustomerId),
+    statusIdx: index('idx_billing_subscriptions_status').on(table.status),
+  }),
+);
+
+/** Tipo de pago registrado en `billing_payments`. */
+export type BillingPaymentKind = 'subscription' | 'subscription_invoice' | 'language_unlock';
+
+/** Historial e idempotencia de pagos únicos y facturas de suscripción. */
+export const billingPayments = pgTable(
+  'billing_payments',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+    kind: varchar('kind', { length: 40 }).$type<BillingPaymentKind | (string & {})>().notNull(),
+    tier: varchar('tier', { length: 30 }),
+    stripeCheckoutSessionId: varchar('stripe_checkout_session_id', { length: 128 }).unique(),
+    stripePaymentIntentId: varchar('stripe_payment_intent_id', { length: 128 }),
+    stripeInvoiceId: varchar('stripe_invoice_id', { length: 128 }).unique(),
+    amountCents: integer('amount_cents').notNull().default(0),
+    currency: varchar('currency', { length: 10 }).notNull().default('mxn'),
+    status: varchar('status', { length: 30 }).notNull().default('pending'),
+    fulfilledAt: timestamp('fulfilled_at', { withTimezone: false }),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userCreatedIdx: index('idx_billing_payments_user_created').on(table.userId, table.createdAt),
+    kindStatusIdx: index('idx_billing_payments_kind_status').on(table.kind, table.status),
+  }),
+);
+
+/** Registro de deduplicación e idempotencia por `event_id` recibido en webhooks de Stripe. */
+export const billingWebhookEvents = pgTable(
+  'billing_webhook_events',
+  {
+    eventId: varchar('event_id', { length: 120 }).primaryKey(),
+    provider: varchar('provider', { length: 20 }).notNull().default('stripe'),
+    eventType: varchar('event_type', { length: 100 }).notNull(),
+    status: varchar('status', { length: 20 }).notNull().default('processing'),
+    errorMessage: text('error_message'),
+    processedAt: timestamp('processed_at', { withTimezone: false }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    typeCreatedIdx: index('idx_billing_webhook_events_type_created').on(
+      table.eventType,
+      table.createdAt,
+    ),
+  }),
+);
+
 /** Mapa completo de tablas exportadas para consultas relacionales de Drizzle. */
 
 export const schema = {
@@ -479,4 +579,7 @@ export const schema = {
   categoryDailyUsage,
   auditLogs,
   errorLogs,
+  billingSubscriptions,
+  billingPayments,
+  billingWebhookEvents,
 };

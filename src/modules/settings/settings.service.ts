@@ -4,7 +4,7 @@ import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
-import type { DrizzleDb } from '../../database/database.module';
+import type { DrizzleDb, DrizzleExecutor } from '../../database/database.module';
 import { userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
 import { AuditLogService } from '../logs';
@@ -61,8 +61,11 @@ export class SettingsService {
   /**
    * Busca la fila de preferencias del usuario o devuelve `null` si aún no existe.
    */
-  async findByUserId(userId: number): Promise<UserSettings | null> {
-    const rows = await this.db
+  async findByUserId(
+    userId: number,
+    dbClient: DrizzleExecutor = this.db,
+  ): Promise<UserSettings | null> {
+    const rows = await dbClient
       .select()
       .from(userSettings)
       .where(eq(userSettings.userId, userId))
@@ -525,6 +528,12 @@ export class SettingsService {
    * antes de cumplir los 365 días, sin ampliar el límite de idiomas simultáneos del plan.
    */
   async unlockLanguageChange(userId: number): Promise<LanguagesSettingsDto> {
+    if (this.config?.billing.provider === 'stripe') {
+      throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+        requestType: 'language_unlock',
+      });
+    }
+
     if (this.config?.accessRequests.enabled) {
       throw new AppHttpException(ErrorCode.ACCESS_REQUEST_REQUIRED, {
         requestType: 'language_unlock',
@@ -532,13 +541,36 @@ export class SettingsService {
     }
 
     const plan = await this.subscriptions.assertSubscriptionActive(userId);
-    const row = await this.findByUserId(userId);
+    const { saved, lastChangeAt, nextCredits } = await this.grantLanguageChangeCredit(userId);
+    return this.buildLanguagesDtoFromValues(
+      saved,
+      lastChangeAt,
+      nextCredits,
+      plan.maxLanguages,
+      new Date(),
+    );
+  }
+
+  /**
+   * Acredita +1 crédito de cambio de idioma de forma reutilizable (manual, admin o Stripe).
+   * Acepta una transacción Drizzle opcional para garantizar atomicidad junto con el registro de pago.
+   */
+  async grantLanguageChangeCredit(
+    userId: number,
+    dbClient: DrizzleExecutor = this.db,
+  ): Promise<{
+    saved: LanguageId[];
+    lastChangeAt: Date | null;
+    previousCredits: number;
+    nextCredits: number;
+  }> {
+    const row = await this.findByUserId(userId, dbClient);
     const saved = sanitizeSelectedLanguages(row?.selectedLanguages);
     const lastChangeAt = row?.lastLanguageChangeAt ?? null;
     const previousCredits = Math.max(0, row?.languageChangeCredits ?? 0);
     const nextCredits = previousCredits + 1;
 
-    await this.upsert(userId, { languageChangeCredits: nextCredits });
+    await this.upsert(userId, { languageChangeCredits: nextCredits }, dbClient);
     await this.auditLogs?.logUpdate({
       module: 'settings',
       event: 'settings.language_change_unlocked',
@@ -550,13 +582,8 @@ export class SettingsService {
       beforeState: { languageChangeCredits: previousCredits },
       afterState: { languageChangeCredits: nextCredits },
     });
-    return this.buildLanguagesDtoFromValues(
-      saved,
-      lastChangeAt,
-      nextCredits,
-      plan.maxLanguages,
-      new Date(),
-    );
+
+    return { saved, lastChangeAt, previousCredits, nextCredits };
   }
 
   private consumeUnlockQuotaOrThrow(
@@ -640,9 +667,13 @@ export class SettingsService {
   /**
    * Inserta o actualiza (`upsert`) el registro de configuración en `user_settings`.
    */
-  private async upsert(userId: number, patch: SettingsUpsertPatch): Promise<void> {
+  private async upsert(
+    userId: number,
+    patch: SettingsUpsertPatch,
+    dbClient: DrizzleExecutor = this.db,
+  ): Promise<void> {
     const now = new Date();
-    await this.db
+    await dbClient
       .insert(userSettings)
       .values({
         userId,

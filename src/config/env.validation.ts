@@ -205,6 +205,28 @@ const baseEnvSchema = z.object({
 
   // Correo opcional para notificar al equipo/administrador cuando entra una nueva solicitud.
   ADMIN_NOTIFICATION_EMAIL: z.preprocess(emptyToUndefined, z.string().email().optional()),
+
+  // ===== Pasarela de pagos (Stripe Sandbox / manual) =====
+  BILLING_PROVIDER: z.preprocess(emptyToUndefined, z.enum(['manual', 'stripe']).default('manual')),
+  BILLING_ENV_TAG: z.preprocess(emptyToUndefined, z.string().default('local')),
+  STRIPE_SECRET_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  STRIPE_PUBLISHABLE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  STRIPE_WEBHOOK_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+  STRIPE_CURRENCY: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .default('mxn')
+      .transform((v) => v.trim().toLowerCase()),
+  ),
+  STRIPE_CHECKOUT_UI_MODE: z.preprocess(
+    emptyToUndefined,
+    z.enum(['custom', 'hosted']).default('custom'),
+  ),
+  STRIPE_PRICE_DOLLY: z.preprocess(emptyToUndefined, z.string().optional()),
+  STRIPE_PRICE_DOLLY_PLUS: z.preprocess(emptyToUndefined, z.string().optional()),
+  STRIPE_PRICE_DOLLY_PRO: z.preprocess(emptyToUndefined, z.string().optional()),
+  STRIPE_PRICE_LANGUAGE_UNLOCK: z.preprocess(emptyToUndefined, z.string().optional()),
 });
 
 /**
@@ -212,6 +234,9 @@ const baseEnvSchema = z.object({
  * Sin esta regla, la app arrancaba igual y **cada** generacion de lectura
  * fallaba en silencio (el `AiDegradedService` la atrapaba y degradaba).
  * Con la regla, la app no arranca y el error dice exactamente que falta.
+ *
+ * Del mismo modo, cuando `BILLING_PROVIDER=stripe`, el arranque exige las claves
+ * e IDs de precio mínimos del Sandbox/entorno para no fallar más tarde en checkout.
  */
 const envSchema = baseEnvSchema.superRefine((env, ctx) => {
   if (env.AI_DEFAULT_PROVIDER === 'google' && !env.GOOGLE_API_KEY) {
@@ -221,6 +246,27 @@ const envSchema = baseEnvSchema.superRefine((env, ctx) => {
       message:
         'GOOGLE_API_KEY es obligatoria cuando AI_DEFAULT_PROVIDER=google: sin ella el proveedor lanza "GOOGLE_API_KEY is not configured" en cada generacion de lectura',
     });
+  }
+
+  if (env.BILLING_PROVIDER === 'stripe') {
+    const requiredWhenStripe = [
+      'STRIPE_SECRET_KEY',
+      'STRIPE_PUBLISHABLE_KEY',
+      'STRIPE_WEBHOOK_SECRET',
+      'STRIPE_PRICE_DOLLY_PLUS',
+      'STRIPE_PRICE_DOLLY_PRO',
+      'STRIPE_PRICE_LANGUAGE_UNLOCK',
+    ] as const;
+
+    for (const key of requiredWhenStripe) {
+      if (!env[key]) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${key} es obligatoria cuando BILLING_PROVIDER=stripe`,
+        });
+      }
+    }
   }
 });
 

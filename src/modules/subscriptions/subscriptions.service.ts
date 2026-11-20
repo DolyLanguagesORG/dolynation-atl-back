@@ -1,11 +1,17 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { and, eq, gte, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
-import { readingExplanations, readings, users, userSettings } from '../../database/drizzle/schema';
+import {
+  billingSubscriptions,
+  readingExplanations,
+  readings,
+  users,
+  userSettings,
+} from '../../database/drizzle/schema';
 import { AuditLogService } from '../logs';
 import type {
   AlternativeExpressionItem,
@@ -42,6 +48,10 @@ export class SubscriptionsService {
   ) {}
 
   private toPlanDto(plan: SubscriptionPlanConfig): SubscriptionPlanItemDto {
+    const provider = this.config?.billing.provider ?? 'manual';
+    const currency = this.config?.billing.currency ?? 'mxn';
+    const isFree = plan.id === 'dolly';
+
     return {
       id: plan.id,
       name: plan.name,
@@ -51,6 +61,13 @@ export class SubscriptionsService {
       allowedLanguages: [...plan.allowedLanguages],
       dailyReadingsLimit: plan.dailyReadingsLimit,
       dailyQuestionsLimit: plan.dailyQuestionsLimit,
+      pricing: {
+        isFree,
+        checkoutRequired: provider === 'stripe' && !isFree,
+        amountCents: isFree ? 0 : null,
+        currency,
+        interval: isFree ? null : 'month',
+      },
     };
   }
 
@@ -129,6 +146,26 @@ export class SubscriptionsService {
     const questionsRemainingToday =
       questionsLimit !== null ? Math.max(0, questionsLimit - questionsAskedToday) : null;
 
+    let billing: UserSubscriptionResponseDto['billing'] = null;
+    if (this.config?.billing.provider === 'stripe') {
+      const subRows = await this.db
+        .select({
+          status: billingSubscriptions.status,
+          currentPeriodEnd: billingSubscriptions.currentPeriodEnd,
+          cancelAtPeriodEnd: billingSubscriptions.cancelAtPeriodEnd,
+        })
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1);
+      const sub = subRows[0];
+      billing = {
+        provider: 'stripe',
+        status: sub?.status ?? null,
+        currentPeriodEnd: sub?.currentPeriodEnd ?? null,
+        cancelAtPeriodEnd: sub?.cancelAtPeriodEnd ?? false,
+      };
+    }
+
     return {
       hasSubscription: tier !== null,
       tier,
@@ -145,28 +182,58 @@ export class SubscriptionsService {
         questionsLimit,
         questionsRemainingToday,
       },
+      ...(billing ? { billing } : {}),
     };
   }
 
   /**
    * Permite al usuario seleccionar o cambiar manualmente su nivel de suscripción
-   * cuando `ACCESS_REQUESTS_ENABLED` está desactivado.
+   * cuando `ACCESS_REQUESTS_ENABLED` está desactivado o activar el plan gratuito `dolly`
+   * cuando Stripe está activo sin suscripción pagada vigente.
    */
   async selectSubscription(
     userId: number,
     tier: SubscriptionTier,
   ): Promise<UserSubscriptionResponseDto> {
-    if (this.config?.accessRequests.enabled) {
-      throw new AppHttpException(ErrorCode.ACCESS_REQUEST_REQUIRED, {
-        requestType: 'subscription',
-        requestedTier: tier,
-      });
-    }
-
     if (!isValidSubscriptionTier(tier)) {
       throw new AppHttpException(ErrorCode.SUBSCRIPTION_INVALID_TIER, {
         tier,
         validTiers: SUBSCRIPTION_TIERS,
+      });
+    }
+
+    if (this.config?.billing.provider === 'stripe') {
+      if (tier !== 'dolly') {
+        throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+          requestType: 'subscription',
+          requestedTier: tier,
+        });
+      }
+
+      const activeStripeSubs = await this.db
+        .select({
+          id: billingSubscriptions.id,
+          status: billingSubscriptions.status,
+        })
+        .from(billingSubscriptions)
+        .where(
+          and(
+            eq(billingSubscriptions.userId, userId),
+            inArray(billingSubscriptions.status, ['active', 'trialing', 'past_due']),
+          ),
+        )
+        .limit(1);
+
+      if (activeStripeSubs[0]) {
+        throw new AppHttpException(ErrorCode.BILLING_SUBSCRIPTION_CONFLICT, {
+          requestedTier: tier,
+          status: activeStripeSubs[0].status,
+        });
+      }
+    } else if (this.config?.accessRequests.enabled) {
+      throw new AppHttpException(ErrorCode.ACCESS_REQUEST_REQUIRED, {
+        requestType: 'subscription',
+        requestedTier: tier,
       });
     }
 

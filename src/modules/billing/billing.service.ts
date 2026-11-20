@@ -1,0 +1,1261 @@
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { desc, eq, and, isNull } from 'drizzle-orm';
+import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
+import { AppConfigService } from '../../config/env.config';
+import type { DrizzleDb } from '../../database/database.module';
+import { DRIZZLE } from '../../database/database.tokens';
+import {
+  billingPayments,
+  billingSubscriptions,
+  billingWebhookEvents,
+  users,
+} from '../../database/drizzle/schema';
+import type { BillingPayment, BillingSubscription } from '../../database/drizzle/types';
+import { AuditLogService, ErrorLogService } from '../logs';
+import { SettingsService } from '../settings/settings.service';
+import {
+  isValidSubscriptionTier,
+  SUBSCRIPTION_TIERS,
+  type SubscriptionTier,
+} from '../subscriptions/subscriptions.constants';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import {
+  isActiveSubscriptionStatus,
+  isPaidSubscriptionTier,
+  PAYMENT_GATEWAY,
+  PRICE_CACHE_TTL_MS,
+  resolvePriceIdForTier,
+  resolveTierForPriceId,
+  type PaidSubscriptionTier,
+} from './billing.constants';
+import type {
+  BillingConfigResponseDto,
+  BillingPlanPricingDto,
+} from './dto/billing-config-response.dto';
+import type { BillingInvoiceDto } from './dto/billing-invoice-response.dto';
+import type { BillingPortalResponseDto } from './dto/billing-portal-response.dto';
+import type {
+  BillingPaymentMethodSummaryDto,
+  BillingRecentPaymentDto,
+  BillingStatusResponseDto,
+  BillingSubscriptionSummaryDto,
+} from './dto/billing-status-response.dto';
+import type { ChangePlanDto } from './dto/change-plan.dto';
+import type { CheckoutSessionResponseDto } from './dto/checkout-session-response.dto';
+import type { CreateLanguageUnlockCheckoutDto } from './dto/create-language-unlock-checkout.dto';
+import type { CreateSubscriptionCheckoutDto } from './dto/create-subscription-checkout.dto';
+import type { SetDefaultPaymentMethodDto } from './dto/set-default-payment-method.dto';
+import type { SetupIntentResponseDto } from './dto/setup-intent-response.dto';
+import type { WebhookProcessedResponseDto } from './dto/webhook-response.dto';
+import type {
+  GatewayCheckoutSession,
+  GatewayInvoice,
+  GatewayPaymentMethodSummary,
+  GatewayPriceInfo,
+  GatewaySubscription,
+  PaymentGateway,
+} from './gateway/payment-gateway.interface';
+
+interface CachedPriceEntry {
+  value: GatewayPriceInfo;
+  expiresAt: number;
+}
+
+function parsePositiveInt(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+/**
+ * Servicio central de pagos, checkout, gestión in-app de suscripciones, métodos de pago,
+ * facturas e idempotencia de webhooks para DolyNation.
+ */
+@Injectable()
+export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
+  private readonly priceCache = new Map<string, CachedPriceEntry>();
+
+  constructor(
+    @Inject(DRIZZLE) private readonly db: DrizzleDb,
+    private readonly config: AppConfigService,
+    @Inject(PAYMENT_GATEWAY) private readonly gateway: PaymentGateway,
+    private readonly settings: SettingsService,
+    private readonly subscriptions: SubscriptionsService,
+    @Optional() private readonly auditLogs?: AuditLogService,
+    @Optional() private readonly errorLogs?: ErrorLogService,
+  ) {}
+
+  private ensureStripeEnabled(): void {
+    if (this.config.billing.provider !== 'stripe') {
+      throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
+    }
+  }
+
+  private getPublishableKeyOrThrow(): string {
+    const key = this.config.billing.stripe.publishableKey;
+    if (!key) {
+      throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
+    }
+    return key;
+  }
+
+  private getFrontendBaseUrl(): string {
+    return this.config.mail.frontendBaseUrl.replace(/\/+$/, '');
+  }
+
+  private async getCachedPriceInfo(priceId: string | undefined): Promise<GatewayPriceInfo | null> {
+    if (!priceId || this.config.billing.provider !== 'stripe') {
+      return null;
+    }
+
+    const now = Date.now();
+    const cached = this.priceCache.get(priceId);
+    if (cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    try {
+      const value = await this.gateway.retrievePrice(priceId);
+      this.priceCache.set(priceId, { value, expiresAt: now + PRICE_CACHE_TTL_MS });
+      return value;
+    } catch (error) {
+      this.logger.warn(
+        `Could not retrieve Stripe price '${priceId}': ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
+  }
+
+  private async getOrCreateCustomerId(userId: number): Promise<{
+    user: {
+      id: number;
+      email: string;
+      fullName: string | null;
+      locale: string;
+      subscriptionTier: string | null;
+      stripeCustomerId: string | null;
+    };
+    customerId: string;
+  }> {
+    const rows = await this.db
+      .select({
+        id: users.id,
+        email: users.email,
+        fullName: users.fullName,
+        locale: users.locale,
+        subscriptionTier: users.subscriptionTier,
+        stripeCustomerId: users.stripeCustomerId,
+      })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const user = rows[0];
+    if (!user) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
+    }
+
+    if (user.stripeCustomerId) {
+      return { user, customerId: user.stripeCustomerId };
+    }
+
+    const created = await this.gateway.createCustomer({
+      email: user.email,
+      name: user.fullName,
+      metadata: {
+        userId: String(user.id),
+        env: this.config.billing.envTag,
+      },
+    });
+
+    await this.db
+      .update(users)
+      .set({ stripeCustomerId: created.id, updatedAt: new Date() })
+      .where(eq(users.id, user.id));
+
+    return { user, customerId: created.id };
+  }
+
+  /**
+   * Devuelve la configuración pública de facturación (clave pública, moneda, modo UI y precios).
+   */
+  async getPublicConfig(): Promise<BillingConfigResponseDto> {
+    const { provider, currency, checkoutUiMode, stripe } = this.config.billing;
+
+    const [dollyPlusPrice, dollyProPrice, unlockPrice] = await Promise.all([
+      this.getCachedPriceInfo(stripe.prices.dollyPlus),
+      this.getCachedPriceInfo(stripe.prices.dollyPro),
+      this.getCachedPriceInfo(stripe.prices.languageUnlock),
+    ]);
+
+    const plans: BillingPlanPricingDto[] = SUBSCRIPTION_TIERS.map((tier) => {
+      if (tier === 'dolly') {
+        return {
+          tier,
+          isFree: true,
+          checkoutRequired: false,
+          amountCents: 0,
+          currency,
+          interval: null,
+        };
+      }
+
+      const priceInfo = tier === 'dolly_plus' ? dollyPlusPrice : dollyProPrice;
+      return {
+        tier,
+        isFree: false,
+        checkoutRequired: provider === 'stripe',
+        amountCents: priceInfo?.unitAmount ?? null,
+        currency: priceInfo?.currency ?? currency,
+        interval: priceInfo?.interval ?? 'month',
+      };
+    });
+
+    return {
+      provider,
+      publishableKey: stripe.publishableKey ?? null,
+      currency,
+      uiMode: checkoutUiMode,
+      plans,
+      languageUnlock: {
+        checkoutRequired: provider === 'stripe',
+        amountCents: unlockPrice?.unitAmount ?? null,
+        currency: unlockPrice?.currency ?? currency,
+      },
+    };
+  }
+
+  /**
+   * Inicia un Checkout Session de suscripción (`dolly_plus` o `dolly_pro`) evitando duplicados activos.
+   */
+  async createSubscriptionCheckout(
+    userId: number,
+    dto: CreateSubscriptionCheckoutDto,
+  ): Promise<CheckoutSessionResponseDto> {
+    this.ensureStripeEnabled();
+    const publishableKey = this.getPublishableKeyOrThrow();
+
+    if (!isPaidSubscriptionTier(dto.tier)) {
+      throw new AppHttpException(ErrorCode.SUBSCRIPTION_INVALID_TIER, {
+        tier: dto.tier,
+      });
+    }
+
+    const priceId = resolvePriceIdForTier(dto.tier, this.config);
+    if (!priceId) {
+      throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
+    }
+
+    const existingSubRows = await this.db
+      .select({
+        id: billingSubscriptions.id,
+        status: billingSubscriptions.status,
+      })
+      .from(billingSubscriptions)
+      .where(eq(billingSubscriptions.userId, userId))
+      .limit(1);
+
+    const existingSub = existingSubRows[0];
+    if (existingSub && isActiveSubscriptionStatus(existingSub.status)) {
+      throw new AppHttpException(ErrorCode.BILLING_SUBSCRIPTION_CONFLICT, {
+        currentStatus: existingSub.status,
+        requestedTier: dto.tier,
+      });
+    }
+
+    const { user, customerId } = await this.getOrCreateCustomerId(userId);
+    const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
+    const frontendBase = this.getFrontendBaseUrl();
+    const metadata: Record<string, string> = {
+      userId: String(userId),
+      tier: dto.tier,
+      kind: 'subscription',
+      env: this.config.billing.envTag,
+    };
+
+    const session = await this.gateway.createCheckoutSession({
+      customerId,
+      mode: 'subscription',
+      priceId,
+      uiMode,
+      locale: user.locale,
+      returnUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+      successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${frontendBase}/profile#subscription`,
+      metadata,
+      subscriptionMetadata: {
+        userId: String(userId),
+        tier: dto.tier,
+        env: this.config.billing.envTag,
+      },
+    });
+
+    await this.auditLogs?.logEvent({
+      module: 'billing',
+      action: 'ACTION',
+      event: 'billing.checkout_subscription_created',
+      entityType: 'billing_checkout_session',
+      entityId: session.id,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Subscription checkout session created for user #${userId} (${dto.tier})`,
+      metadata: { tier: dto.tier, uiMode, sessionId: session.id },
+    });
+
+    return {
+      sessionId: session.id,
+      clientSecret: session.clientSecret,
+      url: session.url,
+      publishableKey,
+      uiMode,
+      tier: dto.tier,
+    };
+  }
+
+  /**
+   * Inicia un Checkout Session de pago único para acreditar +1 cambio de idioma.
+   */
+  async createLanguageUnlockCheckout(
+    userId: number,
+    dto: CreateLanguageUnlockCheckoutDto,
+  ): Promise<CheckoutSessionResponseDto> {
+    this.ensureStripeEnabled();
+    const publishableKey = this.getPublishableKeyOrThrow();
+    await this.subscriptions.assertSubscriptionActive(userId);
+
+    const priceId = this.config.billing.stripe.prices.languageUnlock;
+    if (!priceId) {
+      throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
+    }
+
+    const { user, customerId } = await this.getOrCreateCustomerId(userId);
+    const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
+    const frontendBase = this.getFrontendBaseUrl();
+    const metadata: Record<string, string> = {
+      userId: String(userId),
+      kind: 'language_unlock',
+      env: this.config.billing.envTag,
+    };
+
+    const session = await this.gateway.createCheckoutSession({
+      customerId,
+      mode: 'payment',
+      priceId,
+      uiMode,
+      locale: user.locale,
+      returnUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+      successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${frontendBase}/profile#preferences`,
+      metadata,
+    });
+
+    const now = new Date();
+    await this.db
+      .insert(billingPayments)
+      .values({
+        userId,
+        provider: 'stripe',
+        kind: 'language_unlock',
+        tier: null,
+        stripeCheckoutSessionId: session.id,
+        stripePaymentIntentId: session.paymentIntentId,
+        amountCents: session.amountTotal ?? 0,
+        currency: session.currency ?? this.config.billing.currency,
+        status: 'pending',
+        metadata,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: billingPayments.stripeCheckoutSessionId });
+
+    await this.auditLogs?.logEvent({
+      module: 'billing',
+      action: 'ACTION',
+      event: 'billing.checkout_language_unlock_created',
+      entityType: 'billing_checkout_session',
+      entityId: session.id,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Language unlock checkout session created for user #${userId}`,
+      metadata: { uiMode, sessionId: session.id },
+    });
+
+    return {
+      sessionId: session.id,
+      clientSecret: session.clientSecret,
+      url: session.url,
+      publishableKey,
+      uiMode,
+      tier: null,
+    };
+  }
+
+  /**
+   * Reconcilia de forma síncrona e idempotente una Checkout Session tras volver del flujo de pago.
+   */
+  async syncCheckoutSession(userId: number, sessionId: string): Promise<BillingStatusResponseDto> {
+    this.ensureStripeEnabled();
+    const trimmedSessionId = sessionId.trim();
+    if (!trimmedSessionId) {
+      throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID);
+    }
+
+    const session = await this.gateway.retrieveCheckoutSession(trimmedSessionId);
+    const metaUserId = parsePositiveInt(session.metadata['userId']);
+    if (metaUserId !== null && metaUserId !== userId) {
+      throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+        resource: 'CheckoutSession',
+      });
+    }
+
+    if (session.metadata['env'] && session.metadata['env'] !== this.config.billing.envTag) {
+      throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID, {
+        sessionId: trimmedSessionId,
+      });
+    }
+
+    if (metaUserId === null) {
+      const userRows = await this.db
+        .select({ stripeCustomerId: users.stripeCustomerId })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      if (!userRows[0]?.stripeCustomerId || userRows[0].stripeCustomerId !== session.customerId) {
+        throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
+          resource: 'CheckoutSession',
+        });
+      }
+    }
+
+    await this.fulfillCheckoutSession(session, userId, true);
+    return this.getBillingStatus(userId);
+  }
+
+  /**
+   * Consulta el estado actual de suscripción Stripe y pagos recientes del usuario.
+   */
+  async getBillingStatus(userId: number): Promise<BillingStatusResponseDto> {
+    const userRows = await this.db
+      .select({ id: users.id, subscriptionTier: users.subscriptionTier })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const user = userRows[0];
+    if (!user) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
+    }
+
+    const [subRows, paymentRows] = await Promise.all([
+      this.db
+        .select()
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.userId, userId))
+        .limit(1),
+      this.db
+        .select()
+        .from(billingPayments)
+        .where(eq(billingPayments.userId, userId))
+        .orderBy(desc(billingPayments.createdAt), desc(billingPayments.id))
+        .limit(10),
+    ]);
+
+    const tier: SubscriptionTier | null = isValidSubscriptionTier(user.subscriptionTier)
+      ? user.subscriptionTier
+      : null;
+
+    return {
+      provider: this.config.billing.provider,
+      tier,
+      subscription: subRows[0] ? this.toSubscriptionSummaryDto(subRows[0]) : null,
+      recentPayments: paymentRows.map((p) => this.toRecentPaymentDto(p)),
+    };
+  }
+
+  /**
+   * Cambia de plan pagado (`dolly_plus` ↔ `dolly_pro`) in-app con prorrateo en Stripe.
+   */
+  async changePlan(userId: number, dto: ChangePlanDto): Promise<BillingStatusResponseDto> {
+    this.ensureStripeEnabled();
+
+    if (!isPaidSubscriptionTier(dto.tier)) {
+      throw new AppHttpException(ErrorCode.SUBSCRIPTION_INVALID_TIER, {
+        tier: dto.tier,
+      });
+    }
+
+    const newPriceId = resolvePriceIdForTier(dto.tier, this.config);
+    if (!newPriceId) {
+      throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
+    }
+
+    const subRows = await this.db
+      .select()
+      .from(billingSubscriptions)
+      .where(eq(billingSubscriptions.userId, userId))
+      .limit(1);
+
+    const existing = subRows[0];
+    if (!existing || !isActiveSubscriptionStatus(existing.status)) {
+      throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+        action: 'checkout_required',
+        targetTier: dto.tier,
+      });
+    }
+
+    if (existing.tier === dto.tier && !existing.cancelAtPeriodEnd) {
+      return this.getBillingStatus(userId);
+    }
+
+    const updated = await this.gateway.updateSubscriptionPlan({
+      subscriptionId: existing.stripeSubscriptionId,
+      newPriceId,
+      metadata: {
+        userId: String(userId),
+        tier: dto.tier,
+        env: this.config.billing.envTag,
+      },
+    });
+
+    await this.syncSubscriptionState(updated, userId, dto.tier);
+    return this.getBillingStatus(userId);
+  }
+
+  /**
+   * Programa la cancelación de la suscripción pagada al final del periodo actual in-app.
+   */
+  async cancelSubscription(userId: number): Promise<BillingStatusResponseDto> {
+    this.ensureStripeEnabled();
+
+    const subRows = await this.db
+      .select()
+      .from(billingSubscriptions)
+      .where(eq(billingSubscriptions.userId, userId))
+      .limit(1);
+
+    const existing = subRows[0];
+    if (!existing || !isActiveSubscriptionStatus(existing.status)) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+        resource: 'Subscription',
+      });
+    }
+
+    if (existing.cancelAtPeriodEnd) {
+      return this.getBillingStatus(userId);
+    }
+
+    const updated = await this.gateway.setSubscriptionCancelAtPeriodEnd({
+      subscriptionId: existing.stripeSubscriptionId,
+      cancelAtPeriodEnd: true,
+    });
+
+    const tierHint = isValidSubscriptionTier(existing.tier) ? existing.tier : undefined;
+    await this.syncSubscriptionState(updated, userId, tierHint);
+    return this.getBillingStatus(userId);
+  }
+
+  /**
+   * Reactiva in-app una suscripción programada para cancelarse al cierre del periodo.
+   */
+  async resumeSubscription(userId: number): Promise<BillingStatusResponseDto> {
+    this.ensureStripeEnabled();
+
+    const subRows = await this.db
+      .select()
+      .from(billingSubscriptions)
+      .where(eq(billingSubscriptions.userId, userId))
+      .limit(1);
+
+    const existing = subRows[0];
+    if (!existing || (existing.status !== 'active' && existing.status !== 'trialing')) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, {
+        resource: 'Subscription',
+      });
+    }
+
+    if (!existing.cancelAtPeriodEnd) {
+      return this.getBillingStatus(userId);
+    }
+
+    const updated = await this.gateway.setSubscriptionCancelAtPeriodEnd({
+      subscriptionId: existing.stripeSubscriptionId,
+      cancelAtPeriodEnd: false,
+    });
+
+    const tierHint = isValidSubscriptionTier(existing.tier) ? existing.tier : undefined;
+    await this.syncSubscriptionState(updated, userId, tierHint);
+    return this.getBillingStatus(userId);
+  }
+
+  /**
+   * Crea un `SetupIntent` para capturar o actualizar la tarjeta in-app mediante Stripe Elements.
+   */
+  async createSetupIntent(userId: number): Promise<SetupIntentResponseDto> {
+    this.ensureStripeEnabled();
+    const publishableKey = this.getPublishableKeyOrThrow();
+    const { customerId } = await this.getOrCreateCustomerId(userId);
+
+    const intent = await this.gateway.createSetupIntent({
+      customerId,
+      metadata: {
+        userId: String(userId),
+        env: this.config.billing.envTag,
+      },
+    });
+
+    if (!intent.clientSecret) {
+      throw new AppHttpException(ErrorCode.BILLING_PROVIDER_ERROR, {
+        operation: 'setupIntents.create',
+      });
+    }
+
+    return {
+      setupIntentId: intent.id,
+      clientSecret: intent.clientSecret,
+      publishableKey,
+    };
+  }
+
+  /**
+   * Fija un método de pago confirmado como predeterminado en el cliente y suscripción activa.
+   */
+  async setDefaultPaymentMethod(
+    userId: number,
+    dto: SetDefaultPaymentMethodDto,
+  ): Promise<BillingPaymentMethodSummaryDto> {
+    this.ensureStripeEnabled();
+    const { customerId } = await this.getOrCreateCustomerId(userId);
+
+    const subRows = await this.db
+      .select({
+        id: billingSubscriptions.id,
+        stripeSubscriptionId: billingSubscriptions.stripeSubscriptionId,
+        status: billingSubscriptions.status,
+      })
+      .from(billingSubscriptions)
+      .where(eq(billingSubscriptions.userId, userId))
+      .limit(1);
+
+    const activeSub =
+      subRows[0] && isActiveSubscriptionStatus(subRows[0].status) ? subRows[0] : null;
+
+    const summary = await this.gateway.attachAndSetDefaultPaymentMethod({
+      customerId,
+      paymentMethodId: dto.paymentMethodId.trim(),
+      subscriptionId: activeSub?.stripeSubscriptionId ?? null,
+    });
+
+    if (subRows[0]) {
+      await this.db
+        .update(billingSubscriptions)
+        .set({
+          paymentMethodBrand: summary.brand,
+          paymentMethodLast4: summary.last4,
+          paymentMethodExpMonth: summary.expMonth,
+          paymentMethodExpYear: summary.expYear,
+          updatedAt: new Date(),
+        })
+        .where(eq(billingSubscriptions.id, subRows[0].id));
+    }
+
+    await this.auditLogs?.logEvent({
+      module: 'billing',
+      action: 'ACTION',
+      event: 'billing.payment_method_updated',
+      entityType: 'billing_subscriptions',
+      entityId: activeSub?.id ?? userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Default payment method updated for user #${userId}`,
+      metadata: { brand: summary.brand, last4: summary.last4 },
+    });
+
+    return {
+      brand: summary.brand,
+      last4: summary.last4,
+      expMonth: summary.expMonth,
+      expYear: summary.expYear,
+    };
+  }
+
+  /**
+   * Lista el historial de facturas del usuario en Stripe para mostrarlo dentro de DolyNation.
+   */
+  async listInvoices(userId: number): Promise<BillingInvoiceDto[]> {
+    this.ensureStripeEnabled();
+    const userRows = await this.db
+      .select({ stripeCustomerId: users.stripeCustomerId })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const user = userRows[0];
+    if (!user) {
+      throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
+    }
+
+    if (!user.stripeCustomerId) {
+      return [];
+    }
+
+    const invoices = await this.gateway.listInvoices({
+      customerId: user.stripeCustomerId,
+      limit: 24,
+    });
+
+    return invoices.map((inv) => ({
+      id: inv.id,
+      number: inv.number,
+      status: inv.status,
+      amountPaidCents: inv.amountPaidCents,
+      amountDueCents: inv.amountDueCents,
+      currency: inv.currency,
+      createdAt: inv.createdAt,
+      invoicePdfUrl: inv.invoicePdfUrl,
+      hostedInvoiceUrl: inv.hostedInvoiceUrl,
+    }));
+  }
+
+  /**
+   * Genera una URL temporal del Customer Portal de Stripe como respaldo opcional.
+   */
+  async createPortalSession(userId: number): Promise<BillingPortalResponseDto> {
+    this.ensureStripeEnabled();
+    const { customerId } = await this.getOrCreateCustomerId(userId);
+    const returnUrl = `${this.getFrontendBaseUrl()}/profile#subscription`;
+    return this.gateway.createBillingPortalSession({ customerId, returnUrl });
+  }
+
+  /**
+   * Valida, filtra por ambiente, deduplica y procesa webhooks entrantes de Stripe.
+   */
+  async handleWebhook(
+    rawBody: Buffer | undefined,
+    signature: string | undefined,
+  ): Promise<WebhookProcessedResponseDto> {
+    this.ensureStripeEnabled();
+
+    if (!signature || signature.trim().length === 0) {
+      throw new AppHttpException(ErrorCode.BILLING_WEBHOOK_SIGNATURE_INVALID);
+    }
+
+    if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) {
+      throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID, {
+        reason: 'Missing raw request body for webhook signature verification',
+      });
+    }
+
+    const event = this.gateway.constructWebhookEvent(rawBody, signature);
+
+    if (event.envTag && event.envTag !== this.config.billing.envTag) {
+      return { received: true, ignored: true };
+    }
+
+    if (
+      (event.type === 'invoice.payment_succeeded' || event.type === 'invoice.payment_failed') &&
+      !event.envTag &&
+      event.invoice
+    ) {
+      const belongsHere = await this.findUserIdForInvoice(event.invoice);
+      if (belongsHere === null) {
+        return { received: true, ignored: true };
+      }
+    }
+
+    const claimed = await this.claimWebhookEvent(event.id, event.type);
+    if (!claimed) {
+      return { received: true, ignored: true };
+    }
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          if (event.checkoutSession) {
+            await this.fulfillCheckoutSession(event.checkoutSession, undefined, false);
+          }
+          break;
+        }
+        case 'customer.subscription.created':
+        case 'customer.subscription.updated':
+        case 'customer.subscription.deleted': {
+          if (event.subscription) {
+            await this.syncSubscriptionState(event.subscription);
+          }
+          break;
+        }
+        case 'invoice.payment_succeeded':
+        case 'invoice.payment_failed': {
+          if (event.invoice) {
+            await this.recordInvoiceEvent(
+              event.invoice,
+              event.type === 'invoice.payment_succeeded' ? 'paid' : 'failed',
+            );
+          }
+          break;
+        }
+        default:
+          break;
+      }
+
+      await this.db
+        .update(billingWebhookEvents)
+        .set({
+          status: 'processed',
+          errorMessage: null,
+          processedAt: new Date(),
+        })
+        .where(eq(billingWebhookEvents.eventId, event.id));
+
+      return { received: true, ignored: false };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      await this.db
+        .update(billingWebhookEvents)
+        .set({
+          status: 'failed',
+          errorMessage: errorMessage.slice(0, 1000),
+        })
+        .where(eq(billingWebhookEvents.eventId, event.id));
+
+      await this.errorLogs?.logError({
+        severity: 'error',
+        source: 'billing_provider',
+        module: 'billing',
+        errorCode: ErrorCode.INTERNAL_ERROR,
+        httpStatus: 500,
+        message: `Webhook '${event.type}' (${event.id}) failed: ${errorMessage}`,
+        errorName: error instanceof Error ? error.name : typeof error,
+        errorStack: error instanceof Error ? (error.stack ?? null) : null,
+        details: { eventId: event.id, eventType: event.type },
+      });
+
+      throw error;
+    }
+  }
+
+  private async claimWebhookEvent(eventId: string, eventType: string): Promise<boolean> {
+    const now = new Date();
+    const inserted = await this.db
+      .insert(billingWebhookEvents)
+      .values({
+        eventId,
+        provider: 'stripe',
+        eventType,
+        status: 'processing',
+        createdAt: now,
+      })
+      .onConflictDoNothing({ target: billingWebhookEvents.eventId })
+      .returning({ eventId: billingWebhookEvents.eventId });
+
+    if (inserted.length > 0) {
+      return true;
+    }
+
+    const existingRows = await this.db
+      .select({ status: billingWebhookEvents.status })
+      .from(billingWebhookEvents)
+      .where(eq(billingWebhookEvents.eventId, eventId))
+      .limit(1);
+
+    if (existingRows[0]?.status !== 'failed') {
+      return false;
+    }
+
+    const retried = await this.db
+      .update(billingWebhookEvents)
+      .set({ status: 'processing', errorMessage: null })
+      .where(
+        and(eq(billingWebhookEvents.eventId, eventId), eq(billingWebhookEvents.status, 'failed')),
+      )
+      .returning({ eventId: billingWebhookEvents.eventId });
+
+    return retried.length > 0;
+  }
+
+  private async fulfillCheckoutSession(
+    session: GatewayCheckoutSession,
+    explicitUserId?: number,
+    requireSettled = false,
+  ): Promise<void> {
+    const userId =
+      explicitUserId ??
+      parsePositiveInt(session.metadata['userId']) ??
+      (await this.findUserIdByCustomerId(session.customerId));
+
+    if (!userId) {
+      this.logger.warn(`Checkout session ${session.id} could not be matched to a local user`);
+      if (requireSettled) {
+        throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID, { sessionId: session.id });
+      }
+      return;
+    }
+
+    const isSettled =
+      session.paymentStatus === 'paid' || session.paymentStatus === 'no_payment_required';
+
+    if (!isSettled) {
+      if (requireSettled) {
+        throw new AppHttpException(ErrorCode.BILLING_PAYMENT_REQUIRED, {
+          sessionId: session.id,
+          paymentStatus: session.paymentStatus,
+        });
+      }
+      return;
+    }
+
+    const kind =
+      session.metadata['kind'] ??
+      (session.mode === 'subscription' ? 'subscription' : 'language_unlock');
+
+    if (kind === 'language_unlock') {
+      const now = new Date();
+      let granted = false;
+      let nextCredits = 0;
+
+      await this.db.transaction(async (tx) => {
+        await tx
+          .insert(billingPayments)
+          .values({
+            userId,
+            provider: 'stripe',
+            kind: 'language_unlock',
+            tier: null,
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: session.paymentIntentId,
+            amountCents: session.amountTotal ?? 0,
+            currency: session.currency ?? this.config.billing.currency,
+            status: 'pending',
+            metadata: session.metadata,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: billingPayments.stripeCheckoutSessionId });
+
+        const claimed = await tx
+          .update(billingPayments)
+          .set({
+            status: 'paid',
+            stripePaymentIntentId: session.paymentIntentId,
+            amountCents: session.amountTotal ?? 0,
+            currency: session.currency ?? this.config.billing.currency,
+            fulfilledAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(billingPayments.stripeCheckoutSessionId, session.id),
+              isNull(billingPayments.fulfilledAt),
+            ),
+          )
+          .returning({ id: billingPayments.id });
+
+        if (claimed.length > 0) {
+          const result = await this.settings.grantLanguageChangeCredit(userId, tx);
+          granted = true;
+          nextCredits = result.nextCredits;
+        }
+      });
+
+      if (granted) {
+        await this.auditLogs?.logEvent({
+          module: 'billing',
+          action: 'ACTION',
+          event: 'billing.language_unlock_fulfilled',
+          entityType: 'billing_payments',
+          entityId: session.id,
+          actorUserId: userId,
+          targetUserId: userId,
+          summary: `Language unlock payment fulfilled for user #${userId} (credits=${nextCredits})`,
+          metadata: { sessionId: session.id, nextCredits },
+        });
+      }
+      return;
+    }
+
+    const tierHint = isPaidSubscriptionTier(session.metadata['tier'])
+      ? session.metadata['tier']
+      : undefined;
+
+    if (session.subscriptionId) {
+      const subId = session.subscriptionId;
+      const subscription = await this.gateway.retrieveSubscription(subId);
+      await this.syncSubscriptionState(subscription, userId, tierHint);
+    }
+
+    const now = new Date();
+    await this.db
+      .insert(billingPayments)
+      .values({
+        userId,
+        provider: 'stripe',
+        kind: 'subscription',
+        tier: tierHint ?? null,
+        stripeCheckoutSessionId: session.id,
+        stripePaymentIntentId: session.paymentIntentId,
+        amountCents: session.amountTotal ?? 0,
+        currency: session.currency ?? this.config.billing.currency,
+        status: 'paid',
+        fulfilledAt: now,
+        metadata: session.metadata,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoNothing({ target: billingPayments.stripeCheckoutSessionId });
+  }
+
+  private async syncSubscriptionState(
+    subscription: GatewaySubscription,
+    explicitUserId?: number,
+    tierHint?: SubscriptionTier,
+  ): Promise<void> {
+    const userId =
+      explicitUserId ??
+      parsePositiveInt(subscription.metadata['userId']) ??
+      (await this.findUserIdByCustomerOrSubscription(subscription.customerId, subscription.id));
+
+    if (!userId) {
+      this.logger.warn(
+        `Stripe subscription ${subscription.id} could not be matched to a local user`,
+      );
+      return;
+    }
+
+    const resolvedTier: PaidSubscriptionTier | SubscriptionTier =
+      resolveTierForPriceId(subscription.priceId, this.config) ??
+      (isValidSubscriptionTier(subscription.metadata['tier'])
+        ? subscription.metadata['tier']
+        : null) ??
+      tierHint ??
+      'dolly_plus';
+
+    const pmSummary: GatewayPaymentMethodSummary | null =
+      subscription.defaultPaymentMethod && typeof subscription.defaultPaymentMethod === 'object'
+        ? subscription.defaultPaymentMethod
+        : null;
+
+    const effectiveUserTier: SubscriptionTier =
+      subscription.status === 'canceled' ||
+      subscription.status === 'unpaid' ||
+      subscription.status === 'incomplete_expired'
+        ? 'dolly'
+        : resolvedTier;
+
+    const now = new Date();
+    let previousUserTier: string | null = null;
+
+    await this.db.transaction(async (tx) => {
+      const userRows = await tx
+        .select({
+          subscriptionTier: users.subscriptionTier,
+          stripeCustomerId: users.stripeCustomerId,
+        })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+
+      const userRow = userRows[0];
+      if (!userRow) return;
+      previousUserTier = userRow.subscriptionTier;
+
+      await tx
+        .insert(billingSubscriptions)
+        .values({
+          userId,
+          provider: 'stripe',
+          stripeCustomerId: subscription.customerId,
+          stripeSubscriptionId: subscription.id,
+          stripePriceId: subscription.priceId,
+          tier: resolvedTier,
+          status: subscription.status,
+          currentPeriodStart: subscription.currentPeriodStart,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          canceledAt: subscription.canceledAt,
+          ...(pmSummary
+            ? {
+                paymentMethodBrand: pmSummary.brand,
+                paymentMethodLast4: pmSummary.last4,
+                paymentMethodExpMonth: pmSummary.expMonth,
+                paymentMethodExpYear: pmSummary.expYear,
+              }
+            : {}),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: billingSubscriptions.userId,
+          set: {
+            stripeCustomerId: subscription.customerId,
+            stripeSubscriptionId: subscription.id,
+            stripePriceId: subscription.priceId,
+            tier: resolvedTier,
+            status: subscription.status,
+            currentPeriodStart: subscription.currentPeriodStart,
+            currentPeriodEnd: subscription.currentPeriodEnd,
+            cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+            canceledAt: subscription.canceledAt,
+            ...(pmSummary
+              ? {
+                  paymentMethodBrand: pmSummary.brand,
+                  paymentMethodLast4: pmSummary.last4,
+                  paymentMethodExpMonth: pmSummary.expMonth,
+                  paymentMethodExpYear: pmSummary.expYear,
+                }
+              : {}),
+            updatedAt: now,
+          },
+        });
+
+      await tx
+        .update(users)
+        .set({
+          subscriptionTier: effectiveUserTier,
+          ...(userRow.stripeCustomerId ? {} : { stripeCustomerId: subscription.customerId }),
+          updatedAt: now,
+        })
+        .where(eq(users.id, userId));
+    });
+
+    await this.auditLogs?.logUpdate({
+      module: 'billing',
+      event:
+        effectiveUserTier === 'dolly' && previousUserTier !== 'dolly'
+          ? 'billing.subscription_downgraded_to_dolly'
+          : 'billing.subscription_synced',
+      entityType: 'billing_subscriptions',
+      entityId: subscription.id,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Billing subscription synced for user #${userId}: status=${subscription.status}, tier=${effectiveUserTier}`,
+      beforeState: { subscriptionTier: previousUserTier },
+      afterState: {
+        subscriptionTier: effectiveUserTier,
+        stripeStatus: subscription.status,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      },
+      metadata: {
+        stripeSubscriptionId: subscription.id,
+        stripePriceId: subscription.priceId,
+      },
+    });
+  }
+
+  private async recordInvoiceEvent(
+    invoice: GatewayInvoice,
+    outcome: 'paid' | 'failed',
+  ): Promise<void> {
+    const userId = await this.findUserIdForInvoice(invoice);
+    if (!userId) {
+      this.logger.warn(`Invoice ${invoice.id} could not be matched to a local user`);
+      return;
+    }
+
+    const now = new Date();
+    const amountCents = outcome === 'paid' ? invoice.amountPaidCents : invoice.amountDueCents;
+
+    await this.db.transaction(async (tx) => {
+      await tx
+        .insert(billingPayments)
+        .values({
+          userId,
+          provider: 'stripe',
+          kind: 'subscription_invoice',
+          tier: isValidSubscriptionTier(invoice.metadata['tier']) ? invoice.metadata['tier'] : null,
+          stripeInvoiceId: invoice.id,
+          amountCents,
+          currency: invoice.currency,
+          status: outcome,
+          fulfilledAt: outcome === 'paid' ? now : null,
+          metadata: invoice.metadata,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: billingPayments.stripeInvoiceId,
+          set: {
+            amountCents,
+            status: outcome,
+            fulfilledAt: outcome === 'paid' ? now : null,
+            updatedAt: now,
+          },
+        });
+
+      if (outcome === 'failed' && invoice.subscriptionId) {
+        await tx
+          .update(billingSubscriptions)
+          .set({ status: 'past_due', updatedAt: now })
+          .where(eq(billingSubscriptions.stripeSubscriptionId, invoice.subscriptionId));
+      }
+    });
+  }
+
+  private async findUserIdByCustomerId(customerId: string | null): Promise<number | null> {
+    if (!customerId) return null;
+    const rows = await this.db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.stripeCustomerId, customerId))
+      .limit(1);
+    return rows[0]?.id ?? null;
+  }
+
+  private async findUserIdByCustomerOrSubscription(
+    customerId: string | null,
+    subscriptionId: string | null,
+  ): Promise<number | null> {
+    if (subscriptionId) {
+      const subRows = await this.db
+        .select({ userId: billingSubscriptions.userId })
+        .from(billingSubscriptions)
+        .where(eq(billingSubscriptions.stripeSubscriptionId, subscriptionId))
+        .limit(1);
+      if (subRows[0]?.userId) {
+        return subRows[0].userId;
+      }
+    }
+    return this.findUserIdByCustomerId(customerId);
+  }
+
+  private async findUserIdForInvoice(invoice: GatewayInvoice): Promise<number | null> {
+    const metaUserId = parsePositiveInt(invoice.metadata['userId']);
+    if (metaUserId !== null) return metaUserId;
+    return this.findUserIdByCustomerOrSubscription(invoice.customerId, invoice.subscriptionId);
+  }
+
+  private toSubscriptionSummaryDto(row: BillingSubscription): BillingSubscriptionSummaryDto {
+    const hasPm = Boolean(row.paymentMethodLast4 ?? row.paymentMethodBrand);
+    const tier: SubscriptionTier = isValidSubscriptionTier(row.tier) ? row.tier : 'dolly';
+
+    return {
+      status: row.status,
+      tier,
+      currentPeriodStart: row.currentPeriodStart,
+      currentPeriodEnd: row.currentPeriodEnd,
+      cancelAtPeriodEnd: row.cancelAtPeriodEnd,
+      canceledAt: row.canceledAt,
+      paymentMethod: hasPm
+        ? {
+            brand: row.paymentMethodBrand,
+            last4: row.paymentMethodLast4,
+            expMonth: row.paymentMethodExpMonth,
+            expYear: row.paymentMethodExpYear,
+          }
+        : null,
+    };
+  }
+
+  private toRecentPaymentDto(row: BillingPayment): BillingRecentPaymentDto {
+    return {
+      id: row.id,
+      kind: row.kind,
+      tier: row.tier,
+      amountCents: row.amountCents,
+      currency: row.currency,
+      status: row.status,
+      fulfilledAt: row.fulfilledAt,
+      createdAt: row.createdAt,
+    };
+  }
+}
