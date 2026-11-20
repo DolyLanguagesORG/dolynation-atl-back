@@ -11,6 +11,13 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.11.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.10.0...v0.11.0) (2026-11-20)
+
+
+### Features
+
+* **billing:** implementa modulo de pagos y suscripciones con stripe ([#148](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/148)) ([76319f6](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/76319f6c875923f926015c6837ee3b07bd9208c0))
+
 ## [0.10.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.9.0...v0.10.0) (2026-11-19)
 
 
