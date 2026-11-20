@@ -1,5 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { AppHttpException } from '../../common/errors/app-http.exception';
+import { ErrorCode } from '../../common/errors/error-codes';
+import type { DrizzleDb } from '../../database/database.module';
 import { DRIZZLE } from '../../database/database.tokens';
 import { SubscriptionsService } from './subscriptions.service';
 
@@ -554,6 +556,137 @@ describe('SubscriptionsService', () => {
           explanation: 'Present everywhere.',
         }),
       );
+    });
+  });
+
+  describe('stripe billing mode', () => {
+    let stripeService: SubscriptionsService;
+
+    beforeEach(() => {
+      stripeService = new SubscriptionsService(
+        dbMock as unknown as DrizzleDb,
+        {
+          billing: { provider: 'stripe', currency: 'mxn' },
+          accessRequests: { enabled: false },
+        } as never,
+      );
+    });
+
+    it('exposes checkoutRequired=true on paid plans and false on free dolly plan', () => {
+      const plans = stripeService.getPlans();
+
+      expect(plans.find((p) => p.id === 'dolly')?.pricing).toEqual({
+        isFree: true,
+        checkoutRequired: false,
+        amountCents: 0,
+        currency: 'mxn',
+        interval: null,
+      });
+      expect(plans.find((p) => p.id === 'dolly_plus')?.pricing).toEqual({
+        isFree: false,
+        checkoutRequired: true,
+        amountCents: null,
+        currency: 'mxn',
+        interval: 'month',
+      });
+      expect(plans.find((p) => p.id === 'dolly_pro')?.pricing?.checkoutRequired).toBe(true);
+    });
+
+    it('blocks direct selection of paid tiers with 402 BILLING_PAYMENT_REQUIRED', async () => {
+      await expect(stripeService.selectSubscription(1, 'dolly_plus')).rejects.toMatchObject({
+        status: 402,
+        response: expect.objectContaining({ code: ErrorCode.BILLING_PAYMENT_REQUIRED }),
+      });
+      await expect(stripeService.selectSubscription(1, 'dolly_pro')).rejects.toMatchObject({
+        status: 402,
+        response: expect.objectContaining({ code: ErrorCode.BILLING_PAYMENT_REQUIRED }),
+      });
+    });
+
+    it('blocks direct downgrade to dolly with 409 BILLING_SUBSCRIPTION_CONFLICT when an active Stripe sub exists', async () => {
+      dbMock.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ id: 99, status: 'active' }]),
+          }),
+        }),
+      });
+
+      await expect(stripeService.selectSubscription(1, 'dolly')).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ code: ErrorCode.BILLING_SUBSCRIPTION_CONFLICT }),
+      });
+    });
+
+    it('allows direct selection of free dolly when no active Stripe sub exists and returns billing summary', async () => {
+      dbMock.update.mockReturnValueOnce({
+        set: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([{ id: 1 }]),
+          }),
+        }),
+      });
+
+      const periodEnd = new Date('2026-12-01T00:00:00Z');
+      dbMock.select
+        // check active Stripe sub
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([]),
+            }),
+          }),
+        })
+        // getUserSubscription -> users
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ id: 1, subscriptionTier: 'dolly' }]),
+            }),
+          }),
+        })
+        // getUserSubscription -> userSettings
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([{ categories: [], selectedLanguages: ['en'] }]),
+            }),
+          }),
+        })
+        // getUserSubscription -> readings count
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockResolvedValue([{ count: 1 }]),
+          }),
+        })
+        // getUserSubscription -> readingExplanations count
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockResolvedValue([{ count: 2 }]),
+          }),
+        })
+        // getUserSubscription -> billingSubscriptions summary
+        .mockReturnValueOnce({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest
+                .fn()
+                .mockResolvedValue([
+                  { status: 'canceled', currentPeriodEnd: periodEnd, cancelAtPeriodEnd: false },
+                ]),
+            }),
+          }),
+        });
+
+      const res = await stripeService.selectSubscription(1, 'dolly');
+
+      expect(res.tier).toBe('dolly');
+      expect(res.billing).toEqual({
+        provider: 'stripe',
+        status: 'canceled',
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+      });
     });
   });
 });

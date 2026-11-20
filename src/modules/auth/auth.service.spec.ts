@@ -60,6 +60,7 @@ describe('AuthService', () => {
     currentStreak: 0,
     lastStreakDate: null,
     subscriptionTier: null,
+    stripeCustomerId: null,
     emailVerifiedAt: null as Date | null,
     locale: 'es',
     createdAt: new Date(),

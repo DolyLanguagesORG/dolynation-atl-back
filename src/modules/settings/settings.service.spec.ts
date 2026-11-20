@@ -429,4 +429,45 @@ describe('SettingsService', () => {
       });
     });
   });
+
+  describe('stripe billing mode', () => {
+    it('blocks direct unlockLanguageChange with 402 BILLING_PAYMENT_REQUIRED when BILLING_PROVIDER=stripe', async () => {
+      const stripeSettings = new SettingsService(
+        db as unknown as DrizzleDb,
+        moderation as unknown as CategoryModerationService,
+        subscriptions as unknown as SubscriptionsService,
+        undefined,
+        {
+          billing: { provider: 'stripe' },
+          accessRequests: { enabled: false },
+        } as never,
+      );
+
+      await expect(stripeSettings.unlockLanguageChange(42)).rejects.toMatchObject({
+        status: 402,
+        response: expect.objectContaining({ code: ErrorCode.BILLING_PAYMENT_REQUIRED }),
+      });
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('grantLanguageChangeCredit increments language_change_credits atomically and supports optional tx', async () => {
+      mockSettingsRow({
+        selectedLanguages: ['en', 'fr'],
+        lastLanguageChangeAt: new Date('2026-10-01T00:00:00Z'),
+        languageChangeCredits: 2,
+      });
+
+      const result = await service.grantLanguageChangeCredit(42);
+
+      expect(result.previousCredits).toBe(2);
+      expect(result.nextCredits).toBe(3);
+      expect(result.saved).toEqual(['en', 'fr']);
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 42,
+          languageChangeCredits: 3,
+        }),
+      );
+    });
+  });
 });
