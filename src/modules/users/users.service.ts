@@ -13,7 +13,34 @@ import {
   resolveActiveLanguages,
   sanitizeSelectedLanguages,
 } from '../settings/language-selection.helpers';
-import { getMaxLanguagesForTier } from '../subscriptions/subscriptions.constants';
+import {
+  getDateKeyInTimeZone,
+  getMaxLanguagesForTier,
+  getStartOfDayInTimeZone,
+  TIMEZONE_RESET,
+} from '../subscriptions/subscriptions.constants';
+
+const MS_PER_DAY = 86_400_000;
+
+/**
+ * Fecha calendario (`YYYY-MM-DD`) del día de negocio. La racha usa el mismo día que las
+ * cuotas diarias (`America/Mexico_City`), no el día UTC, que cambia a las 18:00 en CDMX.
+ */
+function businessDateKey(instant: Date): string {
+  return getDateKeyInTimeZone(TIMEZONE_RESET, instant);
+}
+
+/** Días calendario entre dos fechas `YYYY-MM-DD` (positivo si `toKey` es posterior). */
+function daysBetweenKeys(fromKey: string, toKey: string): number {
+  return Math.round(
+    (Date.parse(`${toKey}T00:00:00Z`) - Date.parse(`${fromKey}T00:00:00Z`)) / MS_PER_DAY,
+  );
+}
+
+/** Suma `days` días calendario a una fecha `YYYY-MM-DD`. */
+function shiftDateKey(key: string, days: number): string {
+  return new Date(Date.parse(`${key}T00:00:00Z`) + days * MS_PER_DAY).toISOString().slice(0, 10);
+}
 import { DEFAULT_UI_LOCALE } from '../../common/types/locale';
 import { DEFAULT_USER_ROLE, isUserRole, type UserRole } from '../../common/types/user-role';
 
@@ -230,9 +257,7 @@ export class UsersService {
    */
   computeStreak(lastStreakDate: string | null, today: Date, currentStreak: number): number {
     if (!lastStreakDate) return 0;
-    const last = new Date(lastStreakDate + 'T00:00:00Z');
-    const t = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    const diffDays = Math.round((t.getTime() - last.getTime()) / 86_400_000);
+    const diffDays = daysBetweenKeys(lastStreakDate, businessDateKey(today));
     if (diffDays === 0) return currentStreak;
     if (diffDays === 1) return currentStreak + 1;
     return 0;
@@ -336,9 +361,7 @@ export class UsersService {
     today = new Date(),
   ): number {
     if (!lastStreakDate || currentStreak <= 0) return 0;
-    const last = new Date(lastStreakDate + 'T00:00:00Z');
-    const t = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-    const diffDays = Math.round((t.getTime() - last.getTime()) / 86_400_000);
+    const diffDays = daysBetweenKeys(lastStreakDate, businessDateKey(today));
     return diffDays >= 0 && diffDays <= 1 ? currentStreak : 0;
   }
 
@@ -349,15 +372,11 @@ export class UsersService {
     const user = await this.findById(userId);
     if (!user) return;
 
-    const todayUtc = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
-    );
-    const todayStr = todayUtc.toISOString().slice(0, 10);
+    const todayStr = businessDateKey(today);
 
     let nextStreak = 1;
     if (user.lastStreakDate) {
-      const last = new Date(user.lastStreakDate + 'T00:00:00Z');
-      const diffDays = Math.round((todayUtc.getTime() - last.getTime()) / 86_400_000);
+      const diffDays = daysBetweenKeys(user.lastStreakDate, todayStr);
       if (diffDays < 0) {
         return;
       }
@@ -408,13 +427,14 @@ export class UsersService {
    */
   async activeStreakFor(userId: number, days = 7, today = new Date()): Promise<number[]> {
     const windowDays = Math.max(1, Math.min(365, Math.floor(days)));
-    const todayUtc = new Date(
-      Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
-    );
-    const windowStart = new Date(todayUtc.getTime() - (windowDays - 1) * 86_400_000);
-
+    const todayKey = businessDateKey(today);
     const windowDates = Array.from({ length: windowDays }, (_, idx) =>
-      new Date(windowStart.getTime() + idx * 86_400_000).toISOString().slice(0, 10),
+      shiftDateKey(todayKey, idx - (windowDays - 1)),
+    );
+    // Medianoche local del primer día de la ventana; el mediodía UTC cae dentro de ese día en CDMX.
+    const windowStart = getStartOfDayInTimeZone(
+      TIMEZONE_RESET,
+      new Date(`${windowDates[0] ?? todayKey}T12:00:00Z`),
     );
     const windowSet = new Set(windowDates);
     const activeDates = new Set<string>();
@@ -438,17 +458,16 @@ export class UsersService {
     ]);
 
     for (const row of completedRows) {
-      const activityDate = (row.updatedAt ?? row.createdAt).toISOString().slice(0, 10);
+      const activityDate = businessDateKey(row.updatedAt ?? row.createdAt);
       if (windowSet.has(activityDate)) {
         activeDates.add(activityDate);
       }
     }
 
     if (user?.lastStreakDate && user.currentStreak > 0) {
-      const lastUtc = new Date(user.lastStreakDate + 'T00:00:00Z');
       const span = Math.min(windowDays, user.currentStreak);
       for (let offset = 0; offset < span; offset++) {
-        const dayStr = new Date(lastUtc.getTime() - offset * 86_400_000).toISOString().slice(0, 10);
+        const dayStr = shiftDateKey(user.lastStreakDate, -offset);
         if (windowSet.has(dayStr)) {
           activeDates.add(dayStr);
         }
