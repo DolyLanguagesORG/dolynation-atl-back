@@ -1210,6 +1210,139 @@ describe('Billing & Stripe flows (e2e)', () => {
       expect(refunded).toBeTruthy();
     });
 
+    it('un reembolso parcial (refund.created) NO revoca el plan pagado', async () => {
+      const user = await registerUser();
+      const auth = `Bearer ${user.token}`;
+
+      await postWebhook(
+        subscriptionEvent({
+          id: makeStripeEventId(),
+          subscriptionId: 'sub_partial_refund_e2e',
+          customerId: 'cus_partial_refund_e2e',
+          status: 'active',
+          priceId: PRICE_PLUS,
+          userId: user.id,
+        }),
+      );
+      await db.insert(billingPayments).values({
+        userId: user.id,
+        provider: 'stripe',
+        kind: 'subscription_invoice',
+        tier: 'dolly_plus',
+        stripePaymentIntentId: 'pi_partial_refund_e2e',
+        amountCents: 14900,
+        currency: 'mxn',
+        status: 'paid',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Reembolso de cortesia de $20 sobre un cobro de $149.
+      await postWebhook({
+        id: makeStripeEventId(),
+        object: 'event',
+        type: 'refund.created',
+        data: {
+          object: {
+            id: 're_partial_refund_e2e',
+            object: 'refund',
+            amount: 2000,
+            currency: 'mxn',
+            charge: 'ch_partial_refund_e2e',
+            payment_intent: 'pi_partial_refund_e2e',
+          },
+        },
+      });
+
+      const statusRes = await supertest(server())
+        .get('/api/v1/billing/status')
+        .set('Authorization', auth)
+        .expect(200);
+      const status = asEnvelope<BillingStatusResponseDto>(statusRes.body).data;
+
+      expect(status.tier).toBe('dolly_plus');
+      const [payment] = await db
+        .select({ status: billingPayments.status })
+        .from(billingPayments)
+        .where(eq(billingPayments.stripePaymentIntentId, 'pi_partial_refund_e2e'));
+      expect(payment?.status).toBe('partially_refunded');
+    });
+
+    it('reembolsar un desbloqueo de idioma quita el credito una sola vez (charge.refunded + refund.created)', async () => {
+      const user = await registerUser();
+      const auth = `Bearer ${user.token}`;
+
+      await supertest(server())
+        .put('/api/v1/settings/languages')
+        .set('Authorization', auth)
+        .send({ languages: ['en'] })
+        .expect(200);
+      // Tiene 2 creditos: uno de una compra anterior y otro de la que se reembolsa.
+      await db
+        .update(userSettings)
+        .set({ languageChangeCredits: 2 })
+        .where(eq(userSettings.userId, user.id));
+      await db.insert(billingPayments).values({
+        userId: user.id,
+        provider: 'stripe',
+        kind: 'language_unlock',
+        tier: null,
+        stripePaymentIntentId: 'pi_unlock_refund_e2e',
+        amountCents: 4900,
+        currency: 'mxn',
+        status: 'paid',
+        fulfilledAt: new Date(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      // Stripe emite ambos eventos por el mismo reembolso.
+      await postWebhook({
+        id: makeStripeEventId(),
+        object: 'event',
+        type: 'charge.refunded',
+        data: {
+          object: {
+            id: 'ch_unlock_refund_e2e',
+            object: 'charge',
+            amount: 4900,
+            amount_refunded: 4900,
+            refunded: true,
+            currency: 'mxn',
+            customer: null,
+            payment_intent: 'pi_unlock_refund_e2e',
+          },
+        },
+      });
+      await postWebhook({
+        id: makeStripeEventId(),
+        object: 'event',
+        type: 'refund.created',
+        data: {
+          object: {
+            id: 're_unlock_refund_e2e',
+            object: 'refund',
+            amount: 4900,
+            currency: 'mxn',
+            charge: 'ch_unlock_refund_e2e',
+            payment_intent: 'pi_unlock_refund_e2e',
+          },
+        },
+      });
+
+      const [settings] = await db
+        .select({ credits: userSettings.languageChangeCredits })
+        .from(userSettings)
+        .where(eq(userSettings.userId, user.id));
+      expect(settings?.credits).toBe(1);
+
+      const [payment] = await db
+        .select({ status: billingPayments.status })
+        .from(billingPayments)
+        .where(eq(billingPayments.stripePaymentIntentId, 'pi_unlock_refund_e2e'));
+      expect(payment?.status).toBe('refunded');
+    });
+
     it('no duplica el pago cuando llega la factura de una compra ya registrada', async () => {
       const user = await registerUser();
       const auth = `Bearer ${user.token}`;
