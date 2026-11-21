@@ -1146,7 +1146,14 @@ describe('ReadingsService', () => {
       expect(res.wordBreakdown).toHaveLength(1);
       expect(res.otherWaysToSay).toHaveLength(1);
       expect(res.otherContexts).toHaveLength(1);
-      expect(subscriptions.assertCanAskQuestion).toHaveBeenCalledTimes(1);
+      // Se valida antes de llamar a la IA y otra vez dentro de la transacción que inserta.
+      expect(subscriptions.assertCanAskQuestion).toHaveBeenCalledTimes(2);
+      const txClient = subscriptions.assertCanAskQuestion.mock.calls[1]?.[1];
+      expect(txClient).toBeDefined();
+      expect(subscriptions.recordExplanation).toHaveBeenCalledWith(
+        expect.objectContaining({ normalizedWord: 'que me parta un rayo' }),
+        txClient,
+      );
       expect(factory.getFullResponse).toHaveBeenCalledTimes(1);
     });
 
