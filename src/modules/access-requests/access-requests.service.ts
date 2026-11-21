@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { and, desc, eq } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import { isPgUniqueViolation } from '../../common/errors/pg-errors';
 import { DEFAULT_UI_LOCALE } from '../../common/types/locale';
 import { AppConfigService } from '../../config/env.config';
 import type { DrizzleDb } from '../../database/database.module';
@@ -29,11 +30,6 @@ import type {
 
 function resolveMailLocale(locale: string | null | undefined): MailLocale {
   return isMailLocale(locale) ? locale : DEFAULT_UI_LOCALE;
-}
-
-function isPgUniqueViolation(error: unknown): boolean {
-  if (!error || typeof error !== 'object') return false;
-  return (error as { code?: unknown }).code === '23505';
 }
 
 /**
