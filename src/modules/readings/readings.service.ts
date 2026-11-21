@@ -32,8 +32,8 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CategoryModerationService } from '../moderation/category-moderation.service';
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { DRIZZLE } from '../../database/database.tokens';
-import type { DrizzleDb } from '../../database/database.module';
-import { readingExplanations, readings } from '../../database/drizzle/schema';
+import type { DrizzleDb, DrizzleExecutor } from '../../database/database.module';
+import { readingExplanations, readings, users } from '../../database/drizzle/schema';
 import type {
   ExplanationEntryType,
   NewReading,
@@ -296,10 +296,26 @@ export class ReadingsService {
       createdAt: new Date(),
     };
 
-    const [inserted] = await this.db.insert(readings).values(row).returning();
-    if (!inserted) {
-      throw new Error('Insert returned no rows');
-    }
+    // La IA tarda segundos: los límites revisados al inicio pudieron cambiar mientras tanto.
+    // Se vuelven a validar con la fila del usuario bloqueada para que el INSERT sea atómico.
+    const inserted = await this.db.transaction(async (tx) => {
+      await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, input.userId))
+        .for('no key update');
+      await this.subscriptions.assertCanGenerateReading(input.userId, tx);
+      if ((await this.countPending(input.userId, tx)) >= MAX_PENDING) {
+        throw new AppHttpException(ErrorCode.READING_PENDING_LIMIT_REACHED, {
+          max: MAX_PENDING,
+        });
+      }
+      const [created] = await tx.insert(readings).values(row).returning();
+      if (!created) {
+        throw new Error('Insert returned no rows');
+      }
+      return created;
+    });
     await this.promptLogs.logPromptSuccess(
       'text_generated',
       input.userId,
@@ -484,11 +500,12 @@ Evaluate how well the user understood the main idea of the text.`;
         status: 'completed',
         updatedAt: new Date(),
       })
-      .where(eq(readings.id, id))
+      .where(and(eq(readings.id, id), eq(readings.status, 'pending')))
       .returning();
 
+    // Otra petición concurrente ya evaluó esta lectura: no se sobrescribe su resultado.
     if (!updated) {
-      throw new Error('Update returned no rows');
+      throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
     }
 
     await this.users.recordDailyActivity(userId);
@@ -929,6 +946,20 @@ Evaluate how well the user understood the main idea of the text.`;
   private async getPendingCount(userId: number): Promise<number> {
     const pending = await this.listPending(userId);
     return pending.length;
+  }
+
+  private async countPending(userId: number, dbClient: DrizzleExecutor): Promise<number> {
+    const rows = await dbClient
+      .select({ id: readings.id })
+      .from(readings)
+      .where(
+        and(
+          eq(readings.userId, userId),
+          eq(readings.status, 'pending'),
+          isNull(readings.deletedAt),
+        ),
+      );
+    return rows.length;
   }
 
   /**

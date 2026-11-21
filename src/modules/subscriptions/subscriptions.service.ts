@@ -4,7 +4,7 @@ import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
-import type { DrizzleDb } from '../../database/database.module';
+import type { DrizzleDb, DrizzleExecutor } from '../../database/database.module';
 import {
   billingSubscriptions,
   readingExplanations,
@@ -374,7 +374,10 @@ export class SubscriptionsService {
   /**
    * Valida si el usuario aún dispone de cuota diaria para generar una nueva lectura hoy.
    */
-  async assertCanGenerateReading(userId: number): Promise<void> {
+  async assertCanGenerateReading(
+    userId: number,
+    dbClient: DrizzleExecutor = this.db,
+  ): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     if (plan.dailyReadingsLimit === null) {
       return; // Sin límite diario en el plan actual
@@ -382,7 +385,7 @@ export class SubscriptionsService {
 
     const startOfDay = getStartOfDayInTimeZone();
     // Cuenta todas las lecturas generadas hoy, incluso eliminadas lógicamente, para evitar evasión del límite diario
-    const result = await this.db
+    const result = await dbClient
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
       .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));

@@ -60,7 +60,25 @@ describe('ReadingsService', () => {
     | undefined;
   let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock; delete: jest.Mock };
 
+  /**
+   * `generate()` re-valida los límites dentro de `db.transaction` con la fila del usuario
+   * bloqueada (`SELECT ... FOR NO KEY UPDATE`). El `tx` reutiliza los mismos mocks de
+   * escritura y responde 0 lecturas pendientes a los SELECT internos.
+   */
+  const withTransactions = <T extends object>(dbMock: T): T & { transaction: jest.Mock } => {
+    const lockedRows = (): Promise<unknown[]> & { for: jest.Mock } =>
+      Object.assign(Promise.resolve([]), { for: jest.fn().mockResolvedValue([]) });
+    const tx = {
+      ...dbMock,
+      select: jest.fn(() => ({ from: jest.fn(() => ({ where: jest.fn(lockedRows) })) })),
+    };
+    return Object.assign(dbMock, {
+      transaction: jest.fn((run: (client: unknown) => unknown) => run(tx)),
+    });
+  };
+
   const buildModuleWithDb = async (dbMock: typeof db): Promise<ReadingsService> => {
+    withTransactions(dbMock);
     const moduleRef = await Test.createTestingModule({
       providers: [
         ReadingsService,
