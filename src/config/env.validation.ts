@@ -261,6 +261,12 @@ const baseEnvSchema = z.object({
   STRIPE_PRICE_DOLLY_PLUS: z.preprocess(emptyToUndefined, z.string().optional()),
   STRIPE_PRICE_DOLLY_PRO: z.preprocess(emptyToUndefined, z.string().optional()),
   STRIPE_PRICE_LANGUAGE_UNLOCK: z.preprocess(emptyToUndefined, z.string().optional()),
+
+  // ===== Autenticación externa OAuth 2.0 / OIDC =====
+  // Opcionales: si ambas credenciales de Google faltan, OAuth queda deshabilitado sin impedir el arranque.
+  GOOGLE_OAUTH_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+  GOOGLE_OAUTH_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().url().optional()),
 });
 
 /**
@@ -301,6 +307,24 @@ const envSchema = baseEnvSchema.superRefine((env, ctx) => {
         });
       }
     }
+  }
+
+  if (env.GOOGLE_OAUTH_CLIENT_ID && !env.GOOGLE_OAUTH_CLIENT_SECRET) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['GOOGLE_OAUTH_CLIENT_SECRET'],
+      message:
+        'GOOGLE_OAUTH_CLIENT_SECRET es obligatoria cuando GOOGLE_OAUTH_CLIENT_ID está definida',
+    });
+  }
+
+  if (env.GOOGLE_OAUTH_CLIENT_SECRET && !env.GOOGLE_OAUTH_CLIENT_ID) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['GOOGLE_OAUTH_CLIENT_ID'],
+      message:
+        'GOOGLE_OAUTH_CLIENT_ID es obligatoria cuando GOOGLE_OAUTH_CLIENT_SECRET está definida',
+    });
   }
 });
 

@@ -166,6 +166,10 @@ jobs:
           STRIPE_PRICE_DOLLY_PLUS: ${{ vars.STRIPE_PRICE_DOLLY_PLUS }}
           STRIPE_PRICE_DOLLY_PRO: ${{ vars.STRIPE_PRICE_DOLLY_PRO }}
           STRIPE_PRICE_LANGUAGE_UNLOCK: ${{ vars.STRIPE_PRICE_LANGUAGE_UNLOCK }}
+          # Autenticacion externa OAuth 2.0 / OIDC (Google).
+          GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID }}
+          GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
+          GOOGLE_OAUTH_REDIRECT_URI: ${{ vars.GOOGLE_OAUTH_REDIRECT_URI }}
         run: |
           set -euo pipefail
           # El agente SSH se creo en el paso anterior, en otro shell: hay que
@@ -229,6 +233,9 @@ jobs:
             printf 'STRIPE_PRICE_DOLLY_PLUS=%s\n' "$STRIPE_PRICE_DOLLY_PLUS"
             printf 'STRIPE_PRICE_DOLLY_PRO=%s\n' "$STRIPE_PRICE_DOLLY_PRO"
             printf 'STRIPE_PRICE_LANGUAGE_UNLOCK=%s\n' "$STRIPE_PRICE_LANGUAGE_UNLOCK"
+            printf 'GOOGLE_OAUTH_CLIENT_ID=%s\n' "$GOOGLE_OAUTH_CLIENT_ID"
+            printf 'GOOGLE_OAUTH_CLIENT_SECRET=%s\n' "$GOOGLE_OAUTH_CLIENT_SECRET"
+            printf 'GOOGLE_OAUTH_REDIRECT_URI=%s\n' "$GOOGLE_OAUTH_REDIRECT_URI"
           } > /tmp/backend.env
           base64 -w0 /tmp/backend.env | ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \

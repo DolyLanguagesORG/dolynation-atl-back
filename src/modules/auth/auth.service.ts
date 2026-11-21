@@ -3,7 +3,7 @@ import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { JwtService } from '@nestjs/jwt';
 import { AppConfigService } from '../../config/env.config';
-import { UsersService } from '../users/users.service';
+import { UsersService, type UserWithRole } from '../users/users.service';
 import { AuthEventLogService } from '../readings/prompt-logs';
 import { AuditLogService, ErrorLogService, RequestContextService } from '../logs';
 import { RegisterDto, LoginDto } from './dto/auth.dto';
@@ -179,6 +179,23 @@ export class AuthService implements IAuthService {
       });
       throw new AppHttpException(ErrorCode.AUTH_INVALID_CREDENTIALS);
     }
+    if (!user.password) {
+      await this.users.verifyPassword(input.password, DUMMY_PASSWORD_HASH);
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.login_failed',
+        entityType: 'users',
+        entityId: user.id,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        summary: `Failed password login attempt (OAuth-only account) for user #${user.id}`,
+        metadata: { attemptedEmail: input.email, reason: 'oauth_only_account' },
+      });
+      throw new AppHttpException(ErrorCode.AUTH_INVALID_CREDENTIALS);
+    }
     const ok = await this.users.verifyPassword(input.password, user.password);
     if (!ok) {
       await this.auditLogs?.logEvent({
@@ -234,6 +251,72 @@ export class AuthService implements IAuthService {
       summary: `User #${user.id} (${user.email}) logged in`,
     });
     return { user: this.users.toPublic(user), tokens };
+  }
+
+  /**
+   * Emite el par de tokens JWT y registra auditoría para un inicio de sesión o alta vía OAuth.
+   */
+  async issueOAuthSession(
+    user: UserWithRole,
+    meta: {
+      provider: string;
+      event: string;
+      isNewUser: boolean;
+      linkedExistingAccount: boolean;
+    },
+  ): Promise<{ user: AuthUserView; tokens: AuthTokens }> {
+    this.requestContext?.setActor({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+    });
+    const tokens = await this.signTokensFor(user.id, user.email);
+    const publicUser = this.users.toPublic(user);
+
+    await this.authEventLogs.logAuthEvent(
+      meta.isNewUser ? 'user_registered' : 'user_login',
+      user.id,
+    );
+
+    if (meta.isNewUser) {
+      await this.auditLogs?.logCreate({
+        module: 'auth',
+        event: meta.event,
+        entityType: 'users',
+        entityId: user.id,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        summary: `User account registered via OAuth (${meta.provider}: ${user.email})`,
+        afterState: { ...publicUser },
+        metadata: {
+          provider: meta.provider,
+          isNewUser: meta.isNewUser,
+          linkedExistingAccount: meta.linkedExistingAccount,
+        },
+      });
+    } else {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: meta.event,
+        entityType: 'users',
+        entityId: user.id,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        targetUserId: user.id,
+        summary: `User #${user.id} (${user.email}) authenticated via OAuth (${meta.provider})`,
+        metadata: {
+          provider: meta.provider,
+          isNewUser: meta.isNewUser,
+          linkedExistingAccount: meta.linkedExistingAccount,
+        },
+      });
+    }
+
+    return { user: publicUser, tokens };
   }
 
   /**

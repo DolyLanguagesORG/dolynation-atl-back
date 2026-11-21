@@ -9,6 +9,9 @@ import { UsersModule } from '../users/users.module';
 import { ReadingsModule } from '../readings/readings.module';
 import { MailModule } from '../mail/mail.module';
 import { AuthEmailTokenService } from './auth-email-token.service';
+import { AuthOAuthService } from './oauth/auth-oauth.service';
+import { GoogleOAuthProvider } from './oauth/google-oauth.provider';
+import { OidcJwksVerifier } from './oauth/oidc-jwks.verifier';
 import type { EnvSchema } from '../../config/env.validation';
 
 /**
@@ -34,7 +37,14 @@ import type { EnvSchema } from '../../config/env.validation';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, AuthEmailTokenService, JwtStrategy],
-  exports: [AuthService],
+  providers: [
+    AuthService,
+    AuthEmailTokenService,
+    JwtStrategy,
+    OidcJwksVerifier,
+    GoogleOAuthProvider,
+    AuthOAuthService,
+  ],
+  exports: [AuthService, AuthOAuthService],
 })
 export class AuthModule {}

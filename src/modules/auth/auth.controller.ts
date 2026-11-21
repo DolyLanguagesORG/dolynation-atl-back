@@ -1,10 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post } from '@nestjs/common';
 import {
+  ApiBadGatewayResponse,
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiForbiddenResponse,
   ApiOperation,
+  ApiParam,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -15,6 +18,8 @@ import {
   AuthUserViewDto,
   EmailSentDto,
   EmailVerifiedDto,
+  OAuthAuthResponseDto,
+  OAuthProvidersResponseDto,
   PasswordUpdatedDto,
   RegisterResponseDto,
 } from '../../common/types/api-response.dto';
@@ -24,6 +29,7 @@ import {
   ApiOkResponseOf,
 } from '../../common/types/api-envelope.decorators';
 import { AuthService } from './auth.service';
+import { AuthOAuthService } from './oauth/auth-oauth.service';
 import {
   RegisterDto,
   LoginDto,
@@ -32,6 +38,7 @@ import {
   ForgotPasswordDto,
   ResendVerificationDto,
   ResetPasswordDto,
+  OAuthExchangeDto,
 } from './dto/auth.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { AllowWithoutSubscription } from '../../common/decorators/allow-without-subscription.decorator';
@@ -47,7 +54,10 @@ import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly oauth: AuthOAuthService,
+  ) {}
 
   /**
    * Registra un usuario nuevo y devuelve su perfil público junto con el par de tokens.
@@ -168,6 +178,54 @@ export class AuthController {
   async login(@Body() dto: LoginDto): Promise<ApiResponse<AuthResponseDto>> {
     const result = await this.auth.login(dto);
     return apiOk('Login successful', result);
+  }
+
+  @Public()
+  @Get('oauth/providers')
+  @ApiOperation({
+    summary: 'List configured external OAuth 2.0 / OIDC providers and their public client metadata',
+  })
+  @ApiOkResponseOf(OAuthProvidersResponseDto)
+  listOAuthProviders(): ApiResponse<OAuthProvidersResponseDto> {
+    const result = this.oauth.listProviders();
+    return apiOk('Available OAuth providers', result);
+  }
+
+  @Public()
+  @Post('oauth/:provider/exchange')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Exchange an OAuth authorization code + PKCE verifier for DolyNation session tokens',
+  })
+  @ApiParam({
+    name: 'provider',
+    enum: ['google'],
+    description: 'External OAuth provider identifier',
+  })
+  @ApiOkResponseOf(OAuthAuthResponseDto)
+  @ApiBadRequestResponse({
+    description: 'Unsupported provider, invalid authorization code, or validation error',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description:
+      'OAuth provider email is unverified or administrator accounts are blocked from OAuth',
+    type: ApiErrorDto,
+  })
+  @ApiBadGatewayResponse({
+    description: 'External OAuth provider returned an unexpected upstream error',
+    type: ApiErrorDto,
+  })
+  @ApiServiceUnavailableResponse({
+    description: 'OAuth provider is not configured on this environment',
+    type: ApiErrorDto,
+  })
+  async exchangeOAuthCode(
+    @Param('provider') provider: string,
+    @Body() dto: OAuthExchangeDto,
+  ): Promise<ApiResponse<OAuthAuthResponseDto>> {
+    const result = await this.oauth.exchangeCode(provider, dto);
+    return apiOk('OAuth login successful', result);
   }
 
   @Public()

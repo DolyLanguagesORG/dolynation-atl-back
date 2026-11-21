@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUrl,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -164,4 +165,51 @@ export class ResetPasswordDto {
   @MinLength(8)
   @MaxLength(128)
   password!: string;
+}
+
+/**
+ * DTO de entrada para intercambiar un código de autorización OAuth 2.0 + PKCE desde el BFF.
+ */
+export class OAuthExchangeDto {
+  @ApiProperty({
+    minLength: 1,
+    maxLength: 2048,
+    example: '4/0AeaYSH...',
+    description: 'Código de autorización OAuth recibido en el callback del proveedor',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2048)
+  code!: string;
+
+  @ApiProperty({
+    minLength: 43,
+    maxLength: 128,
+    example: 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk',
+    description: 'Verificador PKCE original generado al iniciar el flujo OAuth',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(43)
+  @MaxLength(128)
+  codeVerifier!: string;
+
+  @ApiProperty({
+    maxLength: 512,
+    example: 'https://yacaterkos.tech/api/auth/oauth/google/callback',
+    description: 'URI de redirección exacta utilizada al solicitar la autorización',
+  })
+  @IsUrl({ require_tld: false, require_protocol: true, protocols: ['http', 'https'] })
+  @MaxLength(512)
+  redirectUri!: string;
+
+  @ApiPropertyOptional({
+    enum: SUPPORTED_UI_LOCALES,
+    default: 'es',
+    example: 'es',
+    description: 'Locale de interfaz preferido en caso de crear una cuenta nueva',
+  })
+  @IsOptional()
+  @IsIn(SUPPORTED_UI_LOCALES)
+  locale?: (typeof SUPPORTED_UI_LOCALES)[number];
 }

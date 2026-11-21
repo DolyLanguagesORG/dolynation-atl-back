@@ -40,7 +40,7 @@ export const users = pgTable(
     id: serial('id').primaryKey(),
     fullName: varchar('full_name', { length: 255 }),
     email: varchar('email', { length: 254 }).notNull(),
-    password: varchar('password', { length: 255 }).notNull(),
+    password: varchar('password', { length: 255 }),
     roleId: integer('role_id')
       .notNull()
       .default(1)
@@ -563,11 +563,42 @@ export const billingWebhookEvents = pgTable(
   }),
 );
 
+/** Proveedor externo OAuth 2.0 / OIDC soportado por la plataforma. */
+export type OAuthProvider = 'google' | 'microsoft';
+
+/** Identidades externas OAuth 2.0 / OIDC vinculadas a cada cuenta de usuario. */
+export const userOAuthAccounts = pgTable(
+  'user_oauth_accounts',
+  {
+    id: serial('id').primaryKey(),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    provider: varchar('provider', { length: 30 }).$type<OAuthProvider>().notNull(),
+    providerUserId: varchar('provider_user_id', { length: 255 }).notNull(),
+    providerEmail: varchar('provider_email', { length: 254 }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    providerSubUnique: uniqueIndex('uq_user_oauth_accounts_provider_sub').on(
+      table.provider,
+      table.providerUserId,
+    ),
+    userProviderUnique: uniqueIndex('uq_user_oauth_accounts_user_provider').on(
+      table.userId,
+      table.provider,
+    ),
+    userIdIdx: index('idx_user_oauth_accounts_user_id').on(table.userId),
+  }),
+);
+
 /** Mapa completo de tablas exportadas para consultas relacionales de Drizzle. */
 
 export const schema = {
   roles,
   users,
+  userOAuthAccounts,
   userSettings,
   authAccessTokens,
   authEmailTokens,

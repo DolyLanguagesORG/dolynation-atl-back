@@ -60,6 +60,10 @@ import { VersionModule } from './modules/version/version.module';
             '*.refreshToken',
             '*.tokenHash',
             '*.secret',
+            '*.code',
+            '*.codeVerifier',
+            '*.clientSecret',
+            '*.idToken',
           ],
           censor: '[REDACTED]',
         };

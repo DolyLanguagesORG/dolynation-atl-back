@@ -53,7 +53,7 @@ describe('AuthService', () => {
   const userRowFixture = {
     id: 1,
     email: 'a@b.c',
-    password: 'hash',
+    password: 'hash' as string | null,
     fullName: 'A B',
     roleId: 1,
     role: 'student' as const,
@@ -288,6 +288,20 @@ describe('AuthService', () => {
       await expect(service.login({ email: 'a@b.c', password: 'wrong' })).rejects.toBeInstanceOf(
         AppHttpException,
       );
+    });
+
+    it('rejects password login cleanly with dummy hash check for OAuth-only accounts (password=null)', async () => {
+      usersService.findByEmail.mockResolvedValue({ ...userRowFixture, password: null });
+      usersService.verifyPassword.mockResolvedValue(false);
+
+      const error = await service.login({ email: 'a@b.c', password: 'any-password' }).then(
+        () => null,
+        (caught: unknown) => caught as AppHttpException,
+      );
+
+      expect(error).toBeInstanceOf(AppHttpException);
+      expect(error?.getResponse()).toMatchObject({ code: ErrorCode.AUTH_INVALID_CREDENTIALS });
+      expect(usersService.verifyPassword).toHaveBeenCalledTimes(1);
     });
 
     it('blocks the login of an unverified account when the verification is required', async () => {

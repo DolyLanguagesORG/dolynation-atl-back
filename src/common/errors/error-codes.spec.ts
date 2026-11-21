@@ -103,6 +103,16 @@ describe('ErrorCatalog', () => {
   it('INTERNAL_ERROR maps to 500', () => {
     expect(ErrorCatalog[ErrorCode.INTERNAL_ERROR].status).toBe(500);
   });
+
+  it('oauth error codes map to expected HTTP statuses', () => {
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_UNSUPPORTED_PROVIDER].status).toBe(400);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_INVALID_CODE].status).toBe(400);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_STATE_INVALID].status).toBe(400);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_EMAIL_UNVERIFIED].status).toBe(403);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN].status).toBe(403);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_PROVIDER_ERROR].status).toBe(502);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_NOT_CONFIGURED].status).toBe(503);
+  });
 });
 
 describe('getErrorMeta', () => {

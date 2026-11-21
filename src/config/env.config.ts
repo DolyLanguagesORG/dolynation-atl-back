@@ -88,6 +88,39 @@ export class AppConfigService {
     };
   }
 
+  // ===== Autenticación externa OAuth 2.0 / OIDC =====
+  get oauth(): {
+    google: {
+      enabled: boolean;
+      clientId: string | undefined;
+      clientSecret: string | undefined;
+      redirectUri: string;
+    };
+  } {
+    const clientId = optionalTrimmedString(
+      this.config.get('GOOGLE_OAUTH_CLIENT_ID', { infer: true }),
+    );
+    const clientSecret = optionalTrimmedString(
+      this.config.get('GOOGLE_OAUTH_CLIENT_SECRET', { infer: true }),
+    );
+    const frontendBaseUrl = nonEmptyString(
+      this.config.get('FRONTEND_BASE_URL', { infer: true }),
+      'http://localhost:3000',
+    ).replace(/\/+$/, '');
+    const explicitRedirectUri = optionalTrimmedString(
+      this.config.get('GOOGLE_OAUTH_REDIRECT_URI', { infer: true }),
+    );
+
+    return {
+      google: {
+        enabled: Boolean(clientId && clientSecret),
+        clientId,
+        clientSecret,
+        redirectUri: explicitRedirectUri ?? `${frontendBaseUrl}/api/auth/oauth/google/callback`,
+      },
+    };
+  }
+
   // ===== Inteligencia Artificial =====
   get ai(): {
     defaultProvider: EnvSchema['AI_DEFAULT_PROVIDER'];

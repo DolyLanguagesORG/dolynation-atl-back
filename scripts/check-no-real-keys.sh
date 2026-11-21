@@ -10,7 +10,7 @@
 # El guard falla si encuentra algo con la forma de una clave de verdad.
 set -euo pipefail
 
-PATRONES='AIza[0-9A-Za-z_-]{25,}|sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9-]{20,}|sk_live_[0-9A-Za-z]{20,}|rk_live_[0-9A-Za-z]{20,}|sk_test_[0-9A-Za-z]{20,}|whsec_[0-9A-Za-z]{20,}|ghp_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.'
+PATRONES='AIza[0-9A-Za-z_-]{25,}|GOCSPX-[0-9A-Za-z_-]{20,}|sk-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9-]{20,}|sk_live_[0-9A-Za-z]{20,}|rk_live_[0-9A-Za-z]{20,}|sk_test_[0-9A-Za-z]{20,}|whsec_[0-9A-Za-z]{20,}|ghp_[A-Za-z0-9]{20,}|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.'
 
 OBJETIVOS=("${@:-src test}")
 fallos=0

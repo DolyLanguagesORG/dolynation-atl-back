@@ -250,4 +250,56 @@ describe('validateEnv', () => {
       }
     });
   });
+
+  describe('GOOGLE_OAUTH_*', () => {
+    it('acepta variables OAuth ausentes o vacias manteniendo OAuth deshabilitado', () => {
+      const defaults = validateEnv(base);
+      expect(defaults.GOOGLE_OAUTH_CLIENT_ID).toBeUndefined();
+      expect(defaults.GOOGLE_OAUTH_CLIENT_SECRET).toBeUndefined();
+      expect(defaults.GOOGLE_OAUTH_REDIRECT_URI).toBeUndefined();
+
+      const blanks = validateEnv({
+        ...base,
+        GOOGLE_OAUTH_CLIENT_ID: '',
+        GOOGLE_OAUTH_CLIENT_SECRET: '',
+        GOOGLE_OAUTH_REDIRECT_URI: '',
+      });
+      expect(blanks.GOOGLE_OAUTH_CLIENT_ID).toBeUndefined();
+      expect(blanks.GOOGLE_OAUTH_CLIENT_SECRET).toBeUndefined();
+      expect(blanks.GOOGLE_OAUTH_REDIRECT_URI).toBeUndefined();
+    });
+
+    it('rechaza configuracion OAuth incompleta (solo clientId o solo clientSecret)', () => {
+      expect(() => validateEnv({ ...base, GOOGLE_OAUTH_CLIENT_ID: 'client-id-test' })).toThrow(
+        /GOOGLE_OAUTH_CLIENT_SECRET/,
+      );
+
+      expect(() =>
+        validateEnv({ ...base, GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret-test' }),
+      ).toThrow(/GOOGLE_OAUTH_CLIENT_ID/);
+    });
+
+    it('valida formato URL de GOOGLE_OAUTH_REDIRECT_URI cuando se provee', () => {
+      expect(() =>
+        validateEnv({
+          ...base,
+          GOOGLE_OAUTH_CLIENT_ID: 'client-id-test',
+          GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret-test',
+          GOOGLE_OAUTH_REDIRECT_URI: 'no-es-url',
+        }),
+      ).toThrow();
+
+      const valid = validateEnv({
+        ...base,
+        GOOGLE_OAUTH_CLIENT_ID: 'client-id-test',
+        GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret-test',
+        GOOGLE_OAUTH_REDIRECT_URI: 'http://localhost:3000/api/auth/oauth/google/callback',
+      });
+      expect(valid.GOOGLE_OAUTH_CLIENT_ID).toBe('client-id-test');
+      expect(valid.GOOGLE_OAUTH_CLIENT_SECRET).toBe('client-secret-test');
+      expect(valid.GOOGLE_OAUTH_REDIRECT_URI).toBe(
+        'http://localhost:3000/api/auth/oauth/google/callback',
+      );
+    });
+  });
 });

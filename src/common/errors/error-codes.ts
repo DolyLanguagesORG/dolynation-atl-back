@@ -20,6 +20,13 @@ export enum ErrorCode {
   AUTH_UNAUTHORIZED = 'AUTH_UNAUTHORIZED',
   AUTH_EMAIL_NOT_VERIFIED = 'AUTH_EMAIL_NOT_VERIFIED',
   AUTH_EMAIL_TOKEN_INVALID = 'AUTH_EMAIL_TOKEN_INVALID',
+  AUTH_OAUTH_NOT_CONFIGURED = 'AUTH_OAUTH_NOT_CONFIGURED',
+  AUTH_OAUTH_UNSUPPORTED_PROVIDER = 'AUTH_OAUTH_UNSUPPORTED_PROVIDER',
+  AUTH_OAUTH_INVALID_CODE = 'AUTH_OAUTH_INVALID_CODE',
+  AUTH_OAUTH_EMAIL_UNVERIFIED = 'AUTH_OAUTH_EMAIL_UNVERIFIED',
+  AUTH_OAUTH_ADMIN_FORBIDDEN = 'AUTH_OAUTH_ADMIN_FORBIDDEN',
+  AUTH_OAUTH_PROVIDER_ERROR = 'AUTH_OAUTH_PROVIDER_ERROR',
+  AUTH_OAUTH_STATE_INVALID = 'AUTH_OAUTH_STATE_INVALID',
 
   // === Recursos (4xx) ===
   RESOURCE_NOT_FOUND = 'RESOURCE_NOT_FOUND',
@@ -137,6 +144,41 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.AUTH_EMAIL_TOKEN_INVALID,
     400,
     'This link is invalid, has expired or has already been used. Please request a new one.',
+  ),
+  [ErrorCode.AUTH_OAUTH_NOT_CONFIGURED]: entry(
+    ErrorCode.AUTH_OAUTH_NOT_CONFIGURED,
+    503,
+    'OAuth sign-in is not configured for this provider on this environment',
+  ),
+  [ErrorCode.AUTH_OAUTH_UNSUPPORTED_PROVIDER]: entry(
+    ErrorCode.AUTH_OAUTH_UNSUPPORTED_PROVIDER,
+    400,
+    'The requested OAuth provider is not supported',
+  ),
+  [ErrorCode.AUTH_OAUTH_INVALID_CODE]: entry(
+    ErrorCode.AUTH_OAUTH_INVALID_CODE,
+    400,
+    'The OAuth authorization code is invalid or has expired. Please try again.',
+  ),
+  [ErrorCode.AUTH_OAUTH_EMAIL_UNVERIFIED]: entry(
+    ErrorCode.AUTH_OAUTH_EMAIL_UNVERIFIED,
+    403,
+    'Your OAuth provider account does not have a verified email address.',
+  ),
+  [ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN]: entry(
+    ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN,
+    403,
+    'Administrator accounts cannot sign in with external OAuth providers. Use email and password instead.',
+  ),
+  [ErrorCode.AUTH_OAUTH_PROVIDER_ERROR]: entry(
+    ErrorCode.AUTH_OAUTH_PROVIDER_ERROR,
+    502,
+    'Could not complete authentication with the external OAuth provider. Please try again.',
+  ),
+  [ErrorCode.AUTH_OAUTH_STATE_INVALID]: entry(
+    ErrorCode.AUTH_OAUTH_STATE_INVALID,
+    400,
+    'The OAuth sign-in session expired or is invalid. Please try again.',
   ),
   [ErrorCode.RESOURCE_NOT_FOUND]: entry(
     ErrorCode.RESOURCE_NOT_FOUND,

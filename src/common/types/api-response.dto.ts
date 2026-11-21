@@ -1,4 +1,4 @@
-import { ApiProperty, type ApiPropertyOptions } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, type ApiPropertyOptions } from '@nestjs/swagger';
 
 /**
  * Sobre común utilizado por todas las respuestas exitosas (HTTP 2xx).
@@ -221,6 +221,94 @@ export class EmailSentDto {
 export class PasswordUpdatedDto {
   @ApiProperty({ example: true, description: 'Siempre `true`: la contraseña quedó actualizada' })
   passwordUpdated!: boolean;
+}
+
+/**
+ * Configuración pública de un proveedor OAuth 2.0 / OIDC expuesta en `/auth/oauth/providers`.
+ */
+export class OAuthProviderConfigDto {
+  @ApiProperty({
+    example: 'google',
+    enum: ['google'],
+    description: 'Identificador del proveedor OAuth 2.0 / OIDC',
+  })
+  provider!: string;
+
+  @ApiProperty({
+    example: true,
+    description: 'Indica si el proveedor está configurado y habilitado en el entorno actual',
+  })
+  enabled!: boolean;
+
+  @ApiPropertyOptional({
+    example: 'https://accounts.google.com/o/oauth2/v2/auth',
+    description: 'Endpoint público de autorización OAuth 2.0 del proveedor',
+  })
+  authorizationEndpoint?: string;
+
+  @ApiPropertyOptional({
+    example: '1234567890-abc.apps.googleusercontent.com',
+    description: 'Client ID público configurado para este entorno',
+  })
+  clientId?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://yacaterkos.tech/api/auth/oauth/google/callback',
+    description: 'URI de redirección autorizada para el callback',
+  })
+  redirectUri?: string;
+
+  @ApiPropertyOptional({
+    example: ['openid', 'email', 'profile'],
+    type: [String],
+    description: 'Scopes OIDC solicitados al proveedor',
+  })
+  scopes?: string[];
+}
+
+/**
+ * Estructura de `data` para `GET /auth/oauth/providers` (200).
+ */
+export class OAuthProvidersResponseDto {
+  @ApiProperty({
+    type: () => [OAuthProviderConfigDto],
+    description: 'Lista de proveedores OAuth soportados y su estado de habilitación',
+  })
+  providers!: OAuthProviderConfigDto[];
+}
+
+/**
+ * Estructura de `data` para `POST /auth/oauth/{provider}/exchange` (200).
+ */
+export class OAuthAuthResponseDto {
+  @ApiProperty({
+    type: () => AuthUserViewDto,
+    description: 'Perfil público del usuario autenticado',
+  })
+  user!: AuthUserViewDto;
+
+  @ApiProperty({ type: () => AuthTokensDto, description: 'Par de tokens emitidos para la sesión' })
+  tokens!: AuthTokensDto;
+
+  @ApiProperty({
+    example: 'google',
+    enum: ['google'],
+    description: 'Proveedor OAuth utilizado para autenticar la sesión',
+  })
+  provider!: string;
+
+  @ApiProperty({
+    example: false,
+    description: 'Indica si se creó una nueva cuenta de usuario durante esta autenticación',
+  })
+  isNewUser!: boolean;
+
+  @ApiProperty({
+    example: false,
+    description:
+      'Indica si la identidad OAuth se vinculó automáticamente a una cuenta existente con el mismo correo',
+  })
+  linkedExistingAccount!: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

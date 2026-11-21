@@ -267,4 +267,54 @@ describe('UsersService', () => {
       expect(days).toEqual([0, 1, 0]);
     });
   });
+
+  it('creates an OAuth user with null password and verified email timestamp', async () => {
+    const verifiedAt = new Date('2026-11-21T00:00:00Z');
+    dbMock.select.mockReturnValueOnce({
+      from: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([{ id: 1 }]),
+        }),
+      }),
+    });
+    const valuesMock = jest.fn().mockReturnValue({
+      returning: jest.fn().mockResolvedValue([
+        {
+          ...baseUser,
+          id: 99,
+          email: 'oauth@example.com',
+          fullName: 'OAuth Student',
+          password: null,
+          emailVerifiedAt: verifiedAt,
+        },
+      ]),
+    });
+    dbMock.insert.mockReturnValue({ values: valuesMock });
+
+    const created = await service.createOAuthUser({
+      email: '  OAuth@Example.com ',
+      fullName: '  OAuth Student  ',
+      locale: 'en',
+      emailVerifiedAt: verifiedAt,
+    });
+
+    expect(valuesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'oauth@example.com',
+        password: null,
+        fullName: 'OAuth Student',
+        emailVerifiedAt: verifiedAt,
+        locale: 'en',
+      }),
+    );
+    expect(created.id).toBe(99);
+    expect(created.role).toBe('student');
+  });
+
+  it('finds user case-insensitively with findByEmailInsensitive', async () => {
+    mockUserFindSelect([{ user: baseUser, roleName: 'student' }]);
+    const found = await service.findByEmailInsensitive(' A@B.C ');
+    expect(found?.id).toBe(42);
+    expect(dbMock.select).toHaveBeenCalledTimes(1);
+  });
 });
