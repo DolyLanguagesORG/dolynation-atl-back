@@ -13,7 +13,7 @@ describe('SettingsService', () => {
   let selectOrderBy: jest.Mock;
   let updateSet: jest.Mock;
   let updateReturning: jest.Mock;
-  let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock };
+  let db: { insert: jest.Mock; select: jest.Mock; update: jest.Mock; transaction: jest.Mock };
   let moderation: jest.Mocked<Pick<CategoryModerationService, 'assertCategoriesAllowed'>>;
   let subscriptions: { assertSubscriptionActive: jest.Mock };
   let service: SettingsService;
@@ -29,7 +29,12 @@ describe('SettingsService', () => {
     selectOrderBy = jest.fn().mockReturnValue({ limit: selectLimit });
     // `where()` devuelve un objeto con `limit` (findByUserId) y con
     // `orderBy` (getGlobalCatalog): las dos consultas encadenan distinto.
-    const selectWhereResult = { limit: selectLimit, orderBy: selectOrderBy };
+    // `for()` es el SELECT ... FOR UPDATE que bloquea la fila al cambiar idiomas.
+    const selectWhereResult = {
+      limit: selectLimit,
+      orderBy: selectOrderBy,
+      for: jest.fn(() => selectLimit()),
+    };
     // El incremento del credito de idioma es un UPDATE atomico
     // (`credits = credits + 1`), no un insert con el valor calculado en el
     // proceso: asi dos compras simultaneas no se pisan.
@@ -45,6 +50,7 @@ describe('SettingsService', () => {
         }),
       }),
       update: jest.fn().mockReturnValue({ set: updateSet }),
+      transaction: jest.fn((run: (tx: unknown) => unknown) => run(db)),
     };
     moderation = {
       assertCategoriesAllowed: jest

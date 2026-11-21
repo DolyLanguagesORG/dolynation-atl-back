@@ -5,7 +5,7 @@ import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb, DrizzleExecutor } from '../../database/database.module';
-import { userSettings } from '../../database/drizzle/schema';
+import { users, userSettings } from '../../database/drizzle/schema';
 import type { UserSettings } from '../../database/drizzle/types';
 import { AuditLogService } from '../logs';
 import { CategoryModerationService } from '../moderation/category-moderation.service';
@@ -290,6 +290,14 @@ export class SettingsService {
     userId: number,
     rawLanguages: readonly string[],
   ): Promise<LanguagesSettingsDto> {
+    return this.db.transaction((tx) => this.setLanguagesLocked(userId, rawLanguages, tx));
+  }
+
+  private async setLanguagesLocked(
+    userId: number,
+    rawLanguages: readonly string[],
+    tx: DrizzleExecutor,
+  ): Promise<LanguagesSettingsDto> {
     const plan = await this.subscriptions.assertSubscriptionActive(userId);
     const requested = sanitizeSelectedLanguages(rawLanguages);
 
@@ -308,7 +316,7 @@ export class SettingsService {
       });
     }
 
-    const row = await this.findByUserId(userId);
+    const row = await this.lockLanguageSettings(userId, tx);
     const saved = sanitizeSelectedLanguages(row?.selectedLanguages);
     const activeBefore = resolveActiveLanguages(saved, plan.maxLanguages);
     const lastChangeAt = row?.lastLanguageChangeAt ?? null;
@@ -317,7 +325,7 @@ export class SettingsService {
 
     // 1. Primera selección libre: fija el candado anual a partir de hoy.
     if (saved.length === 0) {
-      await this.persistLanguages(userId, requested, now, credits);
+      await this.persistLanguages(userId, requested, now, credits, tx);
       await this.auditLogs?.logUpdate({
         module: 'settings',
         event: 'settings.languages_selected',
@@ -353,7 +361,7 @@ export class SettingsService {
     const removedAnySaved = saved.some((lang) => !requested.includes(lang));
     if (isUnlimitedLanguagesPlan || !removedAnySaved) {
       const effectiveLockDate = isUnlimitedLanguagesPlan ? now : (lastChangeAt ?? now);
-      await this.persistLanguages(userId, requested, effectiveLockDate, credits);
+      await this.persistLanguages(userId, requested, effectiveLockDate, credits, tx);
       await this.auditLogs?.logUpdate({
         module: 'settings',
         event: 'settings.languages_updated',
@@ -391,7 +399,7 @@ export class SettingsService {
       credits,
       now,
     );
-    await this.persistLanguages(userId, requested, now, nextCredits);
+    await this.persistLanguages(userId, requested, now, nextCredits, tx);
     await this.auditLogs?.logUpdate({
       module: 'settings',
       event: 'settings.languages_replaced',
@@ -426,9 +434,17 @@ export class SettingsService {
     userId: number,
     rawLanguages: readonly string[],
   ): Promise<LanguagesSettingsDto> {
+    return this.db.transaction((tx) => this.reorderLanguagesLocked(userId, rawLanguages, tx));
+  }
+
+  private async reorderLanguagesLocked(
+    userId: number,
+    rawLanguages: readonly string[],
+    tx: DrizzleExecutor,
+  ): Promise<LanguagesSettingsDto> {
     const plan = await this.subscriptions.assertSubscriptionActive(userId);
     const requested = sanitizeSelectedLanguages(rawLanguages);
-    const row = await this.findByUserId(userId);
+    const row = await this.lockLanguageSettings(userId, tx);
     const saved = sanitizeSelectedLanguages(row?.selectedLanguages);
 
     if (saved.length === 0) {
@@ -459,7 +475,7 @@ export class SettingsService {
     const introducesNewActive = activeAfter.some((lang) => !activeBefore.includes(lang));
 
     if (!introducesNewActive) {
-      await this.persistLanguages(userId, requested, lastChangeAt, credits);
+      await this.persistLanguages(userId, requested, lastChangeAt, credits, tx);
       await this.auditLogs?.logUpdate({
         module: 'settings',
         event: 'settings.languages_reordered',
@@ -497,7 +513,7 @@ export class SettingsService {
       credits,
       now,
     );
-    await this.persistLanguages(userId, requested, now, nextCredits);
+    await this.persistLanguages(userId, requested, now, nextCredits, tx);
     await this.auditLogs?.logUpdate({
       module: 'settings',
       event: 'settings.languages_reordered_promoted',
@@ -625,13 +641,37 @@ export class SettingsService {
     languages: LanguageId[],
     lastChangeAt: Date | null,
     credits: number,
+    dbClient: DrizzleExecutor,
   ): Promise<void> {
-    await this.upsert(userId, {
-      selectedLanguages: languages,
-      preferredLanguage: languages[0] ?? null,
-      lastLanguageChangeAt: lastChangeAt,
-      languageChangeCredits: credits,
-    });
+    await this.upsert(
+      userId,
+      {
+        selectedLanguages: languages,
+        preferredLanguage: languages[0] ?? null,
+        lastLanguageChangeAt: lastChangeAt,
+        languageChangeCredits: credits,
+      },
+      dbClient,
+    );
+  }
+
+  /**
+   * Lee la configuración de idiomas bloqueando al usuario y su fila de `user_settings`
+   * hasta el fin de la transacción. Serializa los cambios de idioma concurrentes y hace
+   * esperar al abono de créditos (`incrementLanguageChangeCredits`), para que el crédito
+   * leído aquí sea el mismo que se descuenta al guardar.
+   */
+  private async lockLanguageSettings(
+    userId: number,
+    tx: DrizzleExecutor,
+  ): Promise<UserSettings | null> {
+    await tx.select({ id: users.id }).from(users).where(eq(users.id, userId)).for('no key update');
+    const rows = await tx
+      .select()
+      .from(userSettings)
+      .where(eq(userSettings.userId, userId))
+      .for('update');
+    return rows[0] ?? null;
   }
 
   private buildLanguagesDto(
