@@ -7,7 +7,7 @@ import { Test } from '@nestjs/testing';
 import { and, eq, inArray } from 'drizzle-orm';
 import { DRIZZLE } from '../src/database/database.tokens';
 import type { DrizzleDb } from '../src/database/database.module';
-import { readings, users, userSettings } from '../src/database/drizzle/schema';
+import { readingExplanations, readings, users, userSettings } from '../src/database/drizzle/schema';
 import { AIProviderFactory } from '../src/modules/ia/providers/ai-provider.factory';
 import type { ChatMessage } from '../src/modules/ia/providers/ai-provider.interface';
 import { GoogleDecisionsService } from '../src/modules/ia/decisions/google-decisions.service';
@@ -139,6 +139,18 @@ describe('Concurrent requests (e2e)', () => {
           });
         }
 
+        if (systemPrompt.includes('vocabulary explainer')) {
+          await delay(AI_LATENCY_MS);
+          return JSON.stringify({
+            literalMeaning: 'A basic idea that supports a larger system of knowledge.',
+            explanation:
+              'In this reading the term names a building block that learners connect with practical vocabulary.',
+            wordBreakdown: [],
+            otherWaysToSay: [],
+            otherContexts: [],
+          });
+        }
+
         return 'Chat mock response';
       }),
     };
@@ -262,6 +274,56 @@ describe('Concurrent requests (e2e)', () => {
       2,
     );
     expect(settings?.credits).toBe(0);
+  });
+
+  it('never exceeds the daily explanation quota when explanations run in parallel', async () => {
+    const student = await prepareStudent('explain');
+    const generated = await generateReading(student.auth).expect(201);
+    const readingId = generated.body.data.id as number;
+
+    // Plan Dolly: 15 explicaciones al día. Se dejan 13 consumidas para que solo quepan 2 más.
+    const DAILY_LIMIT = 15;
+    const ALREADY_USED = 13;
+    await db.insert(readingExplanations).values(
+      Array.from({ length: ALREADY_USED }, (_, i) => ({
+        readingId,
+        userId: student.id,
+        word: `seed${i}`,
+        normalizedWord: `seed${i}`,
+        explanation: 'Seeded explanation used to fill the daily quota.',
+      })),
+    );
+
+    // Palabras distintas para que ninguna petición se resuelva desde la caché.
+    const words = [
+      'foundational',
+      'mechanisms',
+      'terminology',
+      'empirical',
+      'variables',
+      'learners',
+    ];
+    const responses = await Promise.all(
+      words.map((word) =>
+        supertest(server())
+          .post(`/api/v1/readings/${readingId}/explanations`)
+          .set('Authorization', student.auth)
+          .send({ word }),
+      ),
+    );
+    const created = responses.filter((r) => r.status === 201).length;
+    const blocked = responses.filter(
+      (r) => r.body?.error?.code === 'EXPLANATION_DAILY_LIMIT_REACHED',
+    ).length;
+
+    const rows = await db
+      .select({ id: readingExplanations.id })
+      .from(readingExplanations)
+      .where(eq(readingExplanations.userId, student.id));
+
+    expect(created).toBe(DAILY_LIMIT - ALREADY_USED);
+    expect(blocked).toBe(words.length - (DAILY_LIMIT - ALREADY_USED));
+    expect(rows).toHaveLength(DAILY_LIMIT);
   });
 
   it('answers 409 (not 500) when the same email registers twice in parallel', async () => {

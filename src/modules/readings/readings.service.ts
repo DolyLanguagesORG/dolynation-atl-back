@@ -644,20 +644,33 @@ Evaluate how well the user understood the main idea of the text.`;
       ],
     });
 
-    const persisted = await this.subscriptions.recordExplanation({
-      readingId: id,
-      userId,
-      word: displayWord,
-      normalizedWord,
-      entryType,
-      language: readingLanguage,
-      difficulty: readingLevel,
-      context,
-      literalMeaning: structured.literalMeaning,
-      explanation: structured.explanation,
-      wordBreakdown: structured.wordBreakdown,
-      otherWaysToSay: structured.otherWaysToSay,
-      otherContexts: structured.otherContexts,
+    // La IA tarda segundos: otras explicaciones en paralelo pudieron consumir la cuota mientras tanto.
+    // Se vuelve a validar con la fila del usuario bloqueada para que el INSERT sea atómico.
+    const persisted = await this.db.transaction(async (tx) => {
+      await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(eq(users.id, userId))
+        .for('no key update');
+      await this.subscriptions.assertCanAskQuestion(userId, tx);
+      return this.subscriptions.recordExplanation(
+        {
+          readingId: id,
+          userId,
+          word: displayWord,
+          normalizedWord,
+          entryType,
+          language: readingLanguage,
+          difficulty: readingLevel,
+          context,
+          literalMeaning: structured.literalMeaning,
+          explanation: structured.explanation,
+          wordBreakdown: structured.wordBreakdown,
+          otherWaysToSay: structured.otherWaysToSay,
+          otherContexts: structured.otherContexts,
+        },
+        tx,
+      );
     });
 
     await this.promptLogs.logPromptSuccess('word_explained', userId, id, normalizedWord, {

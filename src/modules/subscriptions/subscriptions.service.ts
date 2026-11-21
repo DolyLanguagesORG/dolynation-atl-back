@@ -404,14 +404,14 @@ export class SubscriptionsService {
   /**
    * Valida si el usuario aún dispone de cuota diaria para solicitar explicaciones hoy.
    */
-  async assertCanAskQuestion(userId: number): Promise<void> {
+  async assertCanAskQuestion(userId: number, dbClient: DrizzleExecutor = this.db): Promise<void> {
     const plan = await this.assertSubscriptionActive(userId);
     if (plan.dailyQuestionsLimit === null) {
       return; // Sin límite diario en el plan actual
     }
 
     const startOfDay = getStartOfDayInTimeZone();
-    const result = await this.db
+    const result = await dbClient
       .select({ count: sql<number>`count(*)::int` })
       .from(readingExplanations)
       .where(
@@ -433,27 +433,30 @@ export class SubscriptionsService {
    * Registra una consulta de explicación sobre una lectura en `reading_explanations`.
    * Acepta metadatos estructurados para la ayuda contextual y el glosario persistente.
    */
-  async recordExplanation(input: {
-    readingId: number;
-    userId: number;
-    word: string;
-    normalizedWord?: string;
-    entryType?: ExplanationEntryType;
-    language?: string;
-    difficulty?: string;
-    context?: string;
-    literalMeaning?: string | null;
-    explanation: string;
-    wordBreakdown?: WordBreakdownItem[];
-    otherWaysToSay?: AlternativeExpressionItem[];
-    otherContexts?: UsageContextItem[];
-  }): Promise<ReadingExplanation | undefined> {
+  async recordExplanation(
+    input: {
+      readingId: number;
+      userId: number;
+      word: string;
+      normalizedWord?: string;
+      entryType?: ExplanationEntryType;
+      language?: string;
+      difficulty?: string;
+      context?: string;
+      literalMeaning?: string | null;
+      explanation: string;
+      wordBreakdown?: WordBreakdownItem[];
+      otherWaysToSay?: AlternativeExpressionItem[];
+      otherContexts?: UsageContextItem[];
+    },
+    dbClient: DrizzleExecutor = this.db,
+  ): Promise<ReadingExplanation | undefined> {
     const normalizedWord =
       input.normalizedWord ?? input.word.trim().replace(/\s+/g, ' ').toLowerCase();
     const entryType: ExplanationEntryType =
       input.entryType ?? (normalizedWord.includes(' ') ? 'phrase' : 'word');
     const now = new Date();
-    const query = this.db.insert(readingExplanations).values({
+    const query = dbClient.insert(readingExplanations).values({
       readingId: input.readingId,
       userId: input.userId,
       word: input.word,
