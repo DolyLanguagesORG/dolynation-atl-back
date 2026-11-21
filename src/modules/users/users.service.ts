@@ -89,6 +89,12 @@ export class UsersService {
     return this.findOneWithRole(eq(users.email, email));
   }
 
+  /** Busca un usuario por su correo electrónico ignorando mayúsculas/minúsculas. */
+  async findByEmailInsensitive(email: string): Promise<UserWithRole | null> {
+    const normalized = email.trim().toLowerCase();
+    return this.findOneWithRole(sql`lower(${users.email}) = ${normalized}`);
+  }
+
   /** Busca un usuario por su identificador primario junto con su rol. */
   async findById(id: number): Promise<UserWithRole | null> {
     return this.findOneWithRole(eq(users.id, id));
@@ -114,6 +120,15 @@ export class UsersService {
     };
   }
 
+  private async resolveStudentRoleId(): Promise<number | undefined> {
+    const roleRows = await this.db
+      .select({ id: roles.id })
+      .from(roles)
+      .where(eq(roles.name, DEFAULT_USER_ROLE))
+      .limit(1);
+    return roleRows[0]?.id;
+  }
+
   /**
    * Crea un nuevo usuario generando el hash Argon2id de la contraseña e inicializando su racha en 0.
    *
@@ -128,12 +143,7 @@ export class UsersService {
   }): Promise<UserWithRole> {
     const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     const now = new Date();
-    const roleRows = await this.db
-      .select({ id: roles.id })
-      .from(roles)
-      .where(eq(roles.name, DEFAULT_USER_ROLE))
-      .limit(1);
-    const studentRoleId = roleRows[0]?.id;
+    const studentRoleId = await this.resolveStudentRoleId();
 
     const row: NewUser = {
       email: input.email,
@@ -174,6 +184,52 @@ export class UsersService {
       targetUserId: createdUser.id,
       summary: `User #${createdUser.id} (${createdUser.email}) created`,
       afterState: { ...this.toPublic(createdUser) },
+    });
+
+    return createdUser;
+  }
+
+  /**
+   * Crea una cuenta nueva autenticada mediante OAuth 2.0 / OIDC (sin contraseña local y con correo verificado).
+   */
+  async createOAuthUser(input: {
+    email: string;
+    fullName: string | null;
+    locale?: string;
+    emailVerifiedAt: Date;
+  }): Promise<UserWithRole> {
+    const normalizedEmail = input.email.trim().toLowerCase();
+    const rawTrimmedName = input.fullName?.trim() ?? '';
+    const trimmedName = rawTrimmedName.length > 0 ? rawTrimmedName : null;
+    const now = new Date();
+    const studentRoleId = await this.resolveStudentRoleId();
+
+    const row: NewUser = {
+      email: normalizedEmail,
+      password: null,
+      fullName: trimmedName,
+      ...(studentRoleId !== undefined ? { roleId: studentRoleId } : {}),
+      currentStreak: 0,
+      emailVerifiedAt: input.emailVerifiedAt,
+      locale: input.locale ?? DEFAULT_UI_LOCALE,
+      createdAt: now,
+    };
+    const [inserted] = await this.db.insert(users).values(row).returning();
+    if (!inserted) throw new Error('User insert returned no row');
+    const createdUser: UserWithRole = { ...inserted, role: DEFAULT_USER_ROLE };
+
+    await this.auditLogs?.logCreate({
+      module: 'users',
+      event: 'user.created',
+      entityType: 'users',
+      entityId: createdUser.id,
+      actorUserId: createdUser.id,
+      actorEmail: createdUser.email,
+      actorRole: createdUser.role,
+      targetUserId: createdUser.id,
+      summary: `User #${createdUser.id} (${createdUser.email}) created via OAuth`,
+      afterState: { ...this.toPublic(createdUser) },
+      metadata: { authMethod: 'oauth' },
     });
 
     return createdUser;
