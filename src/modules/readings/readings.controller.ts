@@ -18,10 +18,12 @@ import {
   ApiNotFoundResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import {
+  DeepExplanationResultDto,
   EvaluationResultDto,
   ExplanationResultDto,
   GlossaryEntryDto,
@@ -35,7 +37,9 @@ import {
   ApiOkResponseOfArray,
 } from '../../common/types/api-envelope.decorators';
 import { ReadingsService } from './readings.service';
+import { DeepExplanationService } from './deep-explanation.service';
 import {
+  CreateDeepExplanationDto,
   CreateExplanationDto,
   EvaluateReadingDto,
   GenerateReadingDto,
@@ -52,7 +56,10 @@ import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 @ApiBearerAuth('access-token')
 @Controller('readings')
 export class ReadingsController {
-  constructor(private readonly readings: ReadingsService) {}
+  constructor(
+    private readonly readings: ReadingsService,
+    private readonly deepExplanations: DeepExplanationService,
+  ) {}
 
   /**
    * Devuelve las opciones válidas del catálogo para generar lecturas (categorías, dificultades y niveles CEFR).
@@ -242,6 +249,44 @@ export class ReadingsController {
       dto.forceRefresh ?? false,
     );
     return apiOk<ExplanationResultDto>('Explanation', result);
+  }
+
+  /**
+   * Genera una explicación detallada (matiz, función gramatical y ejemplo) de una palabra o
+   * frase de la lectura. El prompt se arma en el servidor con el idioma y nivel de la lectura.
+   */
+  @Post(':id/explanations/deep')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Deepen the explanation of a word or expression within a reading',
+    description:
+      'Builds the prompt server-side from the reading language and level. Limited per user (20 calls every 10 minutes).',
+  })
+  @ApiOkResponseOf(DeepExplanationResultDto)
+  @ApiBadRequestResponse({ description: 'Validation error', type: ApiErrorDto })
+  @ApiForbiddenResponse({
+    description: 'Active subscription plan required (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Reading not found or owned by another user',
+    type: ApiErrorDto,
+  })
+  @ApiTooManyRequestsResponse({
+    description: 'Per-user limit reached (AI_RATE_LIMITED)',
+    type: ApiErrorDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid authentication',
+    type: ApiErrorDto,
+  })
+  async explainDeep(
+    @CurrentUser() current: AuthUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateDeepExplanationDto,
+  ): Promise<ApiResponse<DeepExplanationResultDto>> {
+    const result = await this.deepExplanations.explainDeep(id, current.id, dto.word, dto.context);
+    return apiOk<DeepExplanationResultDto>('Deep explanation', result);
   }
 
   /**

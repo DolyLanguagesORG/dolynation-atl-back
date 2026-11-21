@@ -9,6 +9,8 @@ import { IaModule } from '../ia/ia.module';
 import { SettingsModule } from '../settings/settings.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { ModerationModule } from '../moderation/moderation.module';
+import { DeepExplanationService } from './deep-explanation.service';
+import { DeepExplanationRateLimitService } from './deep-explanation-rate-limit.service';
 
 /**
  * Módulo principal de lecturas (`/readings`).
@@ -19,6 +21,8 @@ import { ModerationModule } from '../moderation/moderation.module';
   controllers: [ReadingsController],
   providers: [
     ReadingsService,
+    DeepExplanationService,
+    DeepExplanationRateLimitService,
     PromptBuilderService,
     AiResponseParserService,
     PromptLogService,

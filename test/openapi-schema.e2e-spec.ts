@@ -199,6 +199,14 @@ describe('OpenAPI schema documentation', () => {
       requiresBodySchema('post', '/api/v1/readings/{id}/explanations', 'CreateExplanationDto');
     });
 
+    it('POST /readings/{id}/explanations/deep references CreateDeepExplanationDto', () => {
+      requiresBodySchema(
+        'post',
+        '/api/v1/readings/{id}/explanations/deep',
+        'CreateDeepExplanationDto',
+      );
+    });
+
     it('PATCH /readings/explanations/{explanationId}/glossary references ToggleGlossarySaveDto', () => {
       requiresBodySchema(
         'patch',
