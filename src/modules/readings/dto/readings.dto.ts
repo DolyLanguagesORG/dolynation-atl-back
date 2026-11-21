@@ -22,6 +22,12 @@ import type { CefrLevel, DifficultyLevel, TextSize } from '../prompt-generation/
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
 /**
+ * Tope del resumen que se envía a la IA para evaluar. Sin máximo, un solo envío de
+ * ~100 KB se convertía en decenas de miles de tokens de proveedor.
+ */
+export const MAX_SUMMARY_LENGTH = 5000;
+
+/**
  * `GenerateReadingDto` es el DTO de entrada expuesto al cliente para el endpoint de generación de lecturas.
  *
  * El usuario elige explícitamente tres parámetros:
@@ -90,12 +96,14 @@ export class GenerateReadingDto {
 export class EvaluateReadingDto {
   @ApiProperty({
     minLength: 20,
-    description: 'Resumen de la lectura escrito por el usuario. Debe tener al menos 20 caracteres.',
+    maxLength: MAX_SUMMARY_LENGTH,
+    description:
+      'Resumen de la lectura escrito por el usuario. Debe tener entre 20 y 5000 caracteres.',
     example:
       'The reading was about the Industrial Revolution and how steam engines changed manufacturing.',
   })
   @IsString()
-  @Length(20)
+  @Length(20, MAX_SUMMARY_LENGTH)
   userResponse!: string;
 }
 
