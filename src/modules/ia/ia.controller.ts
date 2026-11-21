@@ -5,6 +5,7 @@ import {
   ApiForbiddenResponse,
   ApiOperation,
   ApiTags,
+  ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
@@ -15,6 +16,8 @@ import { ChatRequestDto } from './dto/chat-request.dto';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import type { ChatMessage } from './providers/ai-provider.interface';
 import { AuditLogService } from '../logs';
+import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
+import { IaChatRateLimitService } from './ia-chat-rate-limit.service';
 
 /**
  * Controlador de acceso directo al chat del proveedor de IA (`/ia`).
@@ -29,6 +32,7 @@ import { AuditLogService } from '../logs';
 export class IaController {
   constructor(
     private readonly factory: AIProviderFactory,
+    private readonly rateLimit: IaChatRateLimitService,
     @Optional() private readonly auditLogs?: AuditLogService,
   ) {}
 
@@ -46,7 +50,15 @@ export class IaController {
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
   })
-  async chat(@Body() dto: ChatRequestDto): Promise<ApiResponse<ChatResponseDto>> {
+  @ApiTooManyRequestsResponse({
+    description: 'Límite de llamadas por usuario alcanzado (AI_RATE_LIMITED)',
+    type: ApiErrorDto,
+  })
+  async chat(
+    @CurrentUser() current: AuthUser,
+    @Body() dto: ChatRequestDto,
+  ): Promise<ApiResponse<ChatResponseDto>> {
+    this.rateLimit.assertWithinLimit(current.id);
     const startedAt = Date.now();
     const messages: ChatMessage[] = dto.systemPrompt
       ? [{ role: 'system', content: dto.systemPrompt }, ...dto.messages]
@@ -56,6 +68,8 @@ export class IaController {
       module: 'ia',
       action: 'AI',
       event: 'ia.chat_completed',
+      actorUserId: current.id,
+      actorEmail: current.email,
       summary: `Direct AI chat completed (${messages.length} message(s))`,
       metadata: {
         messagesCount: messages.length,

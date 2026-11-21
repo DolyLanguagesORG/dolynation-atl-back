@@ -5,6 +5,7 @@ import { GoogleProvider } from './providers/google.provider';
 import { MiniMaxProvider } from './providers/MiniMax-M3.provider';
 import { AiDegradedService } from './ai-degraded.service';
 import { GoogleDecisionsService } from './decisions/google-decisions.service';
+import { IaChatRateLimitService } from './ia-chat-rate-limit.service';
 
 /**
  * Módulo de integración con proveedores de inteligencia artificial (`/ia`).
@@ -18,6 +19,7 @@ import { GoogleDecisionsService } from './decisions/google-decisions.service';
     GoogleProvider,
     AiDegradedService,
     GoogleDecisionsService,
+    IaChatRateLimitService,
   ],
   exports: [AIProviderFactory, AiDegradedService, GoogleDecisionsService],
 })
