@@ -11,6 +11,14 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.11.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.11.0...v0.11.1) (2026-11-21)
+
+
+### Bug Fixes
+
+* **billing:** corrige reembolsos parciales y de desbloqueo de idioma ([#158](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/158)) ([d35f91c](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/d35f91cccb5371a16b94faf78b1f248863f92368)), closes [#156](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/156)
+* **readings:** corrige carreras en límites, evaluaciones y créditos de idioma ([#152](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/152)) ([ccf9fb3](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/ccf9fb3d97d04146851d53f2352f98ffaeaa24bd)), closes [#151](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/151)
+
 ## [0.11.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.10.0...v0.11.0) (2026-11-20)
 
 
