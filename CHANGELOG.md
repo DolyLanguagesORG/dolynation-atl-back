@@ -11,6 +11,13 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.11.2](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.11.1...v0.11.2) (2026-11-21)
+
+
+### Bug Fixes
+
+* **readings:** evita pasarse de la cuota diaria de explicaciones en paralelo ([#154](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/154)) ([1bdfd70](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/1bdfd709e3b9b121bd856f44cd0eaf2e4ea88c76))
+
 ## [0.11.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.11.0...v0.11.1) (2026-11-21)
 
 
