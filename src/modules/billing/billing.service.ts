@@ -1,5 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { desc, eq, and, isNull, or } from 'drizzle-orm';
+import { desc, eq, and, isNull, ne, or, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AppConfigService } from '../../config/env.config';
@@ -10,6 +10,7 @@ import {
   billingSubscriptions,
   billingWebhookEvents,
   users,
+  userSettings,
 } from '../../database/drizzle/schema';
 import type { BillingPayment, BillingSubscription } from '../../database/drizzle/types';
 import { AuditLogService, ErrorLogService } from '../logs';
@@ -1585,6 +1586,7 @@ export class BillingService {
         kind: billingPayments.kind,
         status: billingPayments.status,
         tier: billingPayments.tier,
+        amountCents: billingPayments.amountCents,
       })
       .from(billingPayments)
       .where(or(...conditions))
@@ -1596,20 +1598,53 @@ export class BillingService {
       return;
     }
 
+    // `refund.created` trae solo el monto de ESE reembolso y el gateway lo marca como
+    // total: se decide contra el monto cobrado que quedó registrado.
+    const fullyRefunded =
+      refund.fullyRefunded &&
+      (payment.amountCents <= 0 || refund.amountRefundedCents >= payment.amountCents);
+
     await this.db.transaction(async (tx) => {
-      await tx
+      // Stripe manda `charge.refunded` y `refund.created` por el mismo reembolso: solo la
+      // primera transición a 'refunded' revierte los derechos concedidos.
+      const transitioned = await tx
         .update(billingPayments)
         .set({
-          status: refund.fullyRefunded ? 'refunded' : 'partially_refunded',
+          status: fullyRefunded ? 'refunded' : 'partially_refunded',
           updatedAt: now,
         })
-        .where(eq(billingPayments.id, payment.id));
+        .where(and(eq(billingPayments.id, payment.id), ne(billingPayments.status, 'refunded')))
+        .returning({ id: billingPayments.id });
+
+      if (!fullyRefunded || transitioned.length === 0) {
+        return;
+      }
+
+      if (payment.kind === 'language_unlock') {
+        await tx
+          .update(userSettings)
+          .set({
+            languageChangeCredits: sql`GREATEST(0, COALESCE(${userSettings.languageChangeCredits}, 0) - 1)`,
+            updatedAt: now,
+          })
+          .where(eq(userSettings.userId, payment.userId));
+
+        await this.auditLogs?.logEvent({
+          module: 'billing',
+          action: 'ACTION',
+          event: 'billing.language_unlock_refunded',
+          entityType: 'user_settings',
+          entityId: payment.userId,
+          actorUserId: payment.userId,
+          targetUserId: payment.userId,
+          summary: `Language unlock refunded for user #${payment.userId}; one change credit revoked`,
+          metadata: { refundId: refund.id, paymentId: payment.id },
+        });
+        return;
+      }
 
       // Si el reembolso es total y el pago era de una suscripcion, el plan
       // pagado se revoca: el dinero ya no esta.
-      if (!refund.fullyRefunded) {
-        return;
-      }
 
       const isSubscriptionPayment =
         payment.kind === 'subscription' ||
