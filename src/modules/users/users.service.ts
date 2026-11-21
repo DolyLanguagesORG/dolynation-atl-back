@@ -7,6 +7,7 @@ import { type NewUser, type User } from '../../database/drizzle/types';
 import * as argon2 from 'argon2';
 import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
+import { isPgUniqueViolation } from '../../common/errors/pg-errors';
 import { AuditLogService } from '../logs';
 import type { LanguageId } from '../settings/settings.constants';
 import {
@@ -115,7 +116,16 @@ export class UsersService {
       locale: input.locale ?? DEFAULT_UI_LOCALE,
       createdAt: now,
     };
-    const [inserted] = await this.db.insert(users).values(row).returning();
+    let inserted: User | undefined;
+    try {
+      [inserted] = await this.db.insert(users).values(row).returning();
+    } catch (error) {
+      // Dos registros simultáneos con el mismo correo pasan el `findByEmail` previo.
+      if (isPgUniqueViolation(error)) {
+        throw new AppHttpException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
+      }
+      throw error;
+    }
     if (!inserted) throw new Error('User insert returned no row');
     let createdUser: UserWithRole = { ...inserted, role: DEFAULT_USER_ROLE };
     if (input.fullName.length > 0) {
