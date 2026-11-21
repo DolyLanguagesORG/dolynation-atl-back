@@ -133,6 +133,33 @@ export class CreateExplanationDto {
 }
 
 /**
+ * DTO de entrada para la explicación detallada (`POST /readings/:id/explanations/deep`).
+ * Usa los mismos límites que `CreateExplanationDto`; el prompt lo arma el servidor.
+ */
+export class CreateDeepExplanationDto {
+  @ApiProperty({
+    description: 'Word, expression, or sentence selected inside the reading to explain in depth',
+    example: 'que me parta un rayo',
+    minLength: 1,
+    maxLength: 500,
+  })
+  @IsString()
+  @Length(1, 500)
+  word!: string;
+
+  @ApiProperty({
+    required: false,
+    description: 'Optional surrounding excerpt from the reading used to disambiguate meaning',
+    example: 'Juan miró la tormenta y dijo que me parta un rayo si vuelve a olvidar el paraguas.',
+    maxLength: 4000,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(4000)
+  context?: string;
+}
+
+/**
  * Parámetros de consulta para filtrar las entradas del glosario del usuario.
  */
 export class GlossaryQueryDto {

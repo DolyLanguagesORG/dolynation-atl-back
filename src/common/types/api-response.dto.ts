@@ -775,6 +775,18 @@ export class ChatResponseDto {
   text!: string;
 }
 
+/**
+ * Estructura de `data` para `POST /readings/:id/explanations/deep` (200).
+ */
+export class DeepExplanationResultDto {
+  @ApiProperty({
+    example:
+      'En este contexto, "que me parta un rayo" funciona como un juramento informal para reforzar una promesa...',
+    description: 'Explicación detallada en el idioma de la lectura, generada por la IA',
+  })
+  text!: string;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Salud del servicio (Health)
 // ─────────────────────────────────────────────────────────────────────────────
