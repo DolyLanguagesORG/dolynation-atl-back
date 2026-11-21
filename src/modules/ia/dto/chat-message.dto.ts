@@ -17,11 +17,11 @@ export class ChatMessageDto {
 
   @ApiProperty({
     minLength: 1,
-    maxLength: 32000,
+    maxLength: 8000,
     description: 'Contenido textual del mensaje',
   })
   @IsString()
   @MinLength(1)
-  @MaxLength(32000)
+  @MaxLength(8000)
   content!: string;
 }
