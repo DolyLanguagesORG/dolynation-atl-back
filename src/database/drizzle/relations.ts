@@ -2,6 +2,7 @@ import { relations } from 'drizzle-orm';
 import {
   roles,
   users,
+  userOAuthAccounts,
   authAccessTokens,
   authEmailTokens,
   accessRequests,
@@ -22,6 +23,7 @@ export const rolesRelations = relations(roles, ({ many }) => ({
 /** Relaciones salientes de la tabla `users`. */
 export const usersRelations = relations(users, ({ one, many }) => ({
   role: one(roles, { fields: [users.roleId], references: [roles.id] }),
+  oauthAccounts: many(userOAuthAccounts),
   readings: many(readings),
   explanations: many(readingExplanations),
   accessTokens: many(authAccessTokens),
@@ -109,4 +111,9 @@ export const billingSubscriptionsRelations = relations(billingSubscriptions, ({ 
 /** Relación de pagos de Stripe con su usuario propietario. */
 export const billingPaymentsRelations = relations(billingPayments, ({ one }) => ({
   user: one(users, { fields: [billingPayments.userId], references: [users.id] }),
+}));
+
+/** Relación de identidades externas OAuth vinculadas a su usuario propietario. */
+export const userOAuthAccountsRelations = relations(userOAuthAccounts, ({ one }) => ({
+  user: one(users, { fields: [userOAuthAccounts.userId], references: [users.id] }),
 }));

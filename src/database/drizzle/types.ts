@@ -2,6 +2,7 @@ import type { InferInsertModel, InferSelectModel } from 'drizzle-orm';
 import type {
   roles,
   users,
+  userOAuthAccounts,
   userSettings,
   authAccessTokens,
   authEmailTokens,
@@ -24,6 +25,10 @@ export type NewRole = InferInsertModel<typeof roles>;
 
 export type User = InferSelectModel<typeof users>;
 export type NewUser = InferInsertModel<typeof users>;
+
+export type UserOAuthAccount = InferSelectModel<typeof userOAuthAccounts>;
+export type NewUserOAuthAccount = InferInsertModel<typeof userOAuthAccounts>;
+export type { OAuthProvider } from './schema';
 
 export type UserSettings = InferSelectModel<typeof userSettings>;
 export type NewUserSettings = InferInsertModel<typeof userSettings>;
