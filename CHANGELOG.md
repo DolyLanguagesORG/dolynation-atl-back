@@ -11,6 +11,13 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.12.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.11.2...v0.12.0) (2026-11-21)
+
+
+### Features
+
+* **auth:** implementa autenticacion google oauth con pkce y bloqueo admin ([#166](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/166)) ([36d9b27](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/36d9b270556736381288ef345a4c82fdac61e7d8))
+
 ## [0.11.2](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.11.1...v0.11.2) (2026-11-21)
 
 
