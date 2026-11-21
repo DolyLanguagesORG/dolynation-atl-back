@@ -194,4 +194,77 @@ describe('UsersService', () => {
       expect.objectContaining({ currentStreak: 1, lastStreakDate: '2026-11-13' }),
     );
   });
+
+  describe('día de negocio en America/Mexico_City (UTC-6)', () => {
+    // 2026-11-14T03:00Z = viernes 13 de noviembre, 21:00 en CDMX.
+    const fridayNightCdmx = new Date('2026-11-14T03:00:00Z');
+
+    it('counts an evening session as the local day in recordDailyActivity', async () => {
+      const setMock = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+      dbMock.update.mockReturnValue({ set: setMock });
+      mockUserFindSelect([
+        {
+          user: { ...baseUser, currentStreak: 2, lastStreakDate: '2026-11-12' },
+          roleName: 'student',
+        },
+      ]);
+
+      await service.recordDailyActivity(42, fridayNightCdmx);
+
+      expect(setMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({ currentStreak: 3, lastStreakDate: '2026-11-13' }),
+      );
+    });
+
+    it('does not count two sessions on the same local day as consecutive days', async () => {
+      const setMock = jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) });
+      dbMock.update.mockReturnValue({ set: setMock });
+      // Ya estudió el viernes 13 por la mañana; vuelve a las 21:00 del mismo viernes.
+      mockUserFindSelect([
+        {
+          user: { ...baseUser, currentStreak: 2, lastStreakDate: '2026-11-13' },
+          roleName: 'student',
+        },
+      ]);
+
+      await service.recordDailyActivity(42, fridayNightCdmx);
+
+      expect(setMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps yesterday’s streak alive in toPublic during the local evening', () => {
+      jest.useFakeTimers().setSystemTime(fridayNightCdmx);
+      try {
+        const profile = service.toPublic({
+          ...baseUser,
+          currentStreak: 5,
+          lastStreakDate: '2026-11-12',
+        });
+        expect(profile.currentStreak).toBe(5);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('places an evening reading on its local day in activeStreakFor', async () => {
+      mockUserFindSelect([
+        { user: { ...baseUser, currentStreak: 0, lastStreakDate: null }, roleName: 'student' },
+      ]);
+      dbMock.select.mockReturnValueOnce({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockResolvedValue([
+            // Jueves 12 a las 20:00 en CDMX.
+            {
+              updatedAt: new Date('2026-11-13T02:00:00Z'),
+              createdAt: new Date('2026-11-13T01:00:00Z'),
+            },
+          ]),
+        }),
+      });
+
+      // Viernes 13 al mediodía en CDMX: ventana miércoles 11, jueves 12 y viernes 13.
+      const days = await service.activeStreakFor(42, 3, new Date('2026-11-13T18:00:00Z'));
+      expect(days).toEqual([0, 1, 0]);
+    });
+  });
 });
