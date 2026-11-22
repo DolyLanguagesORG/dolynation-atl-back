@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Query,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -197,8 +198,9 @@ export class ReadingsController {
     @CurrentUser() current: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: EvaluateReadingDto,
+    @Headers('idempotency-key') operationId?: string,
   ): Promise<ApiResponse<EvaluationResultDto>> {
-    const result = await this.readings.evaluate(id, current.id, dto);
+    const result = await this.readings.evaluate(id, current.id, dto, undefined, operationId);
     return apiOk<EvaluationResultDto>(
       'Evaluation complete',
       result as unknown as EvaluationResultDto,
