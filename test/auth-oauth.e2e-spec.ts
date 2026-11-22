@@ -427,6 +427,135 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(links[0]?.providerUserId).toBe(sub);
   });
 
+  it('pre-account hijack: linking Google to an unverified account kills the password and sessions set by whoever registered it', async () => {
+    const suffix = uniqueSuffix();
+    const victimEmail = `victim-${suffix}@example.com`;
+    const attackerPassword = 'AttackerKnows123!';
+    const code = `code-prehijack-${suffix}`;
+
+    // 1. El atacante registra el correo de la víctima con su propia contraseña.
+    const attackerReg = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: victimEmail, password: attackerPassword, fullName: 'Attacker' })
+      .expect(201);
+    const accountId = attackerReg.body.data.user.id as number;
+    const attackerRefresh = attackerReg.body.data.tokens.refreshToken as string;
+
+    // 2. La víctima, dueña real del correo, entra con Google.
+    mockByCode.set(code, {
+      kind: 'ok',
+      sub: `google-victim-${suffix}`,
+      email: victimEmail,
+      email_verified: true,
+      name: 'Victim',
+    });
+    const victimLogin = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/google/exchange')
+      .send({ code, codeVerifier: 'v'.repeat(43), redirectUri: TEST_REDIRECT_URI })
+      .expect(200);
+    expect(victimLogin.body.data.user.id).toBe(accountId);
+    expect(victimLogin.body.data.linkedExistingAccount).toBe(true);
+
+    // 3. Ni la contraseña ni la sesión del atacante sirven ya.
+    const attackerLogin = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: victimEmail, password: attackerPassword })
+      .expect(401);
+    expect(attackerLogin.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
+
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: attackerRefresh })
+      .expect(401);
+
+    const [stored] = await db.select().from(users).where(eq(users.id, accountId)).limit(1);
+    expect(stored?.password).toBeNull();
+
+    // La sesión de la víctima sigue funcionando.
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/refresh')
+      .send({ refreshToken: victimLogin.body.data.tokens.refreshToken as string })
+      .expect(200);
+  });
+
+  it('keeps the password of an already verified account when Google is linked', async () => {
+    const suffix = uniqueSuffix();
+    const email = `verified-${suffix}@example.com`;
+    const password = 'OwnerPassword123!';
+    const code = `code-verified-link-${suffix}`;
+
+    const reg = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email, password, fullName: 'Owner' })
+      .expect(201);
+    const accountId = reg.body.data.user.id as number;
+    await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, accountId));
+
+    mockByCode.set(code, {
+      kind: 'ok',
+      sub: `google-owner-${suffix}`,
+      email,
+      email_verified: true,
+      name: 'Owner',
+    });
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/google/exchange')
+      .send({ code, codeVerifier: 'v'.repeat(43), redirectUri: TEST_REDIRECT_URI })
+      .expect(200);
+
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email, password })
+      .expect(200);
+  });
+
+  it('treats emails case-insensitively on register, login and password reset', async () => {
+    const suffix = uniqueSuffix();
+    const mixedCase = `Ana.Case-${suffix}@Example.com`;
+    const lower = mixedCase.toLowerCase();
+    const password = 'CasePassword123!';
+
+    const reg = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: mixedCase, password, fullName: 'Ana' })
+      .expect(201);
+    expect(reg.body.data.user.email).toBe(lower);
+
+    // Otra variante del mismo correo no crea una segunda cuenta.
+    const duplicate = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: lower.toUpperCase(), password, fullName: 'Ana 2' })
+      .expect(409);
+    expect(duplicate.body.error.code).toBe('AUTH_EMAIL_ALREADY_EXISTS');
+
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: mixedCase, password })
+      .expect(200);
+
+    // Cuenta antigua guardada con mayúsculas antes de este cambio.
+    const legacyEmail = `Legacy.Upper-${suffix}@Example.com`;
+    const legacyReg = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: `legacy-tmp-${suffix}@example.com`, password, fullName: 'Legacy' })
+      .expect(201);
+    await db
+      .update(users)
+      .set({ email: legacyEmail })
+      .where(eq(users.id, legacyReg.body.data.user.id as number));
+
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ email: legacyEmail.toLowerCase(), password })
+      .expect(200);
+
+    await supertest(app.getHttpServer())
+      .post('/api/v1/auth/forgot-password')
+      .send({ email: legacyEmail.toLowerCase() })
+      .expect(200);
+    expect(mail.lastToken('reset', legacyEmail)).toBeTruthy();
+  });
+
   it('blocks Google OAuth for administrator accounts on both email-match and pre-linked users', async () => {
     const suffix = uniqueSuffix();
     const adminRoles = await db.select().from(roles).where(eq(roles.name, 'admin')).limit(1);
