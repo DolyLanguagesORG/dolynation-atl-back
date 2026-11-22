@@ -69,6 +69,12 @@ export enum ErrorCode {
   // === Validación (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
 
+  // === Seguridad anti-bot y rate limiting (4xx/5xx) ===
+  CAPTCHA_REQUIRED = 'CAPTCHA_REQUIRED',
+  CAPTCHA_VERIFICATION_FAILED = 'CAPTCHA_VERIFICATION_FAILED',
+  CAPTCHA_PROVIDER_UNAVAILABLE = 'CAPTCHA_PROVIDER_UNAVAILABLE',
+  RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
+
   // === Proveedor de IA (4xx: cuota del provider, no del usuario) ===
   AI_RATE_LIMITED = 'AI_RATE_LIMITED',
 
@@ -314,6 +320,26 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.VALIDATION_ERROR,
     400,
     'Some of the submitted information is invalid. Please check your input.',
+  ),
+  [ErrorCode.CAPTCHA_REQUIRED]: entry(
+    ErrorCode.CAPTCHA_REQUIRED,
+    400,
+    'Human verification is required to complete this request.',
+  ),
+  [ErrorCode.CAPTCHA_VERIFICATION_FAILED]: entry(
+    ErrorCode.CAPTCHA_VERIFICATION_FAILED,
+    403,
+    'Human verification failed or expired. Please try again.',
+  ),
+  [ErrorCode.CAPTCHA_PROVIDER_UNAVAILABLE]: entry(
+    ErrorCode.CAPTCHA_PROVIDER_UNAVAILABLE,
+    503,
+    'Verification service is temporarily unavailable. Please try again shortly.',
+  ),
+  [ErrorCode.RATE_LIMIT_EXCEEDED]: entry(
+    ErrorCode.RATE_LIMIT_EXCEEDED,
+    429,
+    'Too many requests. Please wait a moment and try again.',
   ),
   [ErrorCode.INTERNAL_ERROR]: entry(
     ErrorCode.INTERNAL_ERROR,

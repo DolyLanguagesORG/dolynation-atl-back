@@ -170,6 +170,14 @@ jobs:
           GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           GOOGLE_OAUTH_REDIRECT_URI: ${{ vars.GOOGLE_OAUTH_REDIRECT_URI }}
+          # Seguridad anti-bot (Cloudflare Turnstile) y CORS.
+          CAPTCHA_PROVIDER: ${{ vars.CAPTCHA_PROVIDER }}
+          CAPTCHA_SITE_KEY: ${{ vars.CAPTCHA_SITE_KEY }}
+          CAPTCHA_SECRET_KEY: ${{ secrets.CAPTCHA_SECRET_KEY }}
+          CAPTCHA_APPEARANCE: ${{ vars.CAPTCHA_APPEARANCE }}
+          CAPTCHA_ALLOWED_HOSTNAMES: ${{ vars.CAPTCHA_ALLOWED_HOSTNAMES }}
+          CAPTCHA_FAIL_OPEN: ${{ vars.CAPTCHA_FAIL_OPEN }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
         run: |
           set -euo pipefail
           # El agente SSH se creo en el paso anterior, en otro shell: hay que
@@ -236,6 +244,13 @@ jobs:
             printf 'GOOGLE_OAUTH_CLIENT_ID=%s\n' "$GOOGLE_OAUTH_CLIENT_ID"
             printf 'GOOGLE_OAUTH_CLIENT_SECRET=%s\n' "$GOOGLE_OAUTH_CLIENT_SECRET"
             printf 'GOOGLE_OAUTH_REDIRECT_URI=%s\n' "$GOOGLE_OAUTH_REDIRECT_URI"
+            printf 'CAPTCHA_PROVIDER=%s\n' "$CAPTCHA_PROVIDER"
+            printf 'CAPTCHA_SITE_KEY=%s\n' "$CAPTCHA_SITE_KEY"
+            printf 'CAPTCHA_SECRET_KEY=%s\n' "$CAPTCHA_SECRET_KEY"
+            printf 'CAPTCHA_APPEARANCE=%s\n' "$CAPTCHA_APPEARANCE"
+            printf 'CAPTCHA_ALLOWED_HOSTNAMES=%s\n' "$CAPTCHA_ALLOWED_HOSTNAMES"
+            printf 'CAPTCHA_FAIL_OPEN=%s\n' "$CAPTCHA_FAIL_OPEN"
+            printf 'CORS_ALLOWED_ORIGINS=%s\n' "$CORS_ALLOWED_ORIGINS"
           } > /tmp/backend.env
           base64 -w0 /tmp/backend.env | ssh -i ~/.ssh/deploy_key \
             -p "${{ secrets.DEPLOY_PORT }}" \

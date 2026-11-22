@@ -5,6 +5,7 @@ import { validateEnv, type EnvSchema } from './config/env.validation';
 import { DatabaseModule } from './database/database.module';
 import { CommonModule } from './common/common.module';
 import { LogsModule, RequestContextMiddleware } from './modules/logs';
+import { SecurityModule } from './modules/security';
 import { MailModule } from './modules/mail/mail.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -49,6 +50,7 @@ import { VersionModule } from './modules/version/version.module';
             'req.headers.authorization',
             'req.headers.cookie',
             'req.headers["x-api-key"]',
+            'req.headers["x-captcha-token"]',
             // La firma del webhook de Stripe es un valor reutilizable durante
             // su ventana de tolerancia: no se escribe en los registros.
             'req.headers["stripe-signature"]',
@@ -56,6 +58,7 @@ import { VersionModule } from './modules/version/version.module';
             '*.newPassword',
             '*.currentPassword',
             '*.token',
+            '*.captchaToken',
             '*.accessToken',
             '*.refreshToken',
             '*.tokenHash',
@@ -76,6 +79,7 @@ import { VersionModule } from './modules/version/version.module';
     CommonModule,
     DatabaseModule,
     LogsModule,
+    SecurityModule,
     MailModule,
     AuthModule,
     UsersModule,

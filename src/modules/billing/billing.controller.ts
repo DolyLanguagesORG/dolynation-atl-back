@@ -36,6 +36,7 @@ import {
   ApiOkResponseOfArray,
 } from '../../common/types/api-envelope.decorators';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
+import { CAPTCHA_ACTIONS, RequireCaptcha } from '../security';
 import { BillingService } from './billing.service';
 import { BillingConfigResponseDto } from './dto/billing-config-response.dto';
 import { BillingInvoiceDto } from './dto/billing-invoice-response.dto';
@@ -73,6 +74,7 @@ export class BillingController {
 
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
+  @RequireCaptcha(CAPTCHA_ACTIONS.BILLING_CHECKOUT)
   @Post('checkout/subscription')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -105,6 +107,7 @@ export class BillingController {
   }
 
   @ApiBearerAuth('access-token')
+  @RequireCaptcha(CAPTCHA_ACTIONS.BILLING_CHECKOUT)
   @Post('checkout/language-unlock')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -254,6 +257,7 @@ export class BillingController {
   }
 
   @ApiBearerAuth('access-token')
+  @RequireCaptcha(CAPTCHA_ACTIONS.BILLING_SETUP_INTENT)
   @Post('payment-method/setup-intent')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({

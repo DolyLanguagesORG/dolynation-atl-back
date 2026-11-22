@@ -24,6 +24,7 @@ import { CurrentUser, type AuthUser } from '../../common/decorators/current-user
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import { ApiCreatedResponseOf, ApiOkResponseOf } from '../../common/types/api-envelope.decorators';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
 import { AccessRequestsService } from './access-requests.service';
 import {
   AccessRequestItemDto,
@@ -67,6 +68,8 @@ export class AccessRequestsController {
   /**
    * Crea una solicitud en lista de espera para un plan o para desbloquear cambio de idioma.
    */
+  @RequireCaptcha(CAPTCHA_ACTIONS.ACCESS_REQUEST)
+  @RateLimitByIp({ action: 'access_request', maxRequests: 15, windowMs: 15 * 60_000 })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({

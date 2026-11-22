@@ -17,6 +17,7 @@ import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import type { ChatMessage } from './providers/ai-provider.interface';
 import { AuditLogService } from '../logs';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
 import { IaChatRateLimitService } from './ia-chat-rate-limit.service';
 
 /**
@@ -39,6 +40,8 @@ export class IaController {
   /**
    * Envía una secuencia de mensajes al proveedor de IA activo y devuelve la respuesta completa.
    */
+  @RequireCaptcha(CAPTCHA_ACTIONS.IA_CHAT)
+  @RateLimitByIp({ action: 'ia_chat', maxRequests: 20, windowMs: 10 * 60_000 })
   @Post('chat')
   @ApiOperation({ summary: 'Enviar una petición de chat al proveedor de IA activo' })
   @ApiOkResponseOf(ChatResponseDto)

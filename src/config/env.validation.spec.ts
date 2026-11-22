@@ -302,4 +302,72 @@ describe('validateEnv', () => {
       );
     });
   });
+
+  describe('CAPTCHA_* y CORS_ALLOWED_ORIGINS', () => {
+    it('usa valores por defecto seguros con CAPTCHA_PROVIDER=disabled', () => {
+      const env = validateEnv(base);
+
+      expect(env.CAPTCHA_PROVIDER).toBe('disabled');
+      expect(env.CAPTCHA_APPEARANCE).toBe('interaction-only');
+      expect(env.CAPTCHA_VERIFY_URL).toBe(
+        'https://challenges.cloudflare.com/turnstile/v0/siteverify',
+      );
+      expect(env.CAPTCHA_TIMEOUT_MS).toBe(5000);
+      expect(env.CAPTCHA_FAIL_OPEN).toBe(false);
+      expect(env.CORS_ALLOWED_ORIGINS).toBeUndefined();
+    });
+
+    it('cae a defaults cuando las variables de CAPTCHA llegan vacias desde GitHub Actions', () => {
+      const env = validateEnv({
+        ...base,
+        CAPTCHA_PROVIDER: '',
+        CAPTCHA_SITE_KEY: '',
+        CAPTCHA_SECRET_KEY: '',
+        CAPTCHA_APPEARANCE: '',
+        CAPTCHA_ALLOWED_HOSTNAMES: '',
+        CAPTCHA_VERIFY_URL: '',
+        CAPTCHA_TIMEOUT_MS: '',
+        CAPTCHA_FAIL_OPEN: '',
+        CORS_ALLOWED_ORIGINS: '',
+      });
+
+      expect(env.CAPTCHA_PROVIDER).toBe('disabled');
+      expect(env.CAPTCHA_APPEARANCE).toBe('interaction-only');
+      expect(env.CAPTCHA_TIMEOUT_MS).toBe(5000);
+      expect(env.CAPTCHA_FAIL_OPEN).toBe(false);
+      expect(env.CAPTCHA_SITE_KEY).toBeUndefined();
+      expect(env.CAPTCHA_SECRET_KEY).toBeUndefined();
+    });
+
+    it('rechaza CAPTCHA_PROVIDER=turnstile sin CAPTCHA_SITE_KEY ni CAPTCHA_SECRET_KEY', () => {
+      expect(() => validateEnv({ ...base, CAPTCHA_PROVIDER: 'turnstile' })).toThrow(
+        /CAPTCHA_SITE_KEY/,
+      );
+      expect(() =>
+        validateEnv({
+          ...base,
+          CAPTCHA_PROVIDER: 'turnstile',
+          CAPTCHA_SITE_KEY: '1x00000000000000000000AA',
+        }),
+      ).toThrow(/CAPTCHA_SECRET_KEY/);
+    });
+
+    it('acepta CAPTCHA_PROVIDER=turnstile cuando se proveen ambas claves y flags opcionales', () => {
+      const env = validateEnv({
+        ...base,
+        CAPTCHA_PROVIDER: 'turnstile',
+        CAPTCHA_SITE_KEY: '1x00000000000000000000AA',
+        CAPTCHA_SECRET_KEY: '1x0000000000000000000000000000000AA',
+        CAPTCHA_APPEARANCE: 'execute',
+        CAPTCHA_ALLOWED_HOSTNAMES: 'localhost,devweb.yacaterkos.tech',
+        CAPTCHA_FAIL_OPEN: 'true',
+        CORS_ALLOWED_ORIGINS: 'http://localhost:3000,https://devweb.yacaterkos.tech',
+      });
+
+      expect(env.CAPTCHA_PROVIDER).toBe('turnstile');
+      expect(env.CAPTCHA_APPEARANCE).toBe('execute');
+      expect(env.CAPTCHA_FAIL_OPEN).toBe(true);
+      expect(env.CORS_ALLOWED_ORIGINS).toBe('http://localhost:3000,https://devweb.yacaterkos.tech');
+    });
+  });
 });

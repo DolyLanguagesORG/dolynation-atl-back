@@ -76,9 +76,24 @@ async function bootstrap(): Promise<void> {
     }),
   );
 
-  // Habilita CORS para los clientes web y móviles.
+  const env = app.get(AppConfigService);
+
+  // Habilita CORS para los clientes web y móviles (restringible vía CORS_ALLOWED_ORIGINS).
+  const allowedOrigins = env.corsAllowedOrigins;
   app.enableCors({
-    origin: true,
+    origin:
+      allowedOrigins.length > 0
+        ? (
+            requestOrigin: string | undefined,
+            callback: (err: Error | null, allow?: boolean) => void,
+          ): void => {
+            if (!requestOrigin || allowedOrigins.includes(requestOrigin)) {
+              callback(null, true);
+              return;
+            }
+            callback(null, false);
+          }
+        : true,
     credentials: true,
   });
 
@@ -88,7 +103,6 @@ async function bootstrap(): Promise<void> {
   // apunte a la ruta real. Mover esto después de createDocument causó en su
   // momento que /docs mostrara POST /auth/register cuando el servidor solo
   // aceptaba POST /api/v1/auth/register.
-  const env = app.get(AppConfigService);
   app.setGlobalPrefix(env.apiPrefix);
 
   // Referencia de API con Scalar en /docs (reemplaza a Swagger UI).
@@ -123,6 +137,7 @@ async function bootstrap(): Promise<void> {
     .addTag('evaluation', 'Envío y calificación de resúmenes de lectura')
     .addTag('history', 'Historial agregado de actividad y puntuaciones recientes')
     .addTag('ia', 'Chat directo con el proveedor de inteligencia artificial activo')
+    .addTag('security', 'Configuración pública de verificación anti-bot (Turnstile) y protecciones')
     .addTag(
       'admin',
       'Supervisión de categorías globales y listado de usuarios (solo administradores)',

@@ -267,6 +267,44 @@ const baseEnvSchema = z.object({
   GOOGLE_OAUTH_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_OAUTH_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().url().optional()),
+
+  // ===== Seguridad anti-bot (Cloudflare Turnstile) y red =====
+  CAPTCHA_PROVIDER: z.preprocess(
+    emptyToUndefined,
+    z.enum(['disabled', 'turnstile']).default('disabled'),
+  ),
+  CAPTCHA_SITE_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  CAPTCHA_SECRET_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  CAPTCHA_APPEARANCE: z.preprocess(
+    emptyToUndefined,
+    z.enum(['interaction-only', 'always', 'execute']).default('interaction-only'),
+  ),
+  CAPTCHA_ALLOWED_HOSTNAMES: z.preprocess(emptyToUndefined, z.string().optional()),
+  CAPTCHA_VERIFY_URL: z.preprocess(
+    emptyToUndefined,
+    z.string().url().default('https://challenges.cloudflare.com/turnstile/v0/siteverify'),
+  ),
+  CAPTCHA_TIMEOUT_MS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(5000),
+  ),
+  CAPTCHA_FAIL_OPEN: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) => v === 'true' || v === '1'),
+  ),
+  IP_RATE_LIMIT_ENABLED: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .optional()
+      .transform((v) =>
+        v === undefined ? undefined : v.trim().toLowerCase() !== 'false' && v.trim() !== '0',
+      ),
+  ),
+  CORS_ALLOWED_ORIGINS: z.preprocess(emptyToUndefined, z.string().optional()),
 });
 
 /**
@@ -325,6 +363,23 @@ const envSchema = baseEnvSchema.superRefine((env, ctx) => {
       message:
         'GOOGLE_OAUTH_CLIENT_ID es obligatoria cuando GOOGLE_OAUTH_CLIENT_SECRET está definida',
     });
+  }
+
+  if (env.CAPTCHA_PROVIDER === 'turnstile') {
+    if (!env.CAPTCHA_SITE_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CAPTCHA_SITE_KEY'],
+        message: 'CAPTCHA_SITE_KEY es obligatoria cuando CAPTCHA_PROVIDER=turnstile',
+      });
+    }
+    if (!env.CAPTCHA_SECRET_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CAPTCHA_SECRET_KEY'],
+        message: 'CAPTCHA_SECRET_KEY es obligatoria cuando CAPTCHA_PROVIDER=turnstile',
+      });
+    }
   }
 });
 

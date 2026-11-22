@@ -8,6 +8,7 @@ const DEFAULT_GOOGLE_ENDPOINT =
 const DEFAULT_GOOGLE_DECISIONS_MODEL = 'gemini-decision-1';
 const DEFAULT_GOOGLE_DECISIONS_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/decisions';
+const DEFAULT_CAPTCHA_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
@@ -355,5 +356,92 @@ export class AppConfigService {
       openaiEndpoint: nonEmptyString(rawOpenaiEndpoint, 'https://api.openai.com/v1/moderations'),
       openaiModel: nonEmptyString(rawOpenaiModel, 'omni-moderation-latest'),
     };
+  }
+
+  // ===== Seguridad anti-bot (Cloudflare Turnstile), rate limiting por IP y CORS =====
+  get captcha(): {
+    provider: 'disabled' | 'turnstile';
+    enabled: boolean;
+    siteKey: string | undefined;
+    secretKey: string | undefined;
+    appearance: 'interaction-only' | 'always' | 'execute';
+    allowedHostnames: string[];
+    verifyUrl: string;
+    timeoutMs: number;
+    failOpen: boolean;
+  } {
+    const rawProvider: unknown = this.config.get('CAPTCHA_PROVIDER', { infer: true });
+    const normalizedProvider =
+      typeof rawProvider === 'string' ? rawProvider.trim().toLowerCase() : '';
+    const provider: 'disabled' | 'turnstile' =
+      normalizedProvider === 'turnstile' ? 'turnstile' : 'disabled';
+
+    const siteKey = optionalTrimmedString(this.config.get('CAPTCHA_SITE_KEY', { infer: true }));
+    const secretKey = optionalTrimmedString(this.config.get('CAPTCHA_SECRET_KEY', { infer: true }));
+
+    const rawAppearance: unknown = this.config.get('CAPTCHA_APPEARANCE', { infer: true });
+    const normalizedAppearance =
+      typeof rawAppearance === 'string' ? rawAppearance.trim().toLowerCase() : '';
+    const appearance: 'interaction-only' | 'always' | 'execute' =
+      normalizedAppearance === 'always' || normalizedAppearance === 'execute'
+        ? normalizedAppearance
+        : 'interaction-only';
+
+    const rawHostnames = optionalTrimmedString(
+      this.config.get('CAPTCHA_ALLOWED_HOSTNAMES', { infer: true }),
+    );
+    const allowedHostnames = rawHostnames
+      ? rawHostnames
+          .split(',')
+          .map((hostname) => hostname.trim().toLowerCase())
+          .filter(Boolean)
+      : [];
+
+    const verifyUrl = nonEmptyString(
+      this.config.get('CAPTCHA_VERIFY_URL', { infer: true }),
+      DEFAULT_CAPTCHA_VERIFY_URL,
+    );
+    const timeoutMs = positiveInt(this.config.get('CAPTCHA_TIMEOUT_MS', { infer: true }), 5000);
+
+    const rawFailOpen: unknown = this.config.get('CAPTCHA_FAIL_OPEN', { infer: true });
+    const failOpen =
+      typeof rawFailOpen === 'boolean'
+        ? rawFailOpen
+        : rawFailOpen === 'true' || rawFailOpen === '1';
+
+    return {
+      provider,
+      enabled: provider === 'turnstile' && Boolean(siteKey && secretKey),
+      siteKey,
+      secretKey,
+      appearance,
+      allowedHostnames,
+      verifyUrl,
+      timeoutMs,
+      failOpen,
+    };
+  }
+
+  get ipRateLimitEnabled(): boolean {
+    const raw: unknown = this.config.get('IP_RATE_LIMIT_ENABLED', { infer: true });
+    if (typeof raw === 'boolean') {
+      return raw;
+    }
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      const normalized = raw.trim().toLowerCase();
+      return normalized !== 'false' && normalized !== '0';
+    }
+    return this.nodeEnv !== 'test';
+  }
+
+  get corsAllowedOrigins(): string[] {
+    const raw = optionalTrimmedString(this.config.get('CORS_ALLOWED_ORIGINS', { infer: true }));
+    if (!raw) {
+      return [];
+    }
+    return raw
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter(Boolean);
   }
 }
