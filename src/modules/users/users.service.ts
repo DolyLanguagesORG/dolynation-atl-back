@@ -2,7 +2,7 @@ import { Inject, Injectable, Optional } from '@nestjs/common';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb } from '../../database/database.module';
 import { roles, users, userSettings, readings } from '../../database/drizzle/schema';
-import { and, eq, gte, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, sql, type SQL } from 'drizzle-orm';
 import { type NewUser, type User } from '../../database/drizzle/types';
 import * as argon2 from 'argon2';
 import { AppHttpException } from '../../common/errors/app-http.exception';
@@ -89,10 +89,39 @@ export class UsersService {
     return this.findOneWithRole(eq(users.email, email));
   }
 
-  /** Busca un usuario por su correo electrónico ignorando mayúsculas/minúsculas. */
+  /**
+   * Busca un usuario por correo ignorando mayúsculas/minúsculas. Prefiere la fila guardada
+   * ya en minúsculas; si solo existen variantes antiguas, devuelve la más antigua para que
+   * el resultado no dependa del orden físico de la tabla.
+   */
   async findByEmailInsensitive(email: string): Promise<UserWithRole | null> {
     const normalized = email.trim().toLowerCase();
-    return this.findOneWithRole(sql`lower(${users.email}) = ${normalized}`);
+    const exact = await this.findOneWithRole(eq(users.email, normalized));
+    if (exact) return exact;
+    return this.findOneWithRole(sql`lower(${users.email}) = ${normalized}`, asc(users.id));
+  }
+
+  /**
+   * Elimina la contraseña de la cuenta. Se usa cuando la contraseña la fijó alguien que
+   * nunca demostró ser dueño del correo.
+   */
+  async clearPassword(userId: number): Promise<void> {
+    await this.db
+      .update(users)
+      .set({ password: null, updatedAt: new Date() })
+      .where(eq(users.id, userId));
+
+    await this.auditLogs?.logUpdate({
+      module: 'users',
+      event: 'user.password_cleared',
+      entityType: 'users',
+      entityId: userId,
+      actorUserId: userId,
+      targetUserId: userId,
+      summary: `Password removed for user #${userId}: it was set before the email ownership was proven`,
+      beforeState: { id: userId, password: '[REDACTED]' },
+      afterState: { id: userId, password: null },
+    });
   }
 
   /** Busca un usuario por su identificador primario junto con su rol. */
@@ -100,16 +129,16 @@ export class UsersService {
     return this.findOneWithRole(eq(users.id, id));
   }
 
-  private async findOneWithRole(whereClause: SQL): Promise<UserWithRole | null> {
-    const rows = await this.db
+  private async findOneWithRole(whereClause: SQL, orderBy?: SQL): Promise<UserWithRole | null> {
+    const filtered = this.db
       .select({
         user: users,
         roleName: roles.name,
       })
       .from(users)
       .leftJoin(roles, eq(users.roleId, roles.id))
-      .where(whereClause)
-      .limit(1);
+      .where(whereClause);
+    const rows = await (orderBy ? filtered.orderBy(orderBy) : filtered).limit(1);
     const row = rows[0];
     if (!row) return null;
     const rawUser = 'user' in row ? row.user : (row as unknown as User);
@@ -146,7 +175,7 @@ export class UsersService {
     const studentRoleId = await this.resolveStudentRoleId();
 
     const row: NewUser = {
-      email: input.email,
+      email: input.email.trim().toLowerCase(),
       password: passwordHash,
       ...(studentRoleId !== undefined ? { roleId: studentRoleId } : {}),
       currentStreak: 0,

@@ -11,10 +11,14 @@ describe('AuthOAuthService', () => {
   let usersService: jest.Mocked<
     Pick<
       UsersService,
-      'findById' | 'findByEmailInsensitive' | 'createOAuthUser' | 'markEmailVerified'
+      | 'findById'
+      | 'findByEmailInsensitive'
+      | 'createOAuthUser'
+      | 'markEmailVerified'
+      | 'clearPassword'
     >
   >;
-  let authService: jest.Mocked<Pick<AuthService, 'issueOAuthSession'>>;
+  let authService: jest.Mocked<Pick<AuthService, 'issueOAuthSession' | 'logoutAll'>>;
   let googleProvider: jest.Mocked<
     Pick<GoogleOAuthProvider, 'provider' | 'getPublicConfig' | 'exchangeCodeForProfile'>
   >;
@@ -79,9 +83,11 @@ describe('AuthOAuthService', () => {
       findByEmailInsensitive: jest.fn(),
       createOAuthUser: jest.fn(),
       markEmailVerified: jest.fn().mockResolvedValue(undefined),
+      clearPassword: jest.fn().mockResolvedValue(undefined),
     };
     authService = {
       issueOAuthSession: jest.fn(),
+      logoutAll: jest.fn().mockResolvedValue(undefined),
     };
     googleProvider = {
       provider: 'google',
@@ -220,6 +226,9 @@ describe('AuthOAuthService', () => {
     const result = await service.exchangeCode('google', exchangeInput);
 
     expect(usersService.markEmailVerified).toHaveBeenCalledWith(unverifiedStudent.id);
+    // La contraseña y las sesiones de una cuenta sin verificar no se heredan.
+    expect(usersService.clearPassword).toHaveBeenCalledWith(unverifiedStudent.id);
+    expect(authService.logoutAll).toHaveBeenCalledWith(unverifiedStudent.id);
     expect(dbMock.insert).toHaveBeenCalledTimes(1);
     expect(result.isNewUser).toBe(false);
     expect(result.linkedExistingAccount).toBe(true);

@@ -229,6 +229,27 @@ export class AuthOAuthService {
   ): Promise<OAuthExchangeResult> {
     const activeUser = await this.assertNotAdminOrDeleted(existingUser, profile.provider);
 
+    // Nadie demostró ser dueño de este correo al registrar la cuenta: la contraseña (y las
+    // sesiones abiertas con ella) pudo fijarla un tercero antes que el dueño real llegara con
+    // Google (pre-account hijacking). Se invalidan antes de entregarle la cuenta.
+    if (!activeUser.emailVerifiedAt) {
+      await this.users.clearPassword(activeUser.id);
+      await this.auth.logoutAll(activeUser.id);
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.oauth_unverified_account_secured',
+        entityType: 'users',
+        entityId: activeUser.id,
+        actorUserId: activeUser.id,
+        actorEmail: activeUser.email,
+        actorRole: activeUser.role,
+        targetUserId: activeUser.id,
+        summary: `Password and sessions revoked before linking ${profile.provider} to unverified account #${activeUser.id}`,
+        metadata: { provider: profile.provider },
+      });
+    }
+
     await this.persistOAuthLinkOrVerifyRace(activeUser.id, profile);
 
     const verifiedUser = await this.ensureEmailVerified(activeUser);

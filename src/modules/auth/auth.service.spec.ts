@@ -17,7 +17,7 @@ describe('AuthService', () => {
   let usersService: jest.Mocked<
     Pick<
       UsersService,
-      | 'findByEmail'
+      | 'findByEmailInsensitive'
       | 'findById'
       | 'create'
       | 'verifyPassword'
@@ -75,7 +75,7 @@ describe('AuthService', () => {
     db.update.mockReset();
     db.insert.mockReturnValue({ values: jest.fn().mockResolvedValue(undefined) });
     usersService = {
-      findByEmail: jest.fn(),
+      findByEmailInsensitive: jest.fn(),
       findById: jest.fn(),
       create: jest.fn(),
       verifyPassword: jest.fn(),
@@ -134,7 +134,7 @@ describe('AuthService', () => {
       const userRow = {
         ...userRowFixture,
       };
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRow);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -159,7 +159,7 @@ describe('AuthService', () => {
     });
 
     it('sends the account confirmation email with a verification token', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRowFixture);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -175,7 +175,7 @@ describe('AuthService', () => {
     });
 
     it('keeps the locale sent by the client so the email is written in that language', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
       usersService.create.mockResolvedValue({ ...userRowFixture, locale: 'en' });
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -194,7 +194,7 @@ describe('AuthService', () => {
     });
 
     it('does not fail the registration when the email cannot be delivered', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRowFixture);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -212,7 +212,7 @@ describe('AuthService', () => {
 
     it('does not issue tokens when the email verification is required', async () => {
       verificationRequired = true;
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
       usersService.create.mockResolvedValue(userRowFixture);
       usersService.toPublic.mockReturnValue(publicUserFixture);
 
@@ -229,7 +229,7 @@ describe('AuthService', () => {
 
     it('throws ConflictException if email already exists', async () => {
       const existing = { id: 1, email: 'a@b.c' };
-      usersService.findByEmail.mockResolvedValue(existing as never);
+      usersService.findByEmailInsensitive.mockResolvedValue(existing as never);
       await expect(
         service.register({ email: 'a@b.c', password: 'secret123', fullName: 'A B' }),
       ).rejects.toBeInstanceOf(AppHttpException);
@@ -239,7 +239,7 @@ describe('AuthService', () => {
 
   describe('login', () => {
     it('returns tokens for valid credentials', async () => {
-      usersService.findByEmail.mockResolvedValue(userRowFixture);
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
       usersService.verifyPassword.mockResolvedValue(true);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -255,7 +255,7 @@ describe('AuthService', () => {
       const values = jest.fn().mockResolvedValue(undefined);
       db.insert.mockReturnValue({ values });
 
-      usersService.findByEmail.mockResolvedValue(userRowFixture);
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
       usersService.verifyPassword.mockResolvedValue(true);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -275,7 +275,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedException for unknown email after dummy hash check', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
       await expect(service.login({ email: 'a@b.c', password: 'x' })).rejects.toBeInstanceOf(
         AppHttpException,
       );
@@ -283,7 +283,7 @@ describe('AuthService', () => {
     });
 
     it('throws UnauthorizedException for wrong password', async () => {
-      usersService.findByEmail.mockResolvedValue(userRowFixture);
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
       usersService.verifyPassword.mockResolvedValue(false);
       await expect(service.login({ email: 'a@b.c', password: 'wrong' })).rejects.toBeInstanceOf(
         AppHttpException,
@@ -291,7 +291,7 @@ describe('AuthService', () => {
     });
 
     it('rejects password login cleanly with dummy hash check for OAuth-only accounts (password=null)', async () => {
-      usersService.findByEmail.mockResolvedValue({ ...userRowFixture, password: null });
+      usersService.findByEmailInsensitive.mockResolvedValue({ ...userRowFixture, password: null });
       usersService.verifyPassword.mockResolvedValue(false);
 
       const error = await service.login({ email: 'a@b.c', password: 'any-password' }).then(
@@ -306,7 +306,10 @@ describe('AuthService', () => {
 
     it('blocks the login of an unverified account when the verification is required', async () => {
       verificationRequired = true;
-      usersService.findByEmail.mockResolvedValue({ ...userRowFixture, emailVerifiedAt: null });
+      usersService.findByEmailInsensitive.mockResolvedValue({
+        ...userRowFixture,
+        emailVerifiedAt: null,
+      });
       usersService.verifyPassword.mockResolvedValue(true);
 
       const error = await service.login({ email: 'a@b.c', password: 'secret123' }).then(
@@ -321,7 +324,7 @@ describe('AuthService', () => {
 
     it('allows the login of a verified account when the verification is required', async () => {
       verificationRequired = true;
-      usersService.findByEmail.mockResolvedValue({
+      usersService.findByEmailInsensitive.mockResolvedValue({
         ...userRowFixture,
         emailVerifiedAt: new Date(),
       });
@@ -336,7 +339,10 @@ describe('AuthService', () => {
 
     it('allows the login of an unverified account when the verification is not required', async () => {
       verificationRequired = false;
-      usersService.findByEmail.mockResolvedValue({ ...userRowFixture, emailVerifiedAt: null });
+      usersService.findByEmailInsensitive.mockResolvedValue({
+        ...userRowFixture,
+        emailVerifiedAt: null,
+      });
       usersService.verifyPassword.mockResolvedValue(true);
       usersService.toPublic.mockReturnValue(publicUserFixture);
       jwtService.signAsync.mockResolvedValueOnce('access.jwt').mockResolvedValueOnce('refresh.jwt');
@@ -525,7 +531,7 @@ describe('AuthService', () => {
 
   describe('forgotPassword', () => {
     it('sends the reset email to an existing account', async () => {
-      usersService.findByEmail.mockResolvedValue(userRowFixture);
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
 
       const result = await service.forgotPassword('a@b.c');
 
@@ -539,7 +545,7 @@ describe('AuthService', () => {
     });
 
     it('answers exactly the same for an unknown account and sends nothing', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
 
       const result = await service.forgotPassword('nadie@example.com');
 
@@ -549,7 +555,7 @@ describe('AuthService', () => {
     });
 
     it('still answers successfully when the email cannot be delivered', async () => {
-      usersService.findByEmail.mockResolvedValue(userRowFixture);
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
       mailService.sendPasswordReset.mockRejectedValue(new Error('SMTP down'));
 
       const result = await service.forgotPassword('a@b.c');
@@ -558,7 +564,7 @@ describe('AuthService', () => {
     });
 
     it('stops sending emails once the request limit is reached', async () => {
-      usersService.findByEmail.mockResolvedValue(userRowFixture);
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
 
       for (let attempt = 0; attempt < 3; attempt += 1) {
         await service.forgotPassword('a@b.c');
@@ -574,7 +580,10 @@ describe('AuthService', () => {
 
   describe('resendVerification', () => {
     it('sends a new confirmation email while the account is unverified', async () => {
-      usersService.findByEmail.mockResolvedValue({ ...userRowFixture, emailVerifiedAt: null });
+      usersService.findByEmailInsensitive.mockResolvedValue({
+        ...userRowFixture,
+        emailVerifiedAt: null,
+      });
 
       const result = await service.resendVerification('a@b.c');
 
@@ -583,7 +592,7 @@ describe('AuthService', () => {
     });
 
     it('sends nothing when the account is already verified', async () => {
-      usersService.findByEmail.mockResolvedValue({
+      usersService.findByEmailInsensitive.mockResolvedValue({
         ...userRowFixture,
         emailVerifiedAt: new Date(),
       });
@@ -595,7 +604,7 @@ describe('AuthService', () => {
     });
 
     it('answers exactly the same for an unknown account', async () => {
-      usersService.findByEmail.mockResolvedValue(null);
+      usersService.findByEmailInsensitive.mockResolvedValue(null);
 
       const result = await service.resendVerification('nadie@example.com');
 
