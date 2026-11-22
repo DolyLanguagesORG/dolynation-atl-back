@@ -451,9 +451,25 @@ export class ReadingsService {
     userId: number,
     dto: EvaluateReadingDto,
     aiOptions?: AIRequestOptions,
+    operationId?: string,
   ): Promise<EvaluationResult & { reading: Reading }> {
     const reading = await this.findById(id, userId);
     if (reading.status !== 'pending') {
+      // La misma operacion, otra vez: se devuelve la evaluacion que ya se
+      // hizo. Es el caso del envio sin conexion que se reintenta al volver
+      // la red: sin esto, la IA evaluaria dos veces la misma respuesta.
+      if (
+        operationId &&
+        reading.evaluationOperationId &&
+        reading.evaluationOperationId === operationId
+      ) {
+        return {
+          score: reading.score ?? 0,
+          passed: reading.passed ?? false,
+          feedback: reading.feedback ?? '',
+          reading,
+        };
+      }
       throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
     }
 
@@ -498,6 +514,9 @@ Evaluate how well the user understood the main idea of the text.`;
         userResponse: dto.userResponse,
         feedback: result.feedback,
         status: 'completed',
+        // La clave de idempotencia: si este mismo envio vuelve a llegar, se
+        // reconoce y no se vuelve a evaluar.
+        ...(operationId ? { evaluationOperationId: operationId } : {}),
         updatedAt: new Date(),
       })
       .where(and(eq(readings.id, id), eq(readings.status, 'pending')))

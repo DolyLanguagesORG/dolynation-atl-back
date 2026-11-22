@@ -202,6 +202,12 @@ export const readings = pgTable(
     passed: boolean('passed'),
     userResponse: text('user_response'),
     feedback: text('feedback'),
+    // La clave de idempotencia de la evaluacion: la envia el cliente (la
+    // app PWA la genera al encolar la respuesta sin conexion). Si la misma
+    // operacion llega dos veces, la segunda devuelve la evaluacion ya hecha
+    // en vez de error: sin esto, un envio reintentado evaluaria dos veces
+    // (y la IA cobraria dos veces).
+    evaluationOperationId: varchar('evaluation_operation_id', { length: 100 }),
     createdAt: timestamp('created_at', { withTimezone: false }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: false }),
     deletedAt: timestamp('deleted_at', { withTimezone: false }),
