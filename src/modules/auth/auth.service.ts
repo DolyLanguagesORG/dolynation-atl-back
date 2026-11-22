@@ -111,7 +111,7 @@ export class AuthService implements IAuthService {
    * `POST /auth/verify-email` antes de poder iniciar sesión.
    */
   async register(input: RegisterDto): Promise<RegisterResult> {
-    const existing = await this.users.findByEmail(input.email);
+    const existing = await this.users.findByEmailInsensitive(input.email);
     if (existing) {
       throw new AppHttpException(ErrorCode.AUTH_EMAIL_ALREADY_EXISTS);
     }
@@ -165,7 +165,7 @@ export class AuthService implements IAuthService {
    * Valida correo y contraseña y devuelve el perfil público junto con los tokens JWT.
    */
   async login(input: LoginDto): Promise<{ user: AuthUserView; tokens: AuthTokens }> {
-    const user = await this.users.findByEmail(input.email);
+    const user = await this.users.findByEmailInsensitive(input.email);
     if (!user) {
       await this.users.verifyPassword(input.password, DUMMY_PASSWORD_HASH);
       await this.auditLogs?.logEvent({
@@ -558,7 +558,7 @@ export class AuthService implements IAuthService {
       return { emailSent: true };
     }
 
-    const user = await this.users.findByEmail(normalized);
+    const user = await this.users.findByEmailInsensitive(normalized);
     if (!user) {
       await this.auditLogs?.logEvent({
         module: 'auth',
@@ -641,7 +641,7 @@ export class AuthService implements IAuthService {
       return { emailSent: true };
     }
 
-    const user = await this.users.findByEmail(normalized);
+    const user = await this.users.findByEmailInsensitive(normalized);
     // `user?.emailVerifiedAt !== null` cubre los tres casos: la cuenta no
     // existe (`undefined`), la cuenta ya está verificada o la que no lo está.
     if (user?.emailVerifiedAt !== null) {
