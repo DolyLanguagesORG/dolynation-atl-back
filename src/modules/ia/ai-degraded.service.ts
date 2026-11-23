@@ -34,6 +34,7 @@ export interface DegradedCallOptions {
   aiOptions?: AIRequestOptions;
 }
 
+/** Valores de resiliencia usados cuando una llamada no especifica opciones propias. */
 const DEFAULT_OPTIONS = {
   retries: 2,
   retryDelayMs: 150,
@@ -168,6 +169,7 @@ export class AiDegradedService {
     return this.circuitIsOpen(config);
   }
 
+  /** Mantiene abierto el circuito durante la cuarentena y lo restablece para permitir una prueba. */
   private circuitIsOpen(config: {
     circuitFailureThreshold: number;
     circuitOpenMs: number;
@@ -180,11 +182,13 @@ export class AiDegradedService {
     return false;
   }
 
+  /** Cierra el circuito y reinicia el contador tras una respuesta exitosa del proveedor. */
   private recordSuccess(): void {
     this.consecutiveFailures = 0;
     this.openedAt = null;
   }
 
+  /** Acumula fallos consecutivos y abre el circuito al alcanzar el umbral configurado. */
   private recordFailure(config: { circuitFailureThreshold: number; circuitOpenMs: number }): void {
     this.consecutiveFailures += 1;
     if (this.consecutiveFailures >= config.circuitFailureThreshold) {
@@ -193,6 +197,7 @@ export class AiDegradedService {
   }
 }
 
+/** Combina las opciones de la llamada degradada con proveedor y modelo explícitos si existen. */
 function buildAiRequestOptions(options?: DegradedCallOptions): AIRequestOptions | undefined {
   if (!options?.aiOptions && !options?.provider && !options?.model) {
     return undefined;

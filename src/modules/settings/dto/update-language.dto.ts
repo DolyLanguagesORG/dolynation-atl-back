@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { ArrayMinSize, ArrayUnique, IsArray, IsIn, IsString } from 'class-validator';
 import { SUPPORTED_LANGUAGE_IDS } from '../settings.constants';
 
+/** Copia serializable de los idiomas admitidos para validar el DTO de configuración. */
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
 /**

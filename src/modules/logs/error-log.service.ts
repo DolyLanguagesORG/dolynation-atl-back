@@ -13,6 +13,7 @@ import { sanitizeRecordForLog } from './utils/log-sanitizer.util';
 
 type RequestWithUser = Request & { user?: AuthUser };
 
+/** Clasifica el origen probable de una excepción según su código y tipo. */
 function inferErrorSource(errorCode: string, exception: unknown): ErrorSource {
   switch (errorCode) {
     case String(ErrorCode.VALIDATION_ERROR):
@@ -39,6 +40,7 @@ function inferErrorSource(errorCode: string, exception: unknown): ErrorSource {
   }
 }
 
+/** Obtiene el módulo desde la ruta HTTP y excluye prefijos de versión de la API. */
 function inferModuleFromPath(httpPath: string | null | undefined): string | null {
   if (!httpPath) return null;
   const withoutQuery = httpPath.split('?')[0] ?? '';
@@ -58,6 +60,7 @@ function inferModuleFromPath(httpPath: string | null | undefined): string | null
   return mod.replace(/-/g, '_').slice(0, 50);
 }
 
+/** Acepta objetos no vacíos que puedan persistirse como campos estructurados del error. */
 function toPlainRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;

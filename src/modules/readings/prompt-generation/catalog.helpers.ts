@@ -67,6 +67,7 @@ export function getUniqueFocusForCategory(_category: string): readonly string[] 
   return GENERIC_UNIQUE_FOCUS;
 }
 
+/** Reduce un texto a tokens significativos sin acentos para comparar repetición temática. */
 function tokenizeSignificantWords(text: string): string[] {
   return text
     .normalize('NFD')
@@ -76,6 +77,7 @@ function tokenizeSignificantWords(text: string): string[] {
     .filter((token) => token.length >= 4);
 }
 
+/** Cuenta cuántos conceptos del candidato ya aparecen en las lecturas recientes. */
 function scoreOverlap(candidate: string, recentTokens: ReadonlySet<string>): number {
   if (recentTokens.size === 0) return 0;
   let hits = 0;
@@ -85,6 +87,7 @@ function scoreOverlap(candidate: string, recentTokens: ReadonlySet<string>): num
   return hits;
 }
 
+/** Elige aleatoriamente entre los candidatos con menor coincidencia temática reciente. */
 function pickLeastRepeatedItem(
   candidates: readonly string[],
   recentTokens: ReadonlySet<string>,
@@ -97,6 +100,7 @@ function pickLeastRepeatedItem(
   return pickRandom(bestPool);
 }
 
+/** Prioriza conceptos menos repetidos y devuelve una selección limitada para diversificar el prompt. */
 function pickFreshConcepts(
   concepts: readonly string[],
   recentTokens: ReadonlySet<string>,
@@ -111,9 +115,11 @@ function pickFreshConcepts(
     .map((entry) => entry.item);
 }
 
+/** Frases que identifican lecturas introductorias o históricas ya cubiertas recientemente. */
 const RECENT_BASICS_PATTERN =
   /\b(que\s+es|what\s+is|qu['’]?est[- ]ce|cos['’]?e|origen(?:es)?|origins?|introduccion|introduction|sincretismo|syncretism|fusion|definicion(?:es)?|definitions?|overview|basico?s?|basic|fundamentos?|fundamentals?|histoire\s+generale|storia\s+generale)\b/i;
 
+/** Retira marcas diacríticas para detectar temas básicos sin depender de acentos. */
 function foldAccentsForMatch(text: string): string {
   return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }

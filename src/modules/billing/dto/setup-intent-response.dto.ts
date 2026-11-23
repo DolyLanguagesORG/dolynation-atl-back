@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/** Credenciales públicas necesarias para confirmar un SetupIntent desde Stripe.js. */
 export class SetupIntentResponseDto {
   @ApiProperty({
     example: 'seti_1234567890',

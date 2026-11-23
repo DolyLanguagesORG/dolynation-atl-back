@@ -37,10 +37,15 @@ interface CachedJwks {
   expiresAtMs: number;
 }
 
+/** Tiempo máximo para descargar las claves públicas del proveedor OIDC. */
 const JWKS_FETCH_TIMEOUT_MS = 10_000;
+/** TTL mínimo aplicado a la caché local de JWKS. */
 const MIN_CACHE_TTL_SEC = 60;
+/** TTL predeterminado cuando el proveedor no especifica `max-age`. */
 const DEFAULT_CACHE_TTL_SEC = 3_600;
+/** TTL máximo aplicado aunque el proveedor solicite una caché más larga. */
 const MAX_CACHE_TTL_SEC = 86_400;
+/** Tolerancia de reloj usada al validar los claims temporales del ID token. */
 const DEFAULT_CLOCK_TOLERANCE_SEC = 60;
 
 /**
@@ -98,6 +103,7 @@ export class OidcJwksVerifier {
     return this.validatePayloadClaims(payload, params);
   }
 
+  /** Busca la clave por `kid` y actualiza una sola vez el JWKS si la rotación la hizo desconocida. */
   private async resolveSigningKey(jwksUri: string, kid: string): Promise<RsaJwk> {
     const initialKeys = await this.getJwks(jwksUri, false);
     const cachedMatch = initialKeys.find((key) => key.kid === kid);
@@ -114,6 +120,7 @@ export class OidcJwksVerifier {
     return refreshedMatch;
   }
 
+  /** Descarga y cachea las claves JWKS respetando el TTL del proveedor y límites locales. */
   private async getJwks(jwksUri: string, forceRefresh: boolean): Promise<RsaJwk[]> {
     const nowMs = Date.now();
     const cached = this.jwksCache.get(jwksUri);
@@ -156,6 +163,7 @@ export class OidcJwksVerifier {
     return keys;
   }
 
+  /** Valida emisor, audiencia y vigencia del payload antes de exponer sus datos de identidad. */
   private validatePayloadClaims(
     payload: Record<string, unknown>,
     params: VerifyOidcIdTokenParams,
@@ -222,6 +230,7 @@ export class OidcJwksVerifier {
   }
 }
 
+/** Decodifica un segmento JWT y acepta únicamente un objeto JSON válido. */
 function parseJwtSegment(segment: string): Record<string, unknown> | null {
   try {
     const decoded = Buffer.from(segment, 'base64url').toString('utf8');
@@ -235,6 +244,7 @@ function parseJwtSegment(segment: string): Record<string, unknown> | null {
   }
 }
 
+/** Filtra la respuesta JWKS para conservar solo claves RSA utilizables para verificar firmas. */
 function extractRsaJwks(raw: unknown): RsaJwk[] {
   if (typeof raw !== 'object' || raw === null || !('keys' in raw)) {
     return [];
@@ -265,6 +275,7 @@ function extractRsaJwks(raw: unknown): RsaJwk[] {
   return validKeys;
 }
 
+/** Obtiene `max-age` de Cache-Control y lo acota al TTL permitido para las claves JWKS. */
 function parseMaxAgeSeconds(cacheControl: string | null): number {
   if (!cacheControl) {
     return DEFAULT_CACHE_TTL_SEC;

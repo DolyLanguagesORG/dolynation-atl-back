@@ -293,6 +293,7 @@ export class SettingsService {
     return this.db.transaction((tx) => this.setLanguagesLocked(userId, rawLanguages, tx));
   }
 
+  /** Aplica cupos, cambios anuales y créditos dentro de la transacción que serializa la selección. */
   private async setLanguagesLocked(
     userId: number,
     rawLanguages: readonly string[],
@@ -437,6 +438,7 @@ export class SettingsService {
     return this.db.transaction((tx) => this.reorderLanguagesLocked(userId, rawLanguages, tx));
   }
 
+  /** Reordena una selección sin cambiar sus elementos y aplica bloqueos al promover idiomas inactivos. */
   private async reorderLanguagesLocked(
     userId: number,
     rawLanguages: readonly string[],
@@ -608,6 +610,7 @@ export class SettingsService {
     return { saved, lastChangeAt, previousCredits, nextCredits };
   }
 
+  /** Conserva créditos si el cambio anual es gratuito, consume uno disponible o rechaza el cambio. */
   private consumeUnlockQuotaOrThrow(
     saved: readonly LanguageId[],
     activeBefore: readonly LanguageId[],
@@ -636,6 +639,7 @@ export class SettingsService {
     });
   }
 
+  /** Persiste idiomas, prioridad, fecha de cambio y saldo de créditos en la fila del usuario. */
   private async persistLanguages(
     userId: number,
     languages: LanguageId[],
@@ -674,6 +678,7 @@ export class SettingsService {
     return rows[0] ?? null;
   }
 
+  /** Construye la respuesta de idiomas desde la configuración persistida del usuario. */
   private buildLanguagesDto(
     row: UserSettings | null,
     maxLanguages: number,
@@ -685,6 +690,7 @@ export class SettingsService {
     return this.buildLanguagesDtoFromValues(saved, lastChangeAt, credits, maxLanguages, now);
   }
 
+  /** Calcula idiomas activos y opciones de cambio a partir de valores ya normalizados. */
   private buildLanguagesDtoFromValues(
     saved: LanguageId[],
     lastChangeAt: Date | null,
@@ -760,6 +766,7 @@ export class SettingsService {
       });
   }
 
+  /** Inserta la configuración inicial o actualiza solo los campos entregados por el flujo. */
   private async upsert(
     userId: number,
     patch: SettingsUpsertPatch,
@@ -785,6 +792,7 @@ export class SettingsService {
   }
 }
 
+/** Fusiona categorías guardadas y activas por clave canónica, conservando el orden y la forma más reciente. */
 function mergeUniqueCategories(
   existingSaved: readonly string[],
   activeOrAdded: readonly string[],

@@ -2,27 +2,35 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvSchema } from './env.validation';
 
+/** Modelo predeterminado de Gemini cuando la variable correspondiente está vacía. */
 const DEFAULT_GOOGLE_MODEL = 'gemini-3.5-flash-lite';
+/** Endpoint compatible con chat completions usado por el proveedor Google. */
 const DEFAULT_GOOGLE_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+/** Modelo predeterminado para las decisiones estructuradas de Google. */
 const DEFAULT_GOOGLE_DECISIONS_MODEL = 'gemini-decision-1';
+/** Endpoint predeterminado de la API de decisiones de Google. */
 const DEFAULT_GOOGLE_DECISIONS_ENDPOINT =
   'https://generativelanguage.googleapis.com/v1beta/decisions';
 const DEFAULT_CAPTCHA_VERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 
+/** Normaliza una cadena opcional y descarta valores vacíos o no textuales. */
 function optionalTrimmedString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+/** Devuelve una cadena no vacía o el valor predeterminado configurado. */
 function nonEmptyString(value: unknown, fallback: string): string {
   return optionalTrimmedString(value) ?? fallback;
 }
 
+/** Convierte un valor a entero positivo y usa el respaldo ante entradas inválidas. */
 function positiveInt(value: unknown, fallback: number): number {
   const num = typeof value === 'number' ? value : Number(value);
   return Number.isInteger(num) && num > 0 ? num : fallback;
 }
 
+/** Convierte un valor numérico finito o conserva el respaldo si no es válido. */
 function validFloat(value: unknown, fallback: number): number {
   if (typeof value === 'string' && value.trim() === '') return fallback;
   const num = typeof value === 'number' ? value : Number(value);
@@ -38,26 +46,33 @@ export class AppConfigService {
   constructor(private readonly config: ConfigService<EnvSchema, true>) {}
 
   // ===== Aplicación =====
+  /** Entorno de ejecución validado para la aplicación. */
   get nodeEnv(): EnvSchema['NODE_ENV'] {
     return this.config.get('NODE_ENV', { infer: true });
   }
+  /** Puerto HTTP en el que escucha el servidor. */
   get port(): number {
     return this.config.get('PORT', { infer: true });
   }
+  /** Dirección de red a la que se enlaza el servidor. */
   get host(): string {
     return this.config.get('HOST', { infer: true });
   }
+  /** Prefijo común de las rutas HTTP de la API. */
   get apiPrefix(): string {
     return this.config.get('API_PREFIX', { infer: true });
   }
+  /** Nombre lógico de la aplicación usado por servicios y registros. */
   get appName(): string {
     return this.config.get('APP_NAME', { infer: true });
   }
+  /** Nivel de detalle de los registros de la aplicación. */
   get logLevel(): EnvSchema['LOG_LEVEL'] {
     return this.config.get('LOG_LEVEL', { infer: true });
   }
 
   // ===== Base de datos =====
+  /** Agrupa los parámetros de conexión y registro de PostgreSQL. */
   get db(): {
     host: string;
     port: number;
@@ -77,6 +92,7 @@ export class AppConfigService {
   }
 
   // ===== Autenticación =====
+  /** Agrupa el secreto y los tiempos de vida de los JWT. */
   get jwt(): {
     secret: string;
     accessTtl: string;
@@ -90,6 +106,7 @@ export class AppConfigService {
   }
 
   // ===== Autenticación externa OAuth 2.0 / OIDC =====
+  /** Resuelve la configuración pública y privada disponible para OAuth de Google. */
   get oauth(): {
     google: {
       enabled: boolean;
@@ -123,6 +140,7 @@ export class AppConfigService {
   }
 
   // ===== Inteligencia Artificial =====
+  /** Devuelve la configuración normalizada de los proveedores de IA disponibles. */
   get ai(): {
     defaultProvider: EnvSchema['AI_DEFAULT_PROVIDER'];
     minimax: {
@@ -207,6 +225,7 @@ export class AppConfigService {
   }
 
   // ===== Correo transaccional =====
+  /** Agrupa los parámetros SMTP y las opciones de verificación de correo. */
   get mail(): {
     host: string | undefined;
     port: number;
@@ -232,6 +251,7 @@ export class AppConfigService {
   }
 
   // ===== Solicitudes de acceso y aprobación administrativa =====
+  /** Configuración que habilita las solicitudes y sus notificaciones administrativas. */
   get accessRequests(): {
     enabled: boolean;
     adminNotificationEmail: string | undefined;
@@ -245,6 +265,7 @@ export class AppConfigService {
   }
 
   // ===== Pasarela de pagos (Stripe Sandbox / manual) =====
+  /** Configuración de facturación y credenciales/precios de Stripe. */
   get billing(): {
     provider: 'manual' | 'stripe';
     envTag: string;
@@ -299,6 +320,7 @@ export class AppConfigService {
   }
 
   // ===== Moderación de categorías =====
+  /** Configuración normalizada de los límites y proveedores de moderación. */
   get moderation(): {
     enabled: boolean;
     aiEnabled: boolean;

@@ -47,6 +47,7 @@ export class SubscriptionsService {
     @Optional() private readonly auditLogs?: AuditLogService,
   ) {}
 
+  /** Combina los límites del plan con el precio disponible para la configuración actual. */
   private toPlanDto(plan: SubscriptionPlanConfig): SubscriptionPlanItemDto {
     const provider = this.config?.billing.provider ?? 'manual';
     const currency = this.config?.billing.currency ?? 'mxn';

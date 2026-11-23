@@ -16,6 +16,7 @@ import { appVersion } from '../../common/version';
 @ApiTags('version')
 @Controller('version')
 export class VersionController {
+  /** Devuelve la versión y los metadatos de build sin depender de servicios externos. */
   @Public()
   @Get()
   @ApiOperation({

@@ -4,6 +4,7 @@ import { SUPPORTED_LANGUAGE_IDS, type LanguageId } from '../../settings/settings
 import { READING_DIFFICULTIES, READING_TEXT_SIZES } from '../../readings/prompt-generation';
 import type { DifficultyLevel, TextSize } from '../../readings/prompt-generation/catalog.types';
 
+/** Copia serializable de los idiomas admitidos para la validación del DTO. */
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
 /**

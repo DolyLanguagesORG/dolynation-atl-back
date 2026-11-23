@@ -116,6 +116,7 @@ class SmtpMailTransport implements MailTransport {
     this.transporter = createTransport(options);
   }
 
+  /** Envía el mensaje normalizado por el transporte SMTP configurado. */
   async send(message: MailMessage): Promise<void> {
     await this.transporter.sendMail({
       from: this.from,
@@ -126,6 +127,7 @@ class SmtpMailTransport implements MailTransport {
     });
   }
 
+  /** Comprueba que el transporte SMTP pueda conectarse y autenticarse. */
   async verify(): Promise<void> {
     await this.transporter.verify();
   }

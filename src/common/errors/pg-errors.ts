@@ -1,3 +1,4 @@
+/** Código SQLSTATE de PostgreSQL para una violación de restricción única. */
 const PG_UNIQUE_VIOLATION = '23505';
 
 /**

@@ -67,13 +67,16 @@ interface CachedPriceEntry {
   expiresAt: number;
 }
 
+/** Convierte metadatos de Stripe a un ID local solo si son enteros positivos. */
 function parsePositiveInt(raw: string | undefined): number | null {
   if (!raw) return null;
   const parsed = Number(raw);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+/** Valida el formato esperado para los identificadores de sesión de Stripe Checkout. */
 const CHECKOUT_SESSION_ID_REGEX = /^cs_[A-Za-z0-9_]{3,128}$/;
+/** Caracteres y longitud permitidos en claves de idempotencia recibidas por HTTP. */
 const IDEMPOTENCY_KEY_REGEX = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /**
@@ -112,12 +115,14 @@ export class BillingService {
     @Optional() private readonly rateLimiter?: BillingRateLimitService,
   ) {}
 
+  /** Impide operaciones de pago cuando el proveedor configurado no es Stripe. */
   private ensureStripeEnabled(): void {
     if (this.config.billing.provider !== 'stripe') {
       throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
     }
   }
 
+  /** Devuelve la clave publicable requerida por Stripe.js o informa que falta configuración. */
   private getPublishableKeyOrThrow(): string {
     const key = this.config.billing.stripe.publishableKey;
     if (!key) {
@@ -126,10 +131,12 @@ export class BillingService {
     return key;
   }
 
+  /** Normaliza la URL base del frontend para construir enlaces de retorno sin barras finales. */
   private getFrontendBaseUrl(): string {
     return this.config.mail.frontendBaseUrl.replace(/\/+$/, '');
   }
 
+  /** Valida y delimita una clave de idempotencia al usuario, entorno y operación. */
   private buildScopedIdempotencyKey(
     userId: number,
     operation: string,
@@ -151,6 +158,7 @@ export class BillingService {
     return `doly:${this.config.billing.envTag}:u${userId}:${operation}:${trimmed}`;
   }
 
+  /** Serializa mutaciones concurrentes que comparten la misma clave lógica. */
   private async withUserLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.userMutationLocks.get(lockKey) ?? Promise.resolve();
     let release: () => void = () => undefined;
@@ -171,6 +179,7 @@ export class BillingService {
     }
   }
 
+  /** Reutiliza precios cacheados y agrupa consultas simultáneas al mismo price ID. */
   private async getCachedPriceInfo(priceId: string | undefined): Promise<GatewayPriceInfo | null> {
     if (!priceId || this.config.billing.provider !== 'stripe') {
       return null;
@@ -206,6 +215,7 @@ export class BillingService {
     return request;
   }
 
+  /** Comparte entre llamadas simultáneas la resolución o creación del cliente Stripe del usuario. */
   private async getOrCreateCustomerId(userId: number): Promise<{
     user: {
       id: number;
@@ -231,6 +241,7 @@ export class BillingService {
     return task;
   }
 
+  /** Recupera al usuario y crea su cliente Stripe si todavía no tiene uno asociado. */
   private async resolveOrCreateCustomerId(userId: number): Promise<{
     user: {
       id: number;
@@ -1065,6 +1076,7 @@ export class BillingService {
     }
   }
 
+  /** Reclama un webhook nuevo o permite reintentar uno fallido o atascado, evitando dobles procesos. */
   private async claimWebhookEvent(eventId: string, eventType: string): Promise<boolean> {
     const now = new Date();
     const inserted = await this.db
@@ -1145,6 +1157,7 @@ export class BillingService {
     return false;
   }
 
+  /** Aplica una sesión de checkout liquidada una sola vez y concede el producto correspondiente. */
   private async fulfillCheckoutSession(
     session: GatewayCheckoutSession,
     explicitUserId?: number,
@@ -1276,6 +1289,7 @@ export class BillingService {
       .onConflictDoNothing({ target: billingPayments.stripeCheckoutSessionId });
   }
 
+  /** Sincroniza el estado local y el nivel efectivo desde la suscripción confirmada por Stripe. */
   private async syncSubscriptionState(
     subscription: GatewaySubscription,
     explicitUserId?: number,
@@ -1455,6 +1469,7 @@ export class BillingService {
     });
   }
 
+  /** Registra el resultado de una factura y lo vincula con el usuario para historial y reembolsos. */
   private async recordInvoiceEvent(
     invoice: GatewayInvoice,
     outcome: 'paid' | 'failed',
@@ -1677,6 +1692,7 @@ export class BillingService {
     });
   }
 
+  /** Busca al usuario local asociado a un identificador de cliente Stripe. */
   private async findUserIdByCustomerId(customerId: string | null): Promise<number | null> {
     if (!customerId) return null;
     const rows = await this.db
@@ -1687,6 +1703,7 @@ export class BillingService {
     return rows[0]?.id ?? null;
   }
 
+  /** Resuelve al usuario primero por suscripción y luego por cliente Stripe como respaldo. */
   private async findUserIdByCustomerOrSubscription(
     customerId: string | null,
     subscriptionId: string | null,
@@ -1704,12 +1721,14 @@ export class BillingService {
     return this.findUserIdByCustomerId(customerId);
   }
 
+  /** Obtiene al usuario de la metadata de la factura o de sus relaciones de Stripe. */
   private async findUserIdForInvoice(invoice: GatewayInvoice): Promise<number | null> {
     const metaUserId = parsePositiveInt(invoice.metadata['userId']);
     if (metaUserId !== null) return metaUserId;
     return this.findUserIdByCustomerOrSubscription(invoice.customerId, invoice.subscriptionId);
   }
 
+  /** Proyecta la fila local de suscripción a su resumen público sin incluir datos sensibles. */
   private toSubscriptionSummaryDto(row: BillingSubscription): BillingSubscriptionSummaryDto {
     const hasPm = Boolean(row.paymentMethodLast4 ?? row.paymentMethodBrand);
     const tier: SubscriptionTier = isValidSubscriptionTier(row.tier) ? row.tier : 'dolly';
@@ -1732,6 +1751,7 @@ export class BillingService {
     };
   }
 
+  /** Proyecta un pago persistido al formato del historial expuesto por la API. */
   private toRecentPaymentDto(row: BillingPayment): BillingRecentPaymentDto {
     return {
       id: row.id,

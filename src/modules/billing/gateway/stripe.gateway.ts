@@ -31,10 +31,12 @@ import type {
  */
 const STRIPE_API_VERSION = '2026-11-18.endive' as const;
 
+/** Convierte segundos Unix a fecha y conserva `null` para valores ausentes o inválidos. */
 function toDateFromUnix(seconds: number | null | undefined): Date | null {
   return typeof seconds === 'number' && Number.isFinite(seconds) ? new Date(seconds * 1000) : null;
 }
 
+/** Normaliza referencias de Stripe que pueden llegar expandidas o como identificadores. */
 function extractId(ref: string | { id: string } | null | undefined): string | null {
   if (!ref) return null;
   return typeof ref === 'string' ? ref : ref.id;
@@ -65,6 +67,7 @@ function extractInvoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
   return null;
 }
 
+/** Conserva únicamente metadata textual para cumplir el contrato del gateway interno. */
 function toStringMetadata(meta: Stripe.Metadata | null | undefined): Record<string, string> {
   if (!meta) return {};
   const result: Record<string, string> = {};
@@ -76,6 +79,7 @@ function toStringMetadata(meta: Stripe.Metadata | null | undefined): Record<stri
   return result;
 }
 
+/** Traduce los locales admitidos por la aplicación a los valores de Checkout de Stripe. */
 function mapCheckoutLocale(
   locale: string | null | undefined,
 ): Stripe.Checkout.SessionCreateParams.Locale {
@@ -90,6 +94,7 @@ function mapCheckoutLocale(
   }
 }
 
+/** Reduce un PaymentMethod de Stripe al resumen no sensible usado por la aplicación. */
 function mapPaymentMethodSummary(pm: Stripe.PaymentMethod): GatewayPaymentMethodSummary {
   return {
     id: pm.id,
@@ -114,6 +119,7 @@ export class StripeGateway implements PaymentGateway {
     @Optional() private readonly errorLogs?: ErrorLogService,
   ) {}
 
+  /** Crea o reutiliza el cliente Stripe correspondiente a la clave configurada actualmente. */
   private getClient(): Stripe {
     const secretKey = this.config.billing.stripe.secretKey;
     if (!secretKey) {
@@ -138,6 +144,7 @@ export class StripeGateway implements PaymentGateway {
     return this.client;
   }
 
+  /** Traduce errores del SDK a códigos internos y registra el contexto de la operación fallida. */
   private async runStripe<T>(operation: string, fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
@@ -180,6 +187,7 @@ export class StripeGateway implements PaymentGateway {
     }
   }
 
+  /** Crea un cliente Stripe con los datos y la metadata local del usuario. */
   async createCustomer(input: CreateCustomerInput): Promise<{ id: string }> {
     const stripe = this.getClient();
     const customer = await this.runStripe('customers.create', () =>
@@ -195,6 +203,7 @@ export class StripeGateway implements PaymentGateway {
     return { id: customer.id };
   }
 
+  /** Recupera los datos de precio necesarios para mostrar las opciones de facturación. */
   async retrievePrice(priceId: string): Promise<GatewayPriceInfo> {
     const stripe = this.getClient();
     const price = await this.runStripe('prices.retrieve', () => stripe.prices.retrieve(priceId));
@@ -206,6 +215,7 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
+  /** Crea una sesión de checkout en modo suscripción o pago único. */
   async createCheckoutSession(input: CreateCheckoutSessionInput): Promise<GatewayCheckoutSession> {
     const stripe = this.getClient();
     const baseParams: Stripe.Checkout.SessionCreateParams = {
@@ -238,6 +248,7 @@ export class StripeGateway implements PaymentGateway {
     return this.mapCheckoutSession(session);
   }
 
+  /** Recupera una sesión de checkout y la convierte al modelo interno del gateway. */
   async retrieveCheckoutSession(sessionId: string): Promise<GatewayCheckoutSession> {
     const stripe = this.getClient();
     const session = await this.runStripe('checkout.sessions.retrieve', () =>
@@ -246,6 +257,7 @@ export class StripeGateway implements PaymentGateway {
     return this.mapCheckoutSession(session);
   }
 
+  /** Recupera una suscripción expandiendo su método de pago predeterminado. */
   async retrieveSubscription(subscriptionId: string): Promise<GatewaySubscription> {
     const stripe = this.getClient();
     const sub = await this.runStripe('subscriptions.retrieve', () =>
@@ -256,6 +268,7 @@ export class StripeGateway implements PaymentGateway {
     return this.mapSubscription(sub);
   }
 
+  /** Actualiza el precio de una suscripción aplicando prorrateo y cobro pendiente seguro. */
   async updateSubscriptionPlan(input: UpdateSubscriptionPlanInput): Promise<GatewaySubscription> {
     const stripe = this.getClient();
     const current = await this.runStripe('subscriptions.retrieveForPlanChange', () =>
@@ -285,6 +298,7 @@ export class StripeGateway implements PaymentGateway {
     return this.mapSubscription(updated);
   }
 
+  /** Programa o retira la cancelación al final del periodo y devuelve el estado sincronizado. */
   async setSubscriptionCancelAtPeriodEnd(
     input: SetSubscriptionCancelInput,
   ): Promise<GatewaySubscription> {
@@ -298,6 +312,7 @@ export class StripeGateway implements PaymentGateway {
     return this.mapSubscription(updated);
   }
 
+  /** Prepara un SetupIntent para guardar un método de pago reutilizable fuera de sesión. */
   async createSetupIntent(input: {
     customerId: string;
     metadata: Record<string, string>;
@@ -322,6 +337,7 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
+  /** Verifica la propiedad del método, lo vincula si hace falta y lo fija como predeterminado. */
   async attachAndSetDefaultPaymentMethod(
     input: AttachDefaultPaymentMethodInput,
   ): Promise<GatewayPaymentMethodSummary> {
@@ -364,6 +380,7 @@ export class StripeGateway implements PaymentGateway {
     return mapPaymentMethodSummary(attached);
   }
 
+  /** Lista facturas con los pagos expandidos para poder asociarlas a cobros y reembolsos. */
   async listInvoices(input: { customerId: string; limit?: number }): Promise<GatewayInvoice[]> {
     const stripe = this.getClient();
     const list = await this.runStripe('invoices.list', () =>
@@ -400,6 +417,7 @@ export class StripeGateway implements PaymentGateway {
       .map((sub) => this.mapSubscription(sub));
   }
 
+  /** Genera una sesión temporal del portal de facturación para el cliente indicado. */
   async createBillingPortalSession(input: {
     customerId: string;
     returnUrl: string;
@@ -414,6 +432,7 @@ export class StripeGateway implements PaymentGateway {
     return { url: session.url };
   }
 
+  /** Verifica la firma del webhook sobre el cuerpo original y traduce el evento al modelo interno. */
   constructWebhookEvent(rawBody: Buffer, signature: string): GatewayWebhookEvent {
     const webhookSecret = this.config.billing.stripe.webhookSecret;
     if (!webhookSecret) {
@@ -534,6 +553,7 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
+  /** Convierte una sesión de Stripe al formato estable consumido por BillingService. */
   private mapCheckoutSession(session: Stripe.Checkout.Session): GatewayCheckoutSession {
     return {
       id: session.id,
@@ -551,6 +571,7 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
+  /** Convierte una suscripción y su elemento principal al modelo interno de facturación. */
   private mapSubscription(sub: Stripe.Subscription): GatewaySubscription {
     const primaryItem = sub.items.data[0];
     const priceId = primaryItem?.price.id ?? '';
@@ -573,6 +594,7 @@ export class StripeGateway implements PaymentGateway {
     };
   }
 
+  /** Convierte una factura y sus referencias de suscripción/pago al modelo interno. */
   private mapInvoice(invoice: Stripe.Invoice): GatewayInvoice {
     const subscriptionDetails = invoice.parent?.subscription_details;
     const subscriptionId = subscriptionDetails ? extractId(subscriptionDetails.subscription) : null;

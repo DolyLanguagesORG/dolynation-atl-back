@@ -18,6 +18,7 @@ export interface SubscriptionPlanConfig {
   dailyQuestionsLimit: number | null; // `null` equivale a preguntas diarias ilimitadas
 }
 
+/** Límites y capacidades vigentes de cada plan; es la fuente común para cuotas y UI. */
 export const SUBSCRIPTION_PLANS: Record<SubscriptionTier, SubscriptionPlanConfig> = {
   dolly: {
     id: 'dolly',

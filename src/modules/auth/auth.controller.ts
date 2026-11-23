@@ -177,6 +177,9 @@ export class AuthController {
     return apiOk('Password updated successfully', result);
   }
 
+  /**
+   * Autentica al usuario con correo y contraseña y devuelve su perfil público junto con los tokens.
+   */
   @Public()
   @RequireCaptcha(CAPTCHA_ACTIONS.LOGIN)
   @RateLimitByIp({ action: 'auth_login', maxRequests: 20, windowMs: 15 * 60_000 })
@@ -191,6 +194,9 @@ export class AuthController {
     return apiOk('Login successful', result);
   }
 
+  /**
+   * Lista los proveedores OAuth registrados y devuelve su estado y configuración pública.
+   */
   @Public()
   @Get('oauth/providers')
   @ApiOperation({
@@ -202,6 +208,9 @@ export class AuthController {
     return apiOk('Available OAuth providers', result);
   }
 
+  /**
+   * Canjea el código de autorización y el verificador PKCE del proveedor para iniciar una sesión en DolyNation.
+   */
   @Public()
   @Post('oauth/:provider/exchange')
   @HttpCode(HttpStatus.OK)
@@ -239,6 +248,9 @@ export class AuthController {
     return apiOk('OAuth login successful', result);
   }
 
+  /**
+   * Valida y rota el refresh token para devolver un nuevo par de tokens.
+   */
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
@@ -255,6 +267,9 @@ export class AuthController {
     return apiOk('Token refreshed', tokens);
   }
 
+  /**
+   * Invalida el refresh token indicado para cerrar esta sesión; el access token actual conserva su vigencia hasta expirar.
+   */
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
   @AllowAdminSession()
@@ -277,6 +292,9 @@ export class AuthController {
     return apiOk('Logged out', null);
   }
 
+  /**
+   * Invalida todos los refresh tokens activos del usuario; los access tokens emitidos siguen vigentes hasta expirar.
+   */
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
   @AllowAdminSession()
@@ -294,7 +312,9 @@ export class AuthController {
     await this.auth.logoutAll(current.id);
     return apiOk('Logged out from all sessions', null);
   }
-
+  /**
+   * Devuelve el perfil público del usuario autenticado, sin exponer datos sensibles.
+   */
   @ApiBearerAuth('access-token')
   @AllowAdminSession()
   @Get('me')

@@ -7,6 +7,7 @@ import {
   type PaidSubscriptionTier,
 } from '../billing.constants';
 
+/** Nivel y presentación solicitados para iniciar el checkout de una suscripción. */
 export class CreateSubscriptionCheckoutDto {
   @ApiProperty({
     example: 'dolly_plus',

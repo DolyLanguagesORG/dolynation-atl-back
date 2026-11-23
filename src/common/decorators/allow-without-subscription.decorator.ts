@@ -1,5 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
+/** Clave de metadata que marca rutas exentas del requisito de suscripción activa. */
 export const ALLOW_WITHOUT_SUBSCRIPTION_KEY = 'allowWithoutSubscription';
 
 /**

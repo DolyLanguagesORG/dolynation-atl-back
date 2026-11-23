@@ -98,25 +98,37 @@ const SAFE_PROGRAMMING_NOTATION_REGEX = /^(?:c\+\+|c#|f#)$/i;
 const URL_EMAIL_MARKUP_REGEX =
   /(?:https?:\/\/|www\.|<\/?[a-z][^>]*>|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|\[[^\]]+\]\([^)]+\))/i;
 
+/** Caracteres latinos y signos permitidos en nombres de categorías. */
 const ALLOWED_CHARS_REGEX = /^[\p{Script=Latin}\p{N}\s'&+#\-.,/()]+$/u;
 
+/** Detecta intentos de inyección de instrucciones en texto de categorías. */
 const PROMPT_INJECTION_REGEX =
   /(?:ignore\s+(?:all\s+)?(?:previous|above|prior)\s+instructions?|system\s*prompt|developer\s*prompt|jailbreak|do\s+anything\s+now|\bdan\b\s+mode|forget\s+(?:everything|all|your\s+rules)|act\s+as\s+(?:a|an|my)|you\s+are\s+now|bypass\s+(?:safety|filter|rules)|ignora\s+(?:todas?\s+)?(?:las?\s+)?instrucciones|olvida\s+(?:tus?\s+)?reglas|actua\s+como|ignore[rz]?\s+(?:toutes?\s+)?(?:les?\s+)?instructions?|oublie[rz]?\s+(?:tes?\s+)?regles?|agis\s+comme|ignora\s+(?:tutte?\s+)?(?:le\s+)?istruzioni|dimentica\s+(?:le\s+)?regole|agisci\s+come)/i;
 
+/** Detecta repetición excesiva de un mismo carácter. */
 const REPEATED_CHAR_SPAM_REGEX = /(.)\1{3,}/u;
+/** Detecta fragmentos cortos repetidos varias veces dentro de una palabra. */
 const REPEATED_CHUNK_SPAM_REGEX = /\b([a-z0-9]{2,4})\1{2,}\b/i;
+/** Detecta una misma secuencia corta repetida como frases separadas. */
 const REPEATED_PHRASE_CHUNK_REGEX = /^(.{2,6})(?:\s*\1){2,}$/i;
+/** Detecta una palabra repetida exactamente dos veces. */
 const REPEATED_WORD_TWO_REGEX = /^([a-z0-9]{2,})\s+\1$/i;
+/** Detecta una palabra repetida tres o más veces. */
 const REPEATED_WORD_THREE_REGEX = /\b([a-z0-9]{2,})\b(?:\s+\1){2,}/i;
 
+/** Patrones de secuencias de teclado comunes usadas como texto sin sentido. */
 const KEYBOARD_MASH_REGEX =
   /(?:qwer|werty|wertz|ertyu|rtyu|tyui|uiop|poiu|azert|zerty|qsdfg|asdf|sdfg|dfgh|fghj|ghjk|hjkl|lkjh|fdsa|rewq|zxcv|xcvb|cvbn|vbnm|wxcvb|yxcvb|mnbv|vcxz|qazw|wsxe|edcrf|rfvt|tgby|yhnu|ujmik|ikolp|trewq|gfdsa|nbvcx)/i;
 
+/** Detecta cadenas largas de consonantes consecutivas. */
 const CONSONANT_RUN_REGEX = /[bcdfghjklmnpqrstvwxz]{9,}/i;
+/** Detecta tokens largos formados únicamente por consonantes. */
 const CONSONANT_ONLY_LONG_TOKEN_REGEX = /^[bcdfghjklmnpqrstvwxz]{5,}$/i;
 
+/** Detecta letras o números aislados repetidos en una cadena con espacios. */
 const FRAGMENTED_CHARS_REGEX = /(?:^|\s)(?:[a-z0-9]\s+){3,}[a-z0-9](?:\s|$)/i;
 
+/** Detecta vocabulario dañino incluso cuando incluye variantes ofuscadas conocidas. */
 const OBFUSCATED_HARMFUL_REGEX =
   /\b(?:porn(?:o|ograf\w*|ograph\w*)?|hentai|nsfw|xxx|nudes?|sex(?:o|ual\w*|uell\w*)?|sess(?:o|ual\w*)|suicid\w*|putain\w*|salop\w*|encul\w*|meurtr(?:e|es|ier\w*)|puttan\w*|vaffancul\w*|coglion\w*|stupr\w*|omicid\w*|femminicid\w*|porcodio\w*|self[\s_-]*harm|auto[\s_-]*lesion\w*|auto[\s_-]*mutil\w*|(?:necro|pedo|zoo)fil\w*|(?:necro|pedo|zoo)phil\w*|decapit\w*|descuartiz\w*|squart\w*|mutila\w*|canibal\w*|cannibal\w*|cadaver\w*|corpse\w*|masacr\w*|massacr\w*)\b/i;
 

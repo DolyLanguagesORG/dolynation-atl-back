@@ -4,10 +4,14 @@ import type { NextFunction, Request, Response } from 'express';
 import { RequestContextService } from './request-context.service';
 import { extractClientIp, extractCountryCode, extractUserAgent } from './utils/ip-extractor.util';
 
+/** Nombre normalizado de la cabecera de correlación aceptada en solicitudes entrantes. */
 const REQUEST_ID_HEADER = 'x-request-id';
+/** Formato permitido para reutilizar un identificador de petición enviado por el cliente. */
 const VALID_REQUEST_ID_REGEX = /^[a-zA-Z0-9._-]{1,64}$/;
+/** Límite defensivo para la ruta almacenada en el contexto de la petición. */
 const MAX_HTTP_PATH_LENGTH = 500;
 
+/** Reutiliza un `X-Request-Id` válido o genera uno nuevo para correlacionar la petición. */
 function resolveRequestId(req: Request): string {
   const raw = req.headers[REQUEST_ID_HEADER];
   const candidate = Array.isArray(raw) ? raw[0] : raw;
@@ -68,6 +72,7 @@ export class RequestContextMiddleware implements NestMiddleware {
     this.handler = createRequestContextMiddleware(requestContext);
   }
 
+  /** Delega al inicializador compartido del contexto de petición. */
   use(req: Request, res: Response, next: NextFunction): void {
     this.handler(req, res, next);
   }

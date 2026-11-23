@@ -11,8 +11,11 @@ import type {
   DecisionUsage,
 } from './google-decisions.types';
 
+/** Modelo predeterminado para solicitudes estructuradas de Google Decisions. */
 const DEFAULT_DECISIONS_MODEL = 'gemini-decision-1';
+/** Endpoint predeterminado de Google Decisions API. */
 const DEFAULT_DECISIONS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/decisions';
+/** Tiempo máximo de espera cuando la configuración no define uno válido. */
 const DEFAULT_DECISIONS_TIMEOUT_MS = 15_000;
 
 interface DecisionsRuntimeConfig {
@@ -192,6 +195,7 @@ export class GoogleDecisionsService {
     return answer;
   }
 
+  /** Normaliza credenciales y opciones de Google Decisions con respaldos seguros. */
   private getRuntimeConfig(): DecisionsRuntimeConfig {
     const aiConfig = this.config.ai as
       | {
@@ -230,6 +234,7 @@ export class GoogleDecisionsService {
   }
 }
 
+/** Valida la respuesta de decisiones, normaliza respuestas y registra el uso disponible. */
 function parseDecisionResponse(raw: unknown, logger: Logger): CreateDecisionResponse {
   if (!isPlainObject(raw) || !isPlainObject(raw.answers)) {
     throw new Error('Google Decisions API returned empty answers payload');
@@ -262,6 +267,7 @@ function parseDecisionResponse(raw: unknown, logger: Logger): CreateDecisionResp
   };
 }
 
+/** Convierte una respuesta cruda en uno de los tipos de decisión soportados. */
 function parseDecisionAnswer(raw: unknown): DecisionAnswer | null {
   if (!isPlainObject(raw)) return null;
 
@@ -301,6 +307,7 @@ function parseDecisionAnswer(raw: unknown): DecisionAnswer | null {
   return null;
 }
 
+/** Extrae contadores de uso de la respuesta y omite la sección si no tiene forma válida. */
 function parseDecisionUsage(raw: unknown): DecisionUsage | undefined {
   if (!isPlainObject(raw)) return undefined;
   return {
@@ -310,6 +317,7 @@ function parseDecisionUsage(raw: unknown): DecisionUsage | undefined {
   };
 }
 
+/** Filtra un objeto de probabilidades para conservar solo valores numéricos finitos. */
 function parseNumberMap(raw: unknown): Record<string, number> {
   if (!isPlainObject(raw)) return {};
   const result: Record<string, number> = {};
@@ -321,6 +329,7 @@ function parseNumberMap(raw: unknown): Record<string, number> {
   return result;
 }
 
+/** Filtra un objeto de etiquetas para conservar solo valores de texto. */
 function parseStringMap(raw: unknown): Record<string, string> {
   if (!isPlainObject(raw)) return {};
   const result: Record<string, string> = {};
@@ -332,6 +341,7 @@ function parseStringMap(raw: unknown): Record<string, string> {
   return result;
 }
 
+/** Distingue objetos JSON planos de arreglos, valores nulos y primitivas. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

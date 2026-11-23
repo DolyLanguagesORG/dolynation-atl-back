@@ -5,6 +5,7 @@ import {
 } from '../../subscriptions/subscriptions.constants';
 import { BILLING_UI_MODES, type BillingUiMode } from '../billing.constants';
 
+/** Precio y condiciones de checkout asociadas a un nivel de suscripción. */
 export class BillingPlanPricingDto {
   @ApiProperty({
     example: 'dolly_plus',
@@ -46,6 +47,7 @@ export class BillingPlanPricingDto {
   interval!: string | null;
 }
 
+/** Precio y disponibilidad del producto de pago único para desbloquear un idioma. */
 export class BillingOneTimePricingDto {
   @ApiProperty({
     example: true,
@@ -67,6 +69,7 @@ export class BillingOneTimePricingDto {
   currency!: string;
 }
 
+/** Configuración pública de facturación que consume el frontend al mostrar opciones de pago. */
 export class BillingConfigResponseDto {
   @ApiProperty({
     example: 'stripe',

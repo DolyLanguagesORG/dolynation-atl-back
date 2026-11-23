@@ -11,7 +11,7 @@ import { SUBSCRIPTION_TIERS } from '../../subscriptions/subscriptions.constants'
 import { AdminUserRowDto } from './admin-category.dto';
 
 /**
- * Query parameters supported by `GET /admin/requests`.
+ * Filtros opcionales de estado, tipo y usuario para `GET /admin/requests`.
  */
 export class AdminRequestsQueryDto {
   @ApiPropertyOptional({
@@ -43,7 +43,7 @@ export class AdminRequestsQueryDto {
 }
 
 /**
- * Optional request body when approving an access request.
+ * Nota interna opcional al aprobar una solicitud de acceso.
  */
 export class ApproveAccessRequestDto {
   @ApiPropertyOptional({
@@ -58,7 +58,7 @@ export class ApproveAccessRequestDto {
 }
 
 /**
- * Request body required when rejecting an access request.
+ * Motivo obligatorio que se envía al usuario al rechazar una solicitud de acceso.
  */
 export class RejectAccessRequestDto {
   @ApiProperty({
@@ -76,7 +76,7 @@ export class RejectAccessRequestDto {
 }
 
 /**
- * Access request enriched with requester account details for the admin dashboard.
+ * Solicitud de acceso enriquecida con datos de la cuenta que la presentó.
  */
 export class AdminAccessRequestDto {
   @ApiProperty({ example: 15, description: 'Unique access request identifier' })
@@ -192,7 +192,7 @@ export class AdminAccessRequestDto {
 }
 
 /**
- * Response envelope payload returned after approving or rejecting an access request.
+ * Resultado de aprobar o rechazar una solicitud, incluido el estado del correo de notificación.
  */
 export class ReviewAccessRequestResponseDto {
   @ApiProperty({
@@ -209,7 +209,7 @@ export class ReviewAccessRequestResponseDto {
 }
 
 /**
- * Detailed administrative view for a single user, including their request history.
+ * Vista administrativa de un usuario y el historial de sus solicitudes de acceso.
  */
 export class AdminUserDetailDto {
   @ApiProperty({

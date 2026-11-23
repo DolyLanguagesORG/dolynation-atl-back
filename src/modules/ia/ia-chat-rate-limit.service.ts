@@ -7,6 +7,7 @@ export const IA_CHAT_MAX_REQUESTS = 20;
 /** Ventana deslizante del límite (10 minutos). */
 export const IA_CHAT_WINDOW_MS = 10 * 60_000;
 
+/** Umbral de entradas que activa la limpieza de usuarios sin peticiones recientes. */
 const MAX_TRACKED_USERS = 5000;
 
 /**
@@ -39,6 +40,7 @@ export class IaChatRateLimitService {
     this.pruneExpired(windowStart);
   }
 
+  /** Elimina ventanas vencidas cuando el mapa excede su umbral para acotar memoria. */
   private pruneExpired(windowStart: number): void {
     if (this.buckets.size <= MAX_TRACKED_USERS) return;
     for (const [userId, timestamps] of this.buckets) {

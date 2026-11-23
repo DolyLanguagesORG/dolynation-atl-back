@@ -1,5 +1,8 @@
+/** Longitud máxima almacenada para una dirección IP normalizada. */
 const MAX_IP_LENGTH = 64;
+/** Longitud máxima conservada para el User-Agent de una petición. */
 const MAX_USER_AGENT_LENGTH = 1000;
+/** Longitud máxima del código de país recibido desde el proxy. */
 const MAX_COUNTRY_LENGTH = 16;
 
 /** Forma mínima de una petición HTTP compatible con Express y mocks de pruebas. */
@@ -9,6 +12,7 @@ export interface HttpRequestLike {
   socket?: { remoteAddress?: string | undefined } | undefined;
 }
 
+/** Lee una cabecera sin depender de mayúsculas y normaliza valores múltiples o vacíos. */
 function readHeaderValue(
   headers: Record<string, string | string[] | undefined> | undefined,
   name: string,

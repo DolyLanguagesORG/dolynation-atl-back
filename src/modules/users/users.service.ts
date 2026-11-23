@@ -21,6 +21,7 @@ import {
   TIMEZONE_RESET,
 } from '../subscriptions/subscriptions.constants';
 
+/** Cantidad de milisegundos en un día usada para calcular rachas entre fechas de negocio. */
 const MS_PER_DAY = 86_400_000;
 
 /**
@@ -129,6 +130,7 @@ export class UsersService {
     return this.findOneWithRole(eq(users.id, id));
   }
 
+  /** Consulta un usuario con su rol y normaliza roles ausentes o desconocidos al rol predeterminado. */
   private async findOneWithRole(whereClause: SQL, orderBy?: SQL): Promise<UserWithRole | null> {
     const filtered = this.db
       .select({
@@ -149,6 +151,7 @@ export class UsersService {
     };
   }
 
+  /** Busca el identificador de rol por defecto para asignarlo al crear una cuenta estudiantil. */
   private async resolveStudentRoleId(): Promise<number | undefined> {
     const roleRows = await this.db
       .select({ id: roles.id })
@@ -418,6 +421,7 @@ export class UsersService {
     return this.toProfile({ ...updated, role: user.role });
   }
 
+  /** Añade al perfil público los idiomas activos permitidos por el plan de suscripción. */
   private async toProfile(user: UserWithRole): Promise<UserProfile> {
     const selectedLanguages = await this.getActiveSelectedLanguages(
       user.id,
@@ -429,6 +433,7 @@ export class UsersService {
     };
   }
 
+  /** Lee los idiomas guardados, los normaliza y limita a los cupos activos del plan. */
   private async getActiveSelectedLanguages(
     userId: number,
     subscriptionTier: string | null,
