@@ -11,6 +11,7 @@ import { MailModule } from '../mail/mail.module';
 import { AuthEmailTokenService } from './auth-email-token.service';
 import { AuthOAuthService } from './oauth/auth-oauth.service';
 import { GoogleOAuthProvider } from './oauth/google-oauth.provider';
+import { MicrosoftOAuthProvider } from './oauth/microsoft-oauth.provider';
 import { OidcJwksVerifier } from './oauth/oidc-jwks.verifier';
 import type { EnvSchema } from '../../config/env.validation';
 
@@ -43,6 +44,7 @@ import type { EnvSchema } from '../../config/env.validation';
     JwtStrategy,
     OidcJwksVerifier,
     GoogleOAuthProvider,
+    MicrosoftOAuthProvider,
     AuthOAuthService,
   ],
   exports: [AuthService, AuthOAuthService],

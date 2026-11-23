@@ -192,4 +192,52 @@ describe('OidcJwksVerifier', () => {
       expect(error?.getResponse()).toMatchObject({ code: ErrorCode.AUTH_OAUTH_INVALID_CODE });
     }
   });
+
+  it('supports custom issuerValidator for multitenant OIDC tokens and extracts Microsoft claims', async () => {
+    const nowSec = Math.floor(Date.now() / 1_000);
+    const tenantId = '11111111-2222-3333-4444-555555555555';
+    const msToken = makeKeyWithToken('k-ms-1', {
+      sub: 'ms-sub-1',
+      iss: `https://login.microsoftonline.com/${tenantId}/v2.0`,
+      aud: expectedAudience,
+      exp: nowSec + 3600,
+      tid: tenantId,
+      oid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      preferred_username: 'student@school.edu',
+      xms_edov: 1,
+    });
+
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ keys: [msToken.jwk] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const claims = await verifier.verifyIdToken({
+      idToken: msToken.token,
+      jwksUri,
+      expectedAudience,
+      issuerValidator: (iss, payload) =>
+        iss === `https://login.microsoftonline.com/${String(payload['tid'])}/v2.0`,
+    });
+
+    expect(claims.tid).toBe(tenantId);
+    expect(claims.oid).toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+    expect(claims.preferred_username).toBe('student@school.edu');
+    expect(claims.xms_edov).toBe(1);
+
+    const badClaims = await verifier
+      .verifyIdToken({
+        idToken: msToken.token,
+        jwksUri,
+        expectedAudience,
+        issuerValidator: () => false,
+      })
+      .then(
+        () => null,
+        (err: unknown) => err as AppHttpException,
+      );
+    expect(badClaims?.getResponse()).toMatchObject({ code: ErrorCode.AUTH_OAUTH_INVALID_CODE });
+  });
 });

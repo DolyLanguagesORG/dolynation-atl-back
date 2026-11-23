@@ -12,6 +12,7 @@ import { AuthService } from '../auth.service';
 import type { AuthTokens, AuthUserView } from '../auth.types';
 import type { OAuthExchangeDto } from '../dto/auth.dto';
 import { GoogleOAuthProvider } from './google-oauth.provider';
+import { MicrosoftOAuthProvider } from './microsoft-oauth.provider';
 import {
   SUPPORTED_OAUTH_PROVIDERS,
   type OAuthProviderAdapter,
@@ -58,11 +59,13 @@ export class AuthOAuthService {
     private readonly users: UsersService,
     private readonly auth: AuthService,
     googleProvider: GoogleOAuthProvider,
+    microsoftProvider: MicrosoftOAuthProvider,
     @Optional() private readonly auditLogs?: AuditLogService,
     @Optional() private readonly errorLogs?: ErrorLogService,
   ) {
     this.providers = new Map<SupportedOAuthProvider, OAuthProviderAdapter>([
       [googleProvider.provider, googleProvider],
+      [microsoftProvider.provider, microsoftProvider],
     ]);
   }
 

@@ -166,10 +166,14 @@ jobs:
           STRIPE_PRICE_DOLLY_PLUS: ${{ vars.STRIPE_PRICE_DOLLY_PLUS }}
           STRIPE_PRICE_DOLLY_PRO: ${{ vars.STRIPE_PRICE_DOLLY_PRO }}
           STRIPE_PRICE_LANGUAGE_UNLOCK: ${{ vars.STRIPE_PRICE_LANGUAGE_UNLOCK }}
-          # Autenticacion externa OAuth 2.0 / OIDC (Google).
+          # Autenticacion externa OAuth 2.0 / OIDC (Google y Microsoft Entra ID).
           GOOGLE_OAUTH_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           GOOGLE_OAUTH_REDIRECT_URI: ${{ vars.GOOGLE_OAUTH_REDIRECT_URI }}
+          MICROSOFT_OAUTH_CLIENT_ID: ${{ vars.MICROSOFT_OAUTH_CLIENT_ID }}
+          MICROSOFT_OAUTH_CLIENT_SECRET: ${{ secrets.MICROSOFT_OAUTH_CLIENT_SECRET }}
+          MICROSOFT_OAUTH_TENANT: ${{ vars.MICROSOFT_OAUTH_TENANT }}
+          MICROSOFT_OAUTH_REDIRECT_URI: ${{ vars.MICROSOFT_OAUTH_REDIRECT_URI }}
           # Seguridad anti-bot (Cloudflare Turnstile) y CORS.
           CAPTCHA_PROVIDER: ${{ vars.CAPTCHA_PROVIDER }}
           CAPTCHA_SITE_KEY: ${{ vars.CAPTCHA_SITE_KEY }}
@@ -244,6 +248,10 @@ jobs:
             printf 'GOOGLE_OAUTH_CLIENT_ID=%s\n' "$GOOGLE_OAUTH_CLIENT_ID"
             printf 'GOOGLE_OAUTH_CLIENT_SECRET=%s\n' "$GOOGLE_OAUTH_CLIENT_SECRET"
             printf 'GOOGLE_OAUTH_REDIRECT_URI=%s\n' "$GOOGLE_OAUTH_REDIRECT_URI"
+            printf 'MICROSOFT_OAUTH_CLIENT_ID=%s\n' "$MICROSOFT_OAUTH_CLIENT_ID"
+            printf 'MICROSOFT_OAUTH_CLIENT_SECRET=%s\n' "$MICROSOFT_OAUTH_CLIENT_SECRET"
+            printf 'MICROSOFT_OAUTH_TENANT=%s\n' "$MICROSOFT_OAUTH_TENANT"
+            printf 'MICROSOFT_OAUTH_REDIRECT_URI=%s\n' "$MICROSOFT_OAUTH_REDIRECT_URI"
             printf 'CAPTCHA_PROVIDER=%s\n' "$CAPTCHA_PROVIDER"
             printf 'CAPTCHA_SITE_KEY=%s\n' "$CAPTCHA_SITE_KEY"
             printf 'CAPTCHA_SECRET_KEY=%s\n' "$CAPTCHA_SECRET_KEY"

@@ -114,27 +114,56 @@ export class AppConfigService {
       clientSecret: string | undefined;
       redirectUri: string;
     };
+    microsoft: {
+      enabled: boolean;
+      clientId: string | undefined;
+      clientSecret: string | undefined;
+      tenant: string;
+      redirectUri: string;
+    };
   } {
-    const clientId = optionalTrimmedString(
-      this.config.get('GOOGLE_OAUTH_CLIENT_ID', { infer: true }),
-    );
-    const clientSecret = optionalTrimmedString(
-      this.config.get('GOOGLE_OAUTH_CLIENT_SECRET', { infer: true }),
-    );
     const frontendBaseUrl = nonEmptyString(
       this.config.get('FRONTEND_BASE_URL', { infer: true }),
       'http://localhost:3000',
     ).replace(/\/+$/, '');
-    const explicitRedirectUri = optionalTrimmedString(
+
+    const googleClientId = optionalTrimmedString(
+      this.config.get('GOOGLE_OAUTH_CLIENT_ID', { infer: true }),
+    );
+    const googleClientSecret = optionalTrimmedString(
+      this.config.get('GOOGLE_OAUTH_CLIENT_SECRET', { infer: true }),
+    );
+    const googleExplicitRedirect = optionalTrimmedString(
       this.config.get('GOOGLE_OAUTH_REDIRECT_URI', { infer: true }),
+    );
+
+    const msClientId = optionalTrimmedString(
+      this.config.get('MICROSOFT_OAUTH_CLIENT_ID', { infer: true }),
+    );
+    const msClientSecret = optionalTrimmedString(
+      this.config.get('MICROSOFT_OAUTH_CLIENT_SECRET', { infer: true }),
+    );
+    const msTenant = nonEmptyString(
+      this.config.get('MICROSOFT_OAUTH_TENANT', { infer: true }),
+      'common',
+    ).toLowerCase();
+    const msExplicitRedirect = optionalTrimmedString(
+      this.config.get('MICROSOFT_OAUTH_REDIRECT_URI', { infer: true }),
     );
 
     return {
       google: {
-        enabled: Boolean(clientId && clientSecret),
-        clientId,
-        clientSecret,
-        redirectUri: explicitRedirectUri ?? `${frontendBaseUrl}/api/auth/oauth/google/callback`,
+        enabled: Boolean(googleClientId && googleClientSecret),
+        clientId: googleClientId,
+        clientSecret: googleClientSecret,
+        redirectUri: googleExplicitRedirect ?? `${frontendBaseUrl}/api/auth/oauth/google/callback`,
+      },
+      microsoft: {
+        enabled: Boolean(msClientId && msClientSecret),
+        clientId: msClientId,
+        clientSecret: msClientSecret,
+        tenant: msTenant,
+        redirectUri: msExplicitRedirect ?? `${frontendBaseUrl}/api/auth/oauth/microsoft/callback`,
       },
     };
   }
