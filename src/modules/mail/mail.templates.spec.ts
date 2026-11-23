@@ -8,8 +8,8 @@ import {
 import { MAIL_LOCALES, isMailLocale } from './mail.types';
 
 describe('Mail templates', () => {
-  const confirmationUrl = 'https://devweb.yacaterkos.tech/verify-email?token=abc123';
-  const resetUrl = 'https://devweb.yacaterkos.tech/reset-password?token=xyz789';
+  const confirmationUrl = 'https://devweb.dolynation.app/verify-email?token=abc123';
+  const resetUrl = 'https://devweb.dolynation.app/reset-password?token=xyz789';
 
   describe('renderAccountConfirmation', () => {
     it('renders the Spanish copy with the CTA, the link and a plain text version', () => {
@@ -143,7 +143,7 @@ describe('Mail templates', () => {
           fullName: 'Sofía Morales',
           requestType: 'subscription',
           planName: 'Dolly Plus',
-          actionUrl: 'https://devweb.yacaterkos.tech/setup-preferences',
+          actionUrl: 'https://devweb.dolynation.app/setup-preferences',
         });
         expect(subMail.html).toContain('Dolly Plus');
         expect(subMail.text).toContain('Dolly Plus');
@@ -153,10 +153,10 @@ describe('Mail templates', () => {
           fullName: 'Sofía Morales',
           requestType: 'language_unlock',
           planName: null,
-          actionUrl: 'https://devweb.yacaterkos.tech/profile',
+          actionUrl: 'https://devweb.dolynation.app/profile',
         });
-        expect(langMail.html).toContain('https://devweb.yacaterkos.tech/profile');
-        expect(langMail.text).toContain('https://devweb.yacaterkos.tech/profile');
+        expect(langMail.html).toContain('https://devweb.dolynation.app/profile');
+        expect(langMail.text).toContain('https://devweb.dolynation.app/profile');
       }
     });
 
@@ -166,7 +166,7 @@ describe('Mail templates', () => {
         requestType: 'subscription',
         planName: 'Dolly Pro',
         reason: 'Cupo <temporal> agotado para esta semana',
-        actionUrl: 'https://devweb.yacaterkos.tech/select-plan',
+        actionUrl: 'https://devweb.dolynation.app/select-plan',
       });
 
       expect(mail.html).toContain('Cupo &lt;temporal&gt; agotado para esta semana');
@@ -181,7 +181,7 @@ describe('Mail templates', () => {
         requestType: 'subscription',
         planName: 'Dolly Plus',
         userMessage: 'Quiero practicar francés <todos los días>',
-        adminUrl: 'https://devweb.yacaterkos.tech/admin',
+        adminUrl: 'https://devweb.dolynation.app/admin',
       });
 
       expect(mail.subject).toContain('ana@example.com');

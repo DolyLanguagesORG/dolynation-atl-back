@@ -196,7 +196,7 @@ export class OAuthExchangeDto {
 
   @ApiProperty({
     maxLength: 512,
-    example: 'https://yacaterkos.tech/api/auth/oauth/google/callback',
+    example: 'https://play.dolynation.app/api/auth/oauth/google/callback',
     description: 'URI de redirección exacta utilizada al solicitar la autorización',
   })
   @IsUrl({ require_tld: false, require_protocol: true, protocols: ['http', 'https'] })

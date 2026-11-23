@@ -253,7 +253,7 @@ export class OAuthProviderConfigDto {
   clientId?: string;
 
   @ApiPropertyOptional({
-    example: 'https://yacaterkos.tech/api/auth/oauth/google/callback',
+    example: 'https://play.dolynation.app/api/auth/oauth/google/callback',
     description: 'URI de redirección autorizada para el callback',
   })
   redirectUri?: string;

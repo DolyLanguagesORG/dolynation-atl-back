@@ -175,11 +175,11 @@ describe('validateEnv', () => {
         SMTP_FROM: 'f',
         SMTP_FROM_NAME: 'D',
         SMTP_SECURE: 'false',
-        FRONTEND_BASE_URL: 'https://devweb.yacaterkos.tech',
+        FRONTEND_BASE_URL: 'https://devweb.dolynation.app',
         EMAIL_VERIFICATION_REQUIRED: 'false',
       });
 
-      expect(env.FRONTEND_BASE_URL).toBe('https://devweb.yacaterkos.tech');
+      expect(env.FRONTEND_BASE_URL).toBe('https://devweb.dolynation.app');
       expect(env.EMAIL_VERIFICATION_REQUIRED).toBe(false);
       expect(env.CATEGORY_MODERATION_AI_PROVIDER).toBe('auto');
       expect(env.GOOGLE_API_KEY).toBe('k');
