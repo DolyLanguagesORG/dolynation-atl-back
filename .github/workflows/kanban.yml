@@ -174,44 +174,101 @@ jobs:
           # Se usa la API GraphQL con el ID del project: la CLI `gh project`
           # necesita resolver si el owner es usuario u organizacion, y con un
           # token que no tiene `read:org` falla con "unknown owner type".
-          gh api graphql -f query='
-            query($id: ID!) {
-              node(id: $id) {
-                ... on ProjectV2 {
-                  items(first: 100) {
-                    nodes {
-                      id
-                      content {
-                        __typename
-                        ... on Issue {
-                          number
-                          repository { name }
-                          state
-                        }
-                        ... on PullRequest {
-                          number
-                          repository { name }
-                          state
-                        }
-                      }
-                      fieldValues(first: 20) {
+          #
+          # El tablero tiene mas de 100 items, asi que hay que **paginar**:
+          # con una sola pagina, los repos que caian fuera de la primera se
+          # quedaban sin sincronizar (y sin avisar).
+          rm -f /tmp/items.json
+          after=""
+          pagina=0
+          while : ; do
+            pagina=$((pagina + 1))
+            if [ -z "$after" ]; then
+              gh api graphql -f query='
+                query($id: ID!) {
+                  node(id: $id) {
+                    ... on ProjectV2 {
+                      items(first: 100) {
+                        pageInfo { hasNextPage endCursor }
                         nodes {
-                          ... on ProjectV2ItemFieldSingleSelectValue { optionId name }
-                          ... on ProjectV2ItemFieldPullRequestValue {
-                            pullRequests(first: 10) { nodes { number state } }
+                          id
+                          content {
+                            __typename
+                            ... on Issue {
+                              number
+                              repository { name }
+                              state
+                            }
+                            ... on PullRequest {
+                              number
+                              repository { name }
+                              state
+                            }
+                          }
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue { optionId name }
+                              ... on ProjectV2ItemFieldPullRequestValue {
+                                pullRequests(first: 10) { nodes { number state } }
+                              }
+                            }
                           }
                         }
                       }
                     }
                   }
-                }
-              }
-            }' -f id="$PROJECT_ID" > /tmp/items.json
+                }' -f id="$PROJECT_ID" > /tmp/pagina.json
+            else
+              gh api graphql -f query='
+                query($id: ID!, $after: String) {
+                  node(id: $id) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $after) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          content {
+                            __typename
+                            ... on Issue {
+                              number
+                              repository { name }
+                              state
+                            }
+                            ... on PullRequest {
+                              number
+                              repository { name }
+                              state
+                            }
+                          }
+                          fieldValues(first: 20) {
+                            nodes {
+                              ... on ProjectV2ItemFieldSingleSelectValue { optionId name }
+                              ... on ProjectV2ItemFieldPullRequestValue {
+                                pullRequests(first: 10) { nodes { number state } }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }' -f id="$PROJECT_ID" -f after="$after" > /tmp/pagina.json
+            fi
+
+            # Se juntan los items de todas las paginas (una linea JSON por
+            # pagina: `jq` las aplana al final).
+            jq -c '.data.node.items.nodes' /tmp/pagina.json >> /tmp/items.json
+
+            after="$(jq -r '.data.node.items.pageInfo.endCursor // ""' /tmp/pagina.json)"
+            continuar="$(jq -r '.data.node.items.pageInfo.hasNextPage' /tmp/pagina.json)"
+            [ "$continuar" = "true" ] || break
+            [ "$pagina" -lt 20 ] || break
+          done
 
           # Una linea por item:
           #   repo<TAB>numero<TAB>tipo<TAB>item_id<TAB>status<TAB>prs_abiertos<TAB>prs_mergeados
           jq -r '
-            .data.node.items.nodes[]
+            [.[]] | flatten[]
             | select(.content.repository.name == (env.REPO | split("/") | last))
             | (.fieldValues.nodes
                | map(select(.optionId != null) | .optionId) | first // "") as $status
