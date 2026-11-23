@@ -7,7 +7,8 @@ import { ErrorCode } from '../../../common/errors/error-codes';
 export interface VerifyOidcIdTokenParams {
   idToken: string;
   jwksUri: string;
-  expectedIssuers: readonly string[];
+  expectedIssuers?: readonly string[];
+  issuerValidator?: (iss: string, payload: Record<string, unknown>) => boolean;
   expectedAudience: string;
   clockToleranceSec?: number;
 }
@@ -23,6 +24,10 @@ export interface OidcIdTokenPayload {
   name?: string;
   given_name?: string;
   family_name?: string;
+  tid?: string;
+  oid?: string;
+  preferred_username?: string;
+  xms_edov?: boolean | number | string;
 }
 
 interface RsaJwk extends webcrypto.JsonWebKey {
@@ -175,7 +180,10 @@ export class OidcJwksVerifier {
     const audRaw = payload['aud'];
     const azp = typeof payload['azp'] === 'string' ? payload['azp'].trim() : undefined;
 
-    if (!sub || !iss || !params.expectedIssuers.includes(iss)) {
+    const hasValidIssuer = params.issuerValidator
+      ? params.issuerValidator(iss, payload)
+      : (params.expectedIssuers?.includes(iss) ?? false);
+    if (!sub || !iss || !hasValidIssuer) {
       throw new AppHttpException(ErrorCode.AUTH_OAUTH_INVALID_CODE);
     }
 
@@ -215,6 +223,10 @@ export class OidcJwksVerifier {
     const name = payload['name'];
     const givenName = payload['given_name'];
     const familyName = payload['family_name'];
+    const tid = payload['tid'];
+    const oid = payload['oid'];
+    const preferredUsername = payload['preferred_username'];
+    const xmsEdov = payload['xms_edov'];
 
     return {
       sub,
@@ -226,6 +238,12 @@ export class OidcJwksVerifier {
       ...(typeof name === 'string' ? { name } : {}),
       ...(typeof givenName === 'string' ? { given_name: givenName } : {}),
       ...(typeof familyName === 'string' ? { family_name: familyName } : {}),
+      ...(typeof tid === 'string' ? { tid } : {}),
+      ...(typeof oid === 'string' ? { oid } : {}),
+      ...(typeof preferredUsername === 'string' ? { preferred_username: preferredUsername } : {}),
+      ...(typeof xmsEdov === 'boolean' || typeof xmsEdov === 'number' || typeof xmsEdov === 'string'
+        ? { xms_edov: xmsEdov }
+        : {}),
     };
   }
 }

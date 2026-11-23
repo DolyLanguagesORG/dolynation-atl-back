@@ -263,10 +263,30 @@ const baseEnvSchema = z.object({
   STRIPE_PRICE_LANGUAGE_UNLOCK: z.preprocess(emptyToUndefined, z.string().optional()),
 
   // ===== Autenticación externa OAuth 2.0 / OIDC =====
-  // Opcionales: si ambas credenciales de Google faltan, OAuth queda deshabilitado sin impedir el arranque.
+  // Opcionales: si las credenciales de un proveedor faltan, queda deshabilitado sin impedir el arranque.
   GOOGLE_OAUTH_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_OAUTH_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
   GOOGLE_OAUTH_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  MICROSOFT_OAUTH_CLIENT_ID: z.preprocess(emptyToUndefined, z.string().optional()),
+  MICROSOFT_OAUTH_CLIENT_SECRET: z.preprocess(emptyToUndefined, z.string().optional()),
+  MICROSOFT_OAUTH_TENANT: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .transform((value) => value.toLowerCase())
+      .refine(
+        (value) =>
+          /^(common|organizations|consumers|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.test(
+            value,
+          ),
+        {
+          message:
+            'MICROSOFT_OAUTH_TENANT debe ser "common", "organizations", "consumers" o un UUID válido de tenant',
+        },
+      )
+      .default('common'),
+  ),
+  MICROSOFT_OAUTH_REDIRECT_URI: z.preprocess(emptyToUndefined, z.string().url().optional()),
 
   // ===== Seguridad anti-bot (Cloudflare Turnstile) y red =====
   CAPTCHA_PROVIDER: z.preprocess(
@@ -347,22 +367,25 @@ const envSchema = baseEnvSchema.superRefine((env, ctx) => {
     }
   }
 
-  if (env.GOOGLE_OAUTH_CLIENT_ID && !env.GOOGLE_OAUTH_CLIENT_SECRET) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['GOOGLE_OAUTH_CLIENT_SECRET'],
-      message:
-        'GOOGLE_OAUTH_CLIENT_SECRET es obligatoria cuando GOOGLE_OAUTH_CLIENT_ID está definida',
-    });
-  }
+  for (const prefix of ['GOOGLE_OAUTH', 'MICROSOFT_OAUTH'] as const) {
+    const clientIdKey = `${prefix}_CLIENT_ID` as const;
+    const clientSecretKey = `${prefix}_CLIENT_SECRET` as const;
 
-  if (env.GOOGLE_OAUTH_CLIENT_SECRET && !env.GOOGLE_OAUTH_CLIENT_ID) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['GOOGLE_OAUTH_CLIENT_ID'],
-      message:
-        'GOOGLE_OAUTH_CLIENT_ID es obligatoria cuando GOOGLE_OAUTH_CLIENT_SECRET está definida',
-    });
+    if (env[clientIdKey] && !env[clientSecretKey]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [clientSecretKey],
+        message: `${clientSecretKey} es obligatoria cuando ${clientIdKey} está definida`,
+      });
+    }
+
+    if (env[clientSecretKey] && !env[clientIdKey]) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [clientIdKey],
+        message: `${clientIdKey} es obligatoria cuando ${clientSecretKey} está definida`,
+      });
+    }
   }
 
   if (env.CAPTCHA_PROVIDER === 'turnstile') {

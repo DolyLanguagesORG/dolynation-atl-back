@@ -15,17 +15,25 @@ jest.setTimeout(30_000);
 const TEST_CLIENT_ID = 'e2e-google-client-id.apps.googleusercontent.com';
 const TEST_CLIENT_SECRET = 'e2e-google-test-secret-not-real';
 const TEST_REDIRECT_URI = 'http://localhost:3000/api/auth/oauth/google/callback';
+const TEST_MS_CLIENT_ID = '11111111-aaaa-bbbb-cccc-222222222222';
+const TEST_MS_CLIENT_SECRET = 'e2e-ms-test-secret-not-real';
+const TEST_MS_REDIRECT_URI = 'http://localhost:3000/api/auth/oauth/microsoft/callback';
+const TEST_MS_TENANT_ID = '11111111-2222-3333-4444-555555555555';
 const TEST_KEY_ID = 'e2e-google-key-1';
 
 type OAuthMockResponse =
   | {
       kind: 'ok';
       sub: string;
-      email: string;
+      email?: string;
       email_verified?: boolean;
       name?: string;
       given_name?: string;
       family_name?: string;
+      iss?: string;
+      tid?: string;
+      preferred_username?: string;
+      xms_edov?: boolean | number | string;
     }
   | {
       kind: 'oauth_error';
@@ -71,27 +79,41 @@ class FakeMailService {
 function signMockIdToken(params: {
   privateKey: KeyObject;
   sub: string;
-  email: string;
+  email?: string;
   emailVerified?: boolean;
+  omitEmailVerified?: boolean;
   name?: string;
   givenName?: string;
   familyName?: string;
+  iss?: string;
+  aud?: string;
+  tid?: string;
+  preferredUsername?: string;
+  xmsEdov?: boolean | number | string;
 }): string {
   const nowSec = Math.floor(Date.now() / 1000);
   const headerB64 = Buffer.from(
     JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: TEST_KEY_ID }),
     'utf8',
   ).toString('base64url');
+  const audience = params.aud ?? TEST_CLIENT_ID;
   const payload: Record<string, unknown> = {
-    iss: 'https://accounts.google.com',
-    aud: TEST_CLIENT_ID,
-    azp: TEST_CLIENT_ID,
+    iss: params.iss ?? 'https://accounts.google.com',
+    aud: audience,
+    azp: audience,
     sub: params.sub,
-    email: params.email,
-    email_verified: params.emailVerified ?? true,
     iat: nowSec,
     exp: nowSec + 3600,
   };
+  if (params.email !== undefined) payload['email'] = params.email;
+  if (!params.omitEmailVerified || params.emailVerified !== undefined) {
+    payload['email_verified'] = params.emailVerified ?? true;
+  }
+  if (params.tid !== undefined) payload['tid'] = params.tid;
+  if (params.preferredUsername !== undefined) {
+    payload['preferred_username'] = params.preferredUsername;
+  }
+  if (params.xmsEdov !== undefined) payload['xms_edov'] = params.xmsEdov;
   if (params.name !== undefined) payload['name'] = params.name;
   if (params.givenName !== undefined) payload['given_name'] = params.givenName;
   if (params.familyName !== undefined) payload['family_name'] = params.familyName;
@@ -140,6 +162,10 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     GOOGLE_OAUTH_CLIENT_ID: TEST_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET: TEST_CLIENT_SECRET,
     GOOGLE_OAUTH_REDIRECT_URI: TEST_REDIRECT_URI,
+    MICROSOFT_OAUTH_CLIENT_ID: TEST_MS_CLIENT_ID,
+    MICROSOFT_OAUTH_CLIENT_SECRET: TEST_MS_CLIENT_SECRET,
+    MICROSOFT_OAUTH_TENANT: 'common',
+    MICROSOFT_OAUTH_REDIRECT_URI: TEST_MS_REDIRECT_URI,
   };
 
   const uniqueSuffix = (): string => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -156,7 +182,10 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
       .mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = getRequestUrl(input);
 
-        if (url === 'https://www.googleapis.com/oauth2/v3/certs') {
+        if (
+          url === 'https://www.googleapis.com/oauth2/v3/certs' ||
+          url === 'https://login.microsoftonline.com/common/discovery/v2.0/keys'
+        ) {
           return new Response(JSON.stringify({ keys: [publicJwk] }), {
             status: 200,
             headers: {
@@ -166,7 +195,10 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
           });
         }
 
-        if (url === 'https://oauth2.googleapis.com/token') {
+        const isGoogleToken = url === 'https://oauth2.googleapis.com/token';
+        const isMicrosoftToken =
+          url === 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
+        if (isGoogleToken || isMicrosoftToken) {
           const rawBody =
             typeof init?.body === 'string'
               ? init.body
@@ -191,19 +223,36 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
             });
           }
 
-          const idToken = signMockIdToken({
-            privateKey,
-            sub: mock.sub,
-            email: mock.email,
-            emailVerified: mock.email_verified,
-            name: mock.name,
-            givenName: mock.given_name,
-            familyName: mock.family_name,
-          });
+          const resolvedTid = mock.tid ?? TEST_MS_TENANT_ID;
+          const idToken = isMicrosoftToken
+            ? signMockIdToken({
+                privateKey,
+                sub: mock.sub,
+                aud: TEST_MS_CLIENT_ID,
+                iss: mock.iss ?? `https://login.microsoftonline.com/${resolvedTid}/v2.0`,
+                tid: resolvedTid,
+                email: mock.email,
+                emailVerified: mock.email_verified,
+                omitEmailVerified: true,
+                preferredUsername: mock.preferred_username,
+                xmsEdov: mock.xms_edov,
+                name: mock.name,
+                givenName: mock.given_name,
+                familyName: mock.family_name,
+              })
+            : signMockIdToken({
+                privateKey,
+                sub: mock.sub,
+                email: mock.email,
+                emailVerified: mock.email_verified,
+                name: mock.name,
+                givenName: mock.given_name,
+                familyName: mock.family_name,
+              });
 
           return new Response(
             JSON.stringify({
-              access_token: 'mock-google-access-token',
+              access_token: 'mock-oauth-access-token',
               token_type: 'Bearer',
               expires_in: 3600,
               id_token: idToken,
@@ -268,8 +317,17 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
         redirectUri: TEST_REDIRECT_URI,
         scopes: ['openid', 'email', 'profile'],
       },
+      {
+        provider: 'microsoft',
+        enabled: true,
+        authorizationEndpoint: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize',
+        clientId: TEST_MS_CLIENT_ID,
+        redirectUri: TEST_MS_REDIRECT_URI,
+        scopes: ['openid', 'email', 'profile'],
+      },
     ]);
     expect(JSON.stringify(res.body)).not.toContain(TEST_CLIENT_SECRET);
+    expect(JSON.stringify(res.body)).not.toContain(TEST_MS_CLIENT_SECRET);
   });
 
   it('creates an OAuth-only student, blocks password login until password reset, and logs in on returning exchange', async () => {
@@ -714,5 +772,111 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
       })
       .expect(400);
     expect(ftpRedirectRes.body.error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('supports Microsoft Entra ID signup (preferred_username), multi-provider Google+Microsoft linking, admin block, and issuer/email checks', async () => {
+    const suffix = uniqueSuffix();
+    const sharedEmail = `multi-oauth-${suffix}@school.edu`;
+    const msOnlySub = `ms-school-sub-${suffix}`;
+    const msCode = `ms-code-${suffix}`;
+    const googleCode = `google-for-ms-${suffix}`;
+    const codeVerifier = 'v'.repeat(43);
+
+    // 1. Alta con cuenta escolar de Microsoft (preferred_username sin email_verified explícito)
+    mockByCode.set(msCode, {
+      kind: 'ok',
+      sub: msOnlySub,
+      preferred_username: sharedEmail.toUpperCase(),
+      name: 'Estudiante Entra',
+    });
+
+    const msRes = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/microsoft/exchange')
+      .send({ code: msCode, codeVerifier, redirectUri: TEST_MS_REDIRECT_URI })
+      .expect(200);
+    expect(msRes.body.data.provider).toBe('microsoft');
+    expect(msRes.body.data.isNewUser).toBe(true);
+    expect(msRes.body.data.user.email).toBe(sharedEmail);
+    const sharedUserId = msRes.body.data.user.id as number;
+
+    // 2. El mismo estudiante inicia sesión con Google y auto-vincula el segundo proveedor a la misma cuenta
+    mockByCode.set(googleCode, {
+      kind: 'ok',
+      sub: `google-for-ms-sub-${suffix}`,
+      email: sharedEmail,
+      email_verified: true,
+      name: 'Estudiante Entra',
+    });
+
+    const linkedGoogleRes = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/google/exchange')
+      .send({ code: googleCode, codeVerifier, redirectUri: TEST_REDIRECT_URI })
+      .expect(200);
+    expect(linkedGoogleRes.body.data.user.id).toBe(sharedUserId);
+    expect(linkedGoogleRes.body.data.isNewUser).toBe(false);
+    expect(linkedGoogleRes.body.data.linkedExistingAccount).toBe(true);
+
+    const links = await db
+      .select()
+      .from(userOAuthAccounts)
+      .where(eq(userOAuthAccounts.userId, sharedUserId));
+    expect(links).toHaveLength(2);
+    expect(links.map((row) => row.provider).sort()).toEqual(['google', 'microsoft']);
+
+    // 3. Bloqueo de cuentas admin con Microsoft
+    const adminRoles = await db.select().from(roles).where(eq(roles.name, 'admin')).limit(1);
+    const adminRole = adminRoles[0];
+    expect(adminRole).toBeDefined();
+
+    const adminEmail = `ms-admin-${suffix}@school.edu`;
+    const adminReg = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/register')
+      .send({ email: adminEmail, password: 'AdminPassword123!', fullName: 'MS Admin' })
+      .expect(201);
+    await db
+      .update(users)
+      .set({ roleId: adminRole.id })
+      .where(eq(users.id, adminReg.body.data.user.id));
+
+    const adminMsCode = `ms-admin-code-${suffix}`;
+    mockByCode.set(adminMsCode, {
+      kind: 'ok',
+      sub: `ms-admin-sub-${suffix}`,
+      email: adminEmail,
+      email_verified: true,
+    });
+    const blockedAdmin = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/microsoft/exchange')
+      .send({ code: adminMsCode, codeVerifier, redirectUri: TEST_MS_REDIRECT_URI })
+      .expect(403);
+    expect(blockedAdmin.body.error.code).toBe('AUTH_OAUTH_ADMIN_FORBIDDEN');
+
+    // 4. Rechaza mismatch iss/tid y correo no verificado (xms_edov=0)
+    const badIssCode = `ms-bad-iss-${suffix}`;
+    mockByCode.set(badIssCode, {
+      kind: 'ok',
+      sub: `ms-bad-iss-sub-${suffix}`,
+      email: `bad-iss-${suffix}@school.edu`,
+      tid: TEST_MS_TENANT_ID,
+      iss: 'https://login.microsoftonline.com/99999999-9999-9999-9999-999999999999/v2.0',
+    });
+    const badIssRes = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/microsoft/exchange')
+      .send({ code: badIssCode, codeVerifier, redirectUri: TEST_MS_REDIRECT_URI })
+      .expect(400);
+    expect(badIssRes.body.error.code).toBe('AUTH_OAUTH_INVALID_CODE');
+
+    const unverifiedEdovCode = `ms-edov-0-${suffix}`;
+    mockByCode.set(unverifiedEdovCode, {
+      kind: 'ok',
+      sub: `ms-edov-sub-${suffix}`,
+      email: `unverified-ms-${suffix}@outlook.com`,
+      xms_edov: 0,
+    });
+    const unverifiedEdovRes = await supertest(app.getHttpServer())
+      .post('/api/v1/auth/oauth/microsoft/exchange')
+      .send({ code: unverifiedEdovCode, codeVerifier, redirectUri: TEST_MS_REDIRECT_URI })
+      .expect(403);
+    expect(unverifiedEdovRes.body.error.code).toBe('AUTH_OAUTH_EMAIL_UNVERIFIED');
   });
 });

@@ -1,5 +1,5 @@
 /** Lista oficial de proveedores OAuth 2.0 / OIDC soportados por la API. */
-export const SUPPORTED_OAUTH_PROVIDERS = ['google'] as const;
+export const SUPPORTED_OAUTH_PROVIDERS = ['google', 'microsoft'] as const;
 
 /** Identificador de proveedor OAuth soportado. */
 export type SupportedOAuthProvider = (typeof SUPPORTED_OAUTH_PROVIDERS)[number];
