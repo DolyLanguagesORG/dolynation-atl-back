@@ -12,7 +12,7 @@ describe('CaptchaService', () => {
     siteKey: 'site-key-real',
     secretKey: 'secret-key-real',
     appearance: 'interaction-only',
-    allowedHostnames: ['devweb.yacaterkos.tech', 'localhost'],
+    allowedHostnames: ['devplay.dolynation.app', 'localhost'],
     verifyUrl: 'https://challenges.cloudflare.com/turnstile/v0/siteverify',
     timeoutMs: 5000,
     failOpen: false,
@@ -114,7 +114,7 @@ describe('CaptchaService', () => {
         JSON.stringify({
           success: true,
           action: 'login',
-          hostname: 'devweb.yacaterkos.tech',
+          hostname: 'devplay.dolynation.app',
           'error-codes': [],
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -171,7 +171,7 @@ describe('CaptchaService', () => {
         JSON.stringify({
           success: true,
           action: 'login',
-          hostname: 'devweb.yacaterkos.tech',
+          hostname: 'devplay.dolynation.app',
           'error-codes': [],
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },

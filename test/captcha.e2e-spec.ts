@@ -41,7 +41,7 @@ const mockEnv: Record<string, string> = {
   CAPTCHA_SITE_KEY: DUMMY_SITE_KEY,
   CAPTCHA_SECRET_KEY: DUMMY_SECRET_KEY,
   CAPTCHA_APPEARANCE: 'interaction-only',
-  CAPTCHA_ALLOWED_HOSTNAMES: 'devweb.yacaterkos.tech,localhost',
+  CAPTCHA_ALLOWED_HOSTNAMES: 'devplay.dolynation.app,localhost',
   CAPTCHA_VERIFY_URL: VERIFY_URL,
   CAPTCHA_TIMEOUT_MS: '5000',
   CAPTCHA_FAIL_OPEN: 'false',
@@ -157,7 +157,7 @@ describe('Cloudflare Turnstile anti-bot protection (e2e)', () => {
               JSON.stringify({
                 success: true,
                 action: 'login',
-                hostname: 'devweb.yacaterkos.tech',
+                hostname: 'devplay.dolynation.app',
               }),
               { status: 200, headers: { 'content-type': 'application/json' } },
             );

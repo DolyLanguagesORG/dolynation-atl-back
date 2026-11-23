@@ -175,11 +175,11 @@ describe('validateEnv', () => {
         SMTP_FROM: 'f',
         SMTP_FROM_NAME: 'D',
         SMTP_SECURE: 'false',
-        FRONTEND_BASE_URL: 'https://devweb.dolynation.app',
+        FRONTEND_BASE_URL: 'https://devplay.dolynation.app',
         EMAIL_VERIFICATION_REQUIRED: 'false',
       });
 
-      expect(env.FRONTEND_BASE_URL).toBe('https://devweb.dolynation.app');
+      expect(env.FRONTEND_BASE_URL).toBe('https://devplay.dolynation.app');
       expect(env.EMAIL_VERIFICATION_REQUIRED).toBe(false);
       expect(env.CATEGORY_MODERATION_AI_PROVIDER).toBe('auto');
       expect(env.GOOGLE_API_KEY).toBe('k');
@@ -359,15 +359,15 @@ describe('validateEnv', () => {
         CAPTCHA_SITE_KEY: '1x00000000000000000000AA',
         CAPTCHA_SECRET_KEY: '1x0000000000000000000000000000000AA',
         CAPTCHA_APPEARANCE: 'execute',
-        CAPTCHA_ALLOWED_HOSTNAMES: 'localhost,devweb.yacaterkos.tech',
+        CAPTCHA_ALLOWED_HOSTNAMES: 'localhost,devplay.dolynation.app',
         CAPTCHA_FAIL_OPEN: 'true',
-        CORS_ALLOWED_ORIGINS: 'http://localhost:3000,https://devweb.yacaterkos.tech',
+        CORS_ALLOWED_ORIGINS: 'http://localhost:3000,https://devplay.dolynation.app',
       });
 
       expect(env.CAPTCHA_PROVIDER).toBe('turnstile');
       expect(env.CAPTCHA_APPEARANCE).toBe('execute');
       expect(env.CAPTCHA_FAIL_OPEN).toBe(true);
-      expect(env.CORS_ALLOWED_ORIGINS).toBe('http://localhost:3000,https://devweb.yacaterkos.tech');
+      expect(env.CORS_ALLOWED_ORIGINS).toBe('http://localhost:3000,https://devplay.dolynation.app');
     });
   });
 });
