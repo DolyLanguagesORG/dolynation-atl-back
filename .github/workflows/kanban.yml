@@ -3,30 +3,35 @@ name: kanban
 # Sincroniza el tablero Kanban de la organizacion.
 #
 # El tablero (https://github.com/orgs/DolyLanguagesORG/projects/1) tiene un
-# campo `Status` con cuatro valores: Todo, In Progress, In Review y Done.
-# GitHub actualiza solo los campos que el mismo gestiona ("Linked pull
+# campo `Status` con cuatro valores: No Started, In Progress, In Review y
+# Done. GitHub actualiza solo los campos que el mismo gestiona ("Linked pull
 # requests", "Sub-issues progress"); el `Status` hay que moverlo a mano, y
-# por eso se quedaba en "Todo" con el PR ya abierto.
+# por eso se quedaba en "No Started" con el PR ya abierto.
 #
 # Este workflow lo mueve solo, en este repo:
 #
-#   PR abierto que referencia la issue   ->  In Review
-#   PR mergeado que cierra la issue      ->  Done
-#   PR cerrado sin mergear               ->  Todo (vuelve a la cola)
-#   Issue cerrada                        ->  Done
-#   Issue reabierta                      ->  Todo
-#
-# Tambien se puede correr a mano (`workflow_dispatch`): con `issue` sincroniza
-# esa issue; sin `issue`, sincroniza **todas** las de este repo.
+#   Issue asignada a alguien          ->  In Progress
+#   Issue sin asignar                 ->  No Started
+#   PR abierto que referencia la issue ->  In Review
+#   PR mergeado que CIERRA la issue   ->  Done
+#   PR cerrado sin mergear             ->  No Started (vuelve a la cola)
+#   Issue cerrada                      ->  Done
+#   Issue reabierta                    ->  No Started
 #
 # Los cuatro repos tienen este mismo workflow (es el patron de CI del
 # proyecto: cada repo es autonomo).
+#
+# Tambien se puede correr a mano (`workflow_dispatch`): con `issue`
+# sincroniza esa issue; sin `issue`, sincroniza **todas** las de este repo
+# (y las agrega al tablero si no estaban).
 
 on:
   pull_request:
     types: [opened, reopened, ready_for_review, closed, synchronize]
   issues:
-    types: [closed, reopened]
+    # `assigned` y `unassigned` son los que mueven el estado "In Progress":
+    # una issue con trabajo en marcha y sin PR todavia.
+    types: [closed, reopened, assigned, unassigned]
   workflow_dispatch:
     inputs:
       issue:
@@ -48,6 +53,7 @@ env:
   FIELD_ID: PVTSSF_lADOE-Gmfs4BlBqazhjwD-0
   OPT_DONE: 98236657
   OPT_TODO: f75ad846
+  OPT_IN_PROGRESS: 47fc9ee4
   OPT_IN_REVIEW: 35fd4ec4
 
 jobs:
@@ -69,12 +75,37 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
           PR_MERGED: ${{ github.event.pull_request.merged }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           INPUT_ISSUE: ${{ inputs.issue }}
         run: |
           set -euo pipefail
 
-          # --- Que issues menciona este PR? ---
+          # --- Las issues que CIERRA este PR ---
+          # GitHub sabe exactamente cuales: las que el PR cierra al
+          # mergearse (`Closes #N`, `Fixes #N`, `Resolves #N` o las
+          # enlazadas desde la barra lateral). Se pregunta a la API en vez
+          # de adivinarlo con una expresion regular: asi un PR que solo
+          # dice "Refs #131" **no** cierra la issue, y un PR de release
+          # (cuyo changelog menciona issues de la release anterior) solo
+          # mueve las que de verdad cierra.
+          CIERRA=""
+          if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
+            CIERRA="$(gh api graphql -f query='
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    closingIssuesReferences(first: 50) { nodes { number } }
+                  }
+                }
+              }' \
+              -f owner="${REPO%%/*}" -f repo="${REPO##*/}" -F number="$PR_NUMBER" \
+              --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' \
+              2>/dev/null | tr '\n' ' ' || true)"
+          fi
+          echo "cierra=$CIERRA" >> "$GITHUB_OUTPUT"
+
+          # --- Que issues MENCIONA este PR? ---
           if [ "$EVENT" = "issues" ]; then
             NUMEROS="$ISSUE_NUMBER"
           elif [ "$EVENT" = "workflow_dispatch" ] && [ -n "$INPUT_ISSUE" ]; then
@@ -85,19 +116,47 @@ jobs:
             if [ -n "$RAMA_NUM" ]; then NUMEROS="$NUMEROS $RAMA_NUM"; fi
           fi
 
+          # --- Los PRs de release-please solo mueven lo que CIERRAN ---
+          # Su changelog menciona las issues de la release ("closes [#43]")
+          # y los PRs que la componen ("[#140]"), pero no son trabajo en
+          # curso sobre esas issues: ponerlas en "In Review" seria un
+          # falso positivo (y por eso, antes, se excluian a mano de la
+          # sincronizacion manual). Lo que si cuenta es lo que **cierran**:
+          # al mergear el PR de release, esas issues pasan a "Done".
+          if [ "$EVENT" = "pull_request" ]; then
+            case "$HEAD_REF" in
+              release-please--*) NUMEROS="$CIERRA" ;;
+            esac
+          fi
+
           echo "numeros=$NUMEROS" >> "$GITHUB_OUTPUT"
 
           # --- El estado destino ---
           case "$EVENT" in
             issues)
-              if [ "$ACTION" = "closed" ]; then DESTINO="$OPT_DONE"; else DESTINO="$OPT_TODO"; fi
+              case "$ACTION" in
+                closed) DESTINO="$OPT_DONE" ;;
+                assigned) DESTINO="$OPT_IN_PROGRESS" ;;
+                # Reabierta o sin asignar: vuelve a la cola.
+                *) DESTINO="$OPT_TODO" ;;
+              esac
               ;;
             pull_request)
-              if [ "$ACTION" = "closed" ]; then
-                if [ "$PR_MERGED" = "true" ]; then DESTINO="$OPT_DONE"; else DESTINO="$OPT_TODO"; fi
-              else
-                DESTINO="$OPT_IN_REVIEW"
-              fi
+              case "$ACTION" in
+                closed)
+                  if [ "$PR_MERGED" = "true" ]; then
+                    DESTINO="$OPT_DONE"
+                    # Solo las issues que el PR **cierra** pasan a Done.
+                    # Las que solo menciona ("Refs #N") siguen abiertas:
+                    # el tablero no puede dar por hecho que el trabajo
+                    # acabo (el PR pudo mergear una parte).
+                    NUMEROS="$CIERRA"
+                  else
+                    DESTINO="$OPT_TODO"
+                  fi
+                  ;;
+                *) DESTINO="$OPT_IN_REVIEW" ;;
+              esac
               ;;
             *) DESTINO="" ;;
           esac
@@ -123,7 +182,13 @@ jobs:
                     nodes {
                       id
                       content {
+                        __typename
                         ... on Issue {
+                          number
+                          repository { name }
+                          state
+                        }
+                        ... on PullRequest {
                           number
                           repository { name }
                           state
@@ -143,7 +208,8 @@ jobs:
               }
             }' -f id="$PROJECT_ID" > /tmp/items.json
 
-          # Una linea por item: repo<TAB>numero<TAB>item_id<TAB>status<TAB>prs_abiertos<TAB>prs_mergeados
+          # Una linea por item:
+          #   repo<TAB>numero<TAB>tipo<TAB>item_id<TAB>status<TAB>prs_abiertos<TAB>prs_mergeados
           jq -r '
             .data.node.items.nodes[]
             | select(.content.repository.name == (env.REPO | split("/") | last))
@@ -151,7 +217,7 @@ jobs:
                | map(select(.optionId != null) | .optionId) | first // "") as $status
               | ([.fieldValues.nodes[] | select(.pullRequests != null) | .pullRequests.nodes[] | select(.state == "OPEN") ] | length) as $abiertos
               | ([.fieldValues.nodes[] | select(.pullRequests != null) | .pullRequests.nodes[] | select(.state == "MERGED") ] | length) as $mergeados
-            | [.content.repository.name, (.content.number|tostring), .id, $status, ($abiertos|tostring), ($mergeados|tostring)]
+            | [.content.repository.name, (.content.number|tostring), .content.__typename, .id, $status, ($abiertos|tostring), ($mergeados|tostring)]
             | @tsv' /tmp/items.json > /tmp/items.tsv
 
           wc -l < /tmp/items.tsv | xargs echo "items de este repo en el tablero:"
@@ -163,6 +229,7 @@ jobs:
           NUMEROS: ${{ steps.calc.outputs.numeros }}
           DESTINO: ${{ steps.calc.outputs.destino }}
           EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
         run: |
           set -euo pipefail
 
@@ -179,31 +246,93 @@ jobs:
             echo "  #$num: ${actual:-vacio} -> $destino"
           }
 
+          # Agrega una issue al tablero y devuelve el id del item nuevo.
+          agregar() {
+            local num="$1"
+            local content_id
+            content_id="$(gh api "repos/$REPO/issues/$num" --jq .node_id)"
+            gh api graphql -f query='
+              mutation($project: ID!, $content: ID!) {
+                addProjectV2ItemById(input: {projectId: $project, contentId: $content}) { item { id } }
+              }' \
+              -f project="$PROJECT_ID" -f content="$content_id" \
+              --jq '.data.addProjectV2ItemById.item.id' 2>/dev/null || echo ""
+          }
+
           # --- Modo manual: sincronizar todas las issues de este repo ---
           if [ "$EVENT" = "workflow_dispatch" ] && [ -z "$NUMEROS" ]; then
             echo "Sincronizando todas las issues de $REPO..."
+
             # Los PRs abiertos se traen UNA vez (no por issue): el bucle hacia
             # una llamada a la API por cada issue.
+            #
             # Se excluyen los PRs de release-please: su changelog menciona
-            # los issues de la release anterior ("closes [#43]"), y eso ponia
-            # issues en "In Review" sin que hubiera trabajo en ellas.
+            # las issues de la release anterior ("closes [#43]"), y eso
+            # ponia issues en "In Review" sin que hubiera trabajo en ellas.
+            # Un PR de release solo mueve lo que **cierra** (que se le
+            # pregunta a GitHub), no lo que menciona en el changelog.
             PRS="$(gh api "repos/$REPO/pulls?state=open&per_page=100" | jq -r '.[] | select(.head.ref | startswith("release-please--") | not) | "###" + (.number|tostring) + "\n" + (.body // "") + "\n" + (.head.ref // "")')"
-            while IFS=$'\t' read -r repo num item_id status abiertos mergeados; do
+
+            while IFS=$'\t' read -r repo num tipo item_id status abiertos mergeados; do
               [ -z "$num" ] && continue
+
+              # Los items que son PRs: uno mergeado o cerrado va a "Done",
+              # uno abierto a "In Review".
+              if [ "$tipo" = "PullRequest" ]; then
+                estado="$(gh api "repos/$REPO/pulls/$num" --jq '.state' 2>/dev/null || echo "")"
+                if [ "$estado" = "closed" ]; then mover "$item_id" "$OPT_DONE" "$num" "$status"
+                elif [ "$estado" = "open" ]; then mover "$item_id" "$OPT_IN_REVIEW" "$num" "$status"
+                fi
+                continue
+              fi
+
               estado="$(gh api "repos/$REPO/issues/$num" --jq '.state' 2>/dev/null || echo "")"
               [ -z "$estado" ] && continue
+              asignado="$(gh api "repos/$REPO/issues/$num" --jq '.assignees | length' 2>/dev/null || echo 0)"
+
               # PRs MERGED: los tiene el tablero (GitHub los mantiene al dia).
               # PRs ABIERTOS: se buscan por API, porque el campo del tablero
               # "linked pull requests" no siempre esta al dia.
               abiertos="$(printf '%s' "$PRS" | grep -cE "(^|[^0-9])#$num([^0-9]|$)|issue-$num([^0-9]|$)" || true)"
 
-              if [ "$estado" = "closed" ] || [ "$mergeados" -gt 0 ]; then destino="$OPT_DONE"
-              elif [ "$abiertos" -gt 0 ]; then destino="$OPT_IN_REVIEW"
-              elif [ "$status" = "$OPT_IN_REVIEW" ]; then destino="$OPT_TODO"
-              else continue
+              if [ "$estado" = "closed" ]; then
+                destino="$OPT_DONE"
+              elif [ "$abiertos" -gt 0 ]; then
+                destino="$OPT_IN_REVIEW"
+              elif [ "$asignado" -gt 0 ]; then
+                # Hay trabajo en marcha (alguien lo tiene asignado) pero
+                # todavia no hay PR: esa es la diferencia entre "No Started"
+                # e "In Progress".
+                destino="$OPT_IN_PROGRESS"
+              elif [ "$status" = "$OPT_IN_REVIEW" ] || [ "$status" = "$OPT_IN_PROGRESS" ]; then
+                destino="$OPT_TODO"
+              else
+                continue
               fi
               mover "$item_id" "$destino" "$num" "$status"
             done < /tmp/items.tsv
+
+            # Las issues del repo que **no estan** en el tablero se agregan.
+            # (Sin esto, una issue que nunca tuvo un PR se quedaba fuera del
+            # tablero para siempre: solo entraba si algo la mencionaba.)
+            for num in $(gh api "repos/$REPO/issues?state=all&per_page=100" --paginate \
+                         | jq -r '.[] | select(.pull_request == null) | .number'); do
+              if awk -F'\t' -v n="$num" '$2==n {found=1} END {exit !found}' /tmp/items.tsv; then
+                continue
+              fi
+              echo "  #$num no esta en el tablero: se agrega."
+              item_id="$(agregar "$num")"
+              if [ -z "$item_id" ]; then echo "  #$num: no se pudo agregar."; continue; fi
+              estado="$(gh api "repos/$REPO/issues/$num" --jq '.state' 2>/dev/null || echo "")"
+              asignado="$(gh api "repos/$REPO/issues/$num" --jq '.assignees | length' 2>/dev/null || echo 0)"
+              if [ "$estado" = "closed" ]; then
+                mover "$item_id" "$OPT_DONE" "$num" ""
+              elif [ "$asignado" -gt 0 ]; then
+                mover "$item_id" "$OPT_IN_PROGRESS" "$num" ""
+              else
+                mover "$item_id" "$OPT_TODO" "$num" ""
+              fi
+            done
             exit 0
           fi
 
@@ -231,18 +360,36 @@ jobs:
 
             if [ -z "$fila" ]; then
               echo "  #$num no esta en el tablero: se agrega."
-              gh api graphql -f query='
-                mutation($project: ID!, $content: ID!) {
-                  addProjectV2ItemById(input: {projectId: $project, contentId: $content}) { item { id } }
-                }' \
-                -f project="$PROJECT_ID" \
-                -f content="$(gh api "repos/$REPO/issues/$num" --jq .node_id)" >/dev/null 2>&1 || true
-              sleep 3
-              fila="$(awk -F'\t' -v n="$num" '$2==n {print; exit}' /tmp/items.tsv)"
-              if [ -z "$fila" ]; then echo "  #$num: no se pudo agregar."; continue; fi
+              item_id="$(agregar "$num")"
+              if [ -z "$item_id" ]; then echo "  #$num: no se pudo agregar."; continue; fi
+              actual=""
+            else
+              item_id="$(printf '%s' "$fila" | cut -f4)"
+              actual="$(printf '%s' "$fila" | cut -f5)"
             fi
 
-            item_id="$(printf '%s' "$fila" | cut -f3)"
-            actual="$(printf '%s' "$fila" | cut -f4)"
+            # Asignar o desasignar no mueve una issue que ya esta en
+            # "In Review": si hay un PR abierto, el trabajo ya llego a esa
+            # fase y el tablero debe seguir ahi.
+            if [ "$EVENT" = "issues" ]; then
+              if [ "$ACTION" = "assigned" ] || [ "$ACTION" = "unassigned" ]; then
+                if [ "$actual" = "$OPT_IN_REVIEW" ]; then
+                  echo "  #$num esta en In Review: no se toca."
+                  continue
+                fi
+              fi
+            fi
+
+            # Una issue ya cerrada no vuelve a "In Review": un PR que la
+            # menciona (por ejemplo, el PR de release, que lista en su
+            # changelog las issues anteriores) no la reabre.
+            if [ "$DESTINO" = "$OPT_IN_REVIEW" ]; then
+              estado_issue="$(gh api "repos/$REPO/issues/$num" --jq '.state' 2>/dev/null || echo "")"
+              if [ "$estado_issue" = "closed" ]; then
+                echo "  #$num esta cerrada: no se toca."
+                continue
+              fi
+            fi
+
             mover "$item_id" "$DESTINO" "$num" "$actual"
           done
