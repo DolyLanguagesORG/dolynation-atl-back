@@ -49,6 +49,7 @@ import {
 } from './dto/readings.dto';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
 
 /**
  * Controlador de gestión, generación, evaluación y explicación de lecturas (`/readings`).
@@ -83,6 +84,8 @@ export class ReadingsController {
   /**
    * Genera y almacena una nueva lectura utilizando el proveedor de IA activo.
    */
+  @RequireCaptcha(CAPTCHA_ACTIONS.READING_GENERATE)
+  @RateLimitByIp({ action: 'reading_generate', maxRequests: 10, windowMs: 5 * 60_000 })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Generar una nueva lectura usando el proveedor de IA activo' })
@@ -182,6 +185,7 @@ export class ReadingsController {
   /**
    * Evalúa el resumen enviado por el usuario sobre la lectura indicada.
    */
+  @RateLimitByIp({ action: 'reading_evaluate', maxRequests: 20, windowMs: 5 * 60_000 })
   @Post(':id/evaluate')
   @ApiOperation({ summary: 'Evaluar el resumen del usuario para una lectura' })
   @ApiOkResponseOf(EvaluationResultDto)

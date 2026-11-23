@@ -25,6 +25,11 @@ function inferErrorSource(errorCode: string, exception: unknown): ErrorSource {
       return 'auth_guard';
     case String(ErrorCode.SUBSCRIPTION_REQUIRED):
       return 'subscription_guard';
+    case String(ErrorCode.CAPTCHA_REQUIRED):
+    case String(ErrorCode.CAPTCHA_VERIFICATION_FAILED):
+    case String(ErrorCode.CAPTCHA_PROVIDER_UNAVAILABLE):
+    case String(ErrorCode.RATE_LIMIT_EXCEEDED):
+      return 'security_guard';
     case String(ErrorCode.AI_RATE_LIMITED):
       return 'ai_provider';
     case String(ErrorCode.INTERNAL_ERROR):

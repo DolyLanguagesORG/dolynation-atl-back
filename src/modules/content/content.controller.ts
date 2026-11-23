@@ -12,6 +12,7 @@ import { ApiCreatedResponseOf } from '../../common/types/api-envelope.decorators
 import { ReadingDto } from '../../common/types/api-response.dto';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
 import { ContentService } from './content.service';
 import { GenerateContentDto } from './dto/generate-content.dto';
 
@@ -27,6 +28,8 @@ export class ContentController {
   /**
    * Genera una nueva lectura usando las preferencias del usuario y el proveedor de IA activo.
    */
+  @RequireCaptcha(CAPTCHA_ACTIONS.READING_GENERATE)
+  @RateLimitByIp({ action: 'reading_generate', maxRequests: 10, windowMs: 5 * 60_000 })
   @Post('generate')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({

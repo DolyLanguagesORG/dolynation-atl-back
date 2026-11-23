@@ -28,6 +28,7 @@ export const LOG_MODULES = [
   'admin',
   'ia',
   'mail',
+  'security',
   'system',
 ] as const;
 
@@ -40,6 +41,7 @@ export const ERROR_SOURCES = [
   'auth_guard',
   'subscription_guard',
   'admin_guard',
+  'security_guard',
   'unhandled_exception',
   'ai_provider',
   'billing_provider',

@@ -47,6 +47,7 @@ import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
 
 /**
  * Controlador de autenticación y gestión de sesiones (`/auth`).
@@ -66,6 +67,8 @@ export class AuthController {
    * usuario debe confirmar su correo antes de poder iniciar sesión.
    */
   @Public()
+  @RequireCaptcha(CAPTCHA_ACTIONS.REGISTER)
+  @RateLimitByIp({ action: 'auth_register', maxRequests: 10, windowMs: 15 * 60_000 })
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
@@ -112,6 +115,8 @@ export class AuthController {
    * los correos registrados.
    */
   @Public()
+  @RequireCaptcha(CAPTCHA_ACTIONS.FORGOT_PASSWORD)
+  @RateLimitByIp({ action: 'auth_forgot_password', maxRequests: 10, windowMs: 15 * 60_000 })
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -130,6 +135,8 @@ export class AuthController {
    * Reenvía el correo de confirmación de cuenta si esta sigue sin verificarse.
    */
   @Public()
+  @RequireCaptcha(CAPTCHA_ACTIONS.RESEND_VERIFICATION)
+  @RateLimitByIp({ action: 'auth_resend_verification', maxRequests: 10, windowMs: 15 * 60_000 })
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -151,6 +158,8 @@ export class AuthController {
    * Establece una nueva contraseña usando un token de restablecimiento válido.
    */
   @Public()
+  @RequireCaptcha(CAPTCHA_ACTIONS.RESET_PASSWORD)
+  @RateLimitByIp({ action: 'auth_reset_password', maxRequests: 10, windowMs: 15 * 60_000 })
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -169,6 +178,8 @@ export class AuthController {
   }
 
   @Public()
+  @RequireCaptcha(CAPTCHA_ACTIONS.LOGIN)
+  @RateLimitByIp({ action: 'auth_login', maxRequests: 20, windowMs: 15 * 60_000 })
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Autenticar usuario con correo electrónico y contraseña' })

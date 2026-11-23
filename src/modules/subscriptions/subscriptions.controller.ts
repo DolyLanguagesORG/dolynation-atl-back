@@ -14,6 +14,7 @@ import { Public } from '../../common/decorators/public.decorator';
 import { AllowWithoutSubscription } from '../../common/decorators/allow-without-subscription.decorator';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
 import { SelectSubscriptionDto } from './dto/select-subscription.dto';
 import { SubscriptionPlanItemDto } from './dto/subscription-plan-response.dto';
 import { UserSubscriptionResponseDto } from './dto/user-subscription-response.dto';
@@ -69,6 +70,8 @@ export class SubscriptionsController {
    */
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
+  @RequireCaptcha(CAPTCHA_ACTIONS.SUBSCRIPTION_SELECT)
+  @RateLimitByIp({ action: 'subscription_select', maxRequests: 15, windowMs: 5 * 60_000 })
   @Post('user/subscription')
   @ApiOperation({
     summary: 'Seleccionar o actualizar manualmente el plan de suscripción del usuario',

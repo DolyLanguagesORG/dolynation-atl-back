@@ -14,6 +14,7 @@ import { EvaluationResultDto } from '../../common/types/api-response.dto';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
 import { CurrentUser, type AuthUser } from '../../common/decorators/current-user.decorator';
 import { ReadingsService } from '../readings/readings.service';
+import { RateLimitByIp } from '../security';
 import { SubmitEvaluationDto } from './dto/submit-evaluation.dto';
 
 /**
@@ -32,6 +33,7 @@ export class EvaluationController {
   /**
    * Evalúa el resumen escrito por el usuario frente a la lectura original.
    */
+  @RateLimitByIp({ action: 'reading_evaluate', maxRequests: 20, windowMs: 5 * 60_000 })
   @Post('submit')
   @ApiOperation({
     summary: 'Enviar el resumen del usuario para su evaluación',

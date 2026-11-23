@@ -113,6 +113,13 @@ describe('ErrorCatalog', () => {
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_PROVIDER_ERROR].status).toBe(502);
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_NOT_CONFIGURED].status).toBe(503);
   });
+
+  it('captcha and ip rate-limit error codes map to expected HTTP statuses', () => {
+    expect(ErrorCatalog[ErrorCode.CAPTCHA_REQUIRED].status).toBe(400);
+    expect(ErrorCatalog[ErrorCode.CAPTCHA_VERIFICATION_FAILED].status).toBe(403);
+    expect(ErrorCatalog[ErrorCode.CAPTCHA_PROVIDER_UNAVAILABLE].status).toBe(503);
+    expect(ErrorCatalog[ErrorCode.RATE_LIMIT_EXCEEDED].status).toBe(429);
+  });
 });
 
 describe('getErrorMeta', () => {
