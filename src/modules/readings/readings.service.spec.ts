@@ -679,6 +679,102 @@ describe('ReadingsService', () => {
       expect(users.recordDailyActivity).toHaveBeenCalledWith(42);
     });
 
+    it('devuelve la evaluacion ya hecha si llega la MISMA operacion (idempotencia)', async () => {
+      // La app PWA reenvia la respuesta cuando vuelve la red. Si el envio se
+      // corta a mitad, el reintento llega con la MISMA clave de
+      // idempotencia: sin esto, la IA evaluaria dos veces la misma
+      // respuesta (y cobraría dos veces).
+      const readingYaEvaluada = {
+        id: 9,
+        userId: 42,
+        title: 't',
+        description: 'd',
+        content: 'c',
+        category: 'technology',
+        difficulty: 'easy',
+        wordCount: 80,
+        status: 'completed',
+        score: 77,
+        passed: true,
+        userResponse: 'My summary.',
+        feedback: 'Good job.',
+        evaluationOperationId: 'op-123',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      const dbConEvaluada = {
+        insert: jest.fn(),
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([readingYaEvaluada]),
+            }),
+          }),
+        }),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      service = await buildModuleWithDb(dbConEvaluada);
+
+      const result = await service.evaluate(
+        9,
+        42,
+        { userResponse: 'My summary.' },
+        undefined,
+        'op-123',
+      );
+
+      // Se devuelve la evaluacion que ya estaba.
+      expect(result.score).toBe(77);
+      expect(result.passed).toBe(true);
+      expect(result.feedback).toBe('Good job.');
+      // Y **no** se vuelve a llamar a la IA ni a escribir en la base.
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+      expect(dbConEvaluada.update).not.toHaveBeenCalled();
+    });
+
+    it('con una operacion DISTINTA sigue siendo un error (la lectura ya esta evaluada)', async () => {
+      const readingYaEvaluada = {
+        id: 9,
+        userId: 42,
+        title: 't',
+        description: 'd',
+        content: 'c',
+        category: 'technology',
+        difficulty: 'easy',
+        wordCount: 80,
+        status: 'completed',
+        score: 77,
+        passed: true,
+        userResponse: 'My summary.',
+        feedback: 'Good job.',
+        evaluationOperationId: 'op-123',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      const dbConEvaluada = {
+        insert: jest.fn(),
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([readingYaEvaluada]),
+            }),
+          }),
+        }),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      service = await buildModuleWithDb(dbConEvaluada);
+
+      // Otra operacion: la lectura ya fue evaluada -> error (no se reevalua).
+      await expect(
+        service.evaluate(9, 42, { userResponse: 'My summary.' }, undefined, 'op-distinta'),
+      ).rejects.toBeDefined();
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+    });
+
     it('persists the user response and the AI feedback on the reading row', async () => {
       // The schema previously only stored score/passed. We now persist the
       // user's written summary AND the AI feedback so the mobile client can
