@@ -19,6 +19,7 @@ import {
 } from '../prompt-generation';
 import type { CefrLevel, DifficultyLevel, TextSize } from '../prompt-generation/catalog.types';
 
+/** Copia serializable de los idiomas aceptados por los DTOs de lectura. */
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
 /**

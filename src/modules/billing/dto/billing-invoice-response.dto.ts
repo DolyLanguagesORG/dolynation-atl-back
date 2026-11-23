@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/** Resumen público de una factura de Stripe vinculada al usuario. */
 export class BillingInvoiceDto {
   @ApiProperty({ example: 'in_123456', description: 'Stripe Invoice identifier' })
   id!: string;

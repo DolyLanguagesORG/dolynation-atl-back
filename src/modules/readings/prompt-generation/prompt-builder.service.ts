@@ -52,6 +52,7 @@ export interface ExplanationPromptParams {
   context?: string;
 }
 
+/** Instrucciones pedagógicas por nivel CEFR para las explicaciones contextuales. */
 const EXPLANATION_LEVEL_GUIDES: Record<string, string> = {
   easy: 'Beginner (A1-A2): explain simply using short everyday sentences, concrete comparisons, and accessible grammar labels without technical jargon.',
   medium:
@@ -513,6 +514,7 @@ Give the word-by-word dictionary breakdown, contrast the literal sense with what
   }
 }
 
+/** Unifica resúmenes recientes y títulos heredados para alimentar la detección de repetición. */
 function normalizeRecentEntries(
   recentReadings: readonly RecentReadingSummary[] | undefined,
   recentTitles: readonly string[] | undefined,

@@ -63,10 +63,6 @@ const MAX_SEMANTIC_REGENERATIONS = 2;
 const SEMANTIC_SIMILARITY_REJECT_SCORE = 2.35;
 
 /**
- * Servicio principal de lecturas: coordina enriquecimiento dinámico por lectura,
- * deduplicación semántica sobre las últimas 10 lecturas, guardia de pureza lingüística y evaluación.
- */
-/**
  * Convierte el fallo del proveedor de IA en una excepcion que **si explica**.
  *
  * El proveedor falla por motivos muy distintos y el cliente reacciona
@@ -94,6 +90,9 @@ function toAiException(err: unknown): AppHttpException {
   return new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE);
 }
 
+/**
+ * Coordina la generación, evaluación, consulta y explicación de lecturas con sus validaciones de dominio.
+ */
 @Injectable()
 export class ReadingsService {
   private readonly logger = new Logger(ReadingsService.name);
@@ -980,6 +979,7 @@ Evaluate how well the user understood the main idea of the text.`;
     return pending.length;
   }
 
+  /** Cuenta lecturas pendientes directamente dentro del ejecutor o transacción recibido. */
   private async countPending(userId: number, dbClient: DrizzleExecutor): Promise<number> {
     const rows = await dbClient
       .select({ id: readings.id })
@@ -1277,10 +1277,12 @@ Evaluate how well the user understood the main idea of the text.`;
   }
 }
 
+/** Escapa comodines de `LIKE` para que una búsqueda trate el término como texto literal. */
 function escapeLikePattern(raw: string): string {
   return raw.replace(/[\\%_]/g, '\\$&');
 }
 
+/** Limpia una selección léxica y la clasifica como palabra o frase para consultar el glosario. */
 function normalizeLookupTerm(rawWord: string): {
   displayWord: string;
   normalizedWord: string;
@@ -1298,6 +1300,7 @@ function normalizeLookupTerm(rawWord: string): {
   return { displayWord, normalizedWord, entryType };
 }
 
+/** Construye un prompt mínimo de respaldo cuando no está disponible el generador principal. */
 function buildFallbackExplanationPrompt(
   word: string,
   language: string,
@@ -1313,6 +1316,7 @@ Respond ONLY with a valid JSON object strictly in natural ${langLabel}.`;
   return { systemPrompt, userPrompt };
 }
 
+/** Proyecta una explicación persistida al DTO del glosario con valores opcionales normalizados. */
 function toGlossaryEntryDto(
   row: ReadingExplanation,
   readingTitle: string,

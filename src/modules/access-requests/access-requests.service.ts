@@ -28,6 +28,7 @@ import type {
   MyAccessRequestsResponseDto,
 } from './dto/access-request.dto';
 
+/** Resuelve un idioma admitido para el correo y usa el idioma predeterminado si no coincide. */
 function resolveMailLocale(locale: string | null | undefined): MailLocale {
   return isMailLocale(locale) ? locale : DEFAULT_UI_LOCALE;
 }
@@ -56,6 +57,7 @@ export class AccessRequestsService {
     return this.config.accessRequests.enabled;
   }
 
+  /** Proyecta una fila de solicitud al formato público sin campos internos adicionales. */
   private toDto(row: AccessRequest): AccessRequestItemDto {
     return {
       id: row.id,

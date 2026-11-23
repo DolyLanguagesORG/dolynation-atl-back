@@ -15,7 +15,9 @@ import type {
   ModerationOptions,
 } from './moderation.types';
 
+/** Longitud mínima aceptada para una categoría dinámica antes de moderarla. */
 const MIN_CATEGORY_LENGTH = 2;
+/** Longitud máxima almacenada y evaluada para una categoría dinámica. */
 const MAX_CATEGORY_LENGTH = 50;
 
 /**

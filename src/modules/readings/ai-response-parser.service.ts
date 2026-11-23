@@ -46,6 +46,7 @@ export interface StructuredExplanationResult {
   otherContexts: UsageContextItem[];
 }
 
+/** Niveles de dificultad que el parser acepta en respuestas del proveedor de IA. */
 const ALLOWED_DIFFICULTIES: TextDifficulty[] = ['easy', 'medium', 'hard'];
 
 /**
@@ -187,6 +188,7 @@ export class AiResponseParserService {
     }
   }
 
+  /** Retira bloques de razonamiento y cercas Markdown antes de interpretar una respuesta del modelo. */
   private stripProviderNoise(rawResponse: string): string {
     return rawResponse
       .replace(/<think>[\s\S]*?<\/think>/gi, '')
@@ -244,6 +246,7 @@ export class AiResponseParserService {
     throw new Error('Unterminated JSON object in response');
   }
 
+  /** Intenta parsear JSON válido y usa la reparación controlada antes de devolver el error original. */
   private parseJsonCandidate(candidate: string): unknown {
     try {
       return JSON.parse(candidate) as unknown;
@@ -256,6 +259,7 @@ export class AiResponseParserService {
     }
   }
 
+  /** Repara errores de formato conocidos y, si falla, recupera solo campos con forma reconocible. */
   private tryRepairAndParseJson(candidate: string): { ok: true; value: unknown } | { ok: false } {
     try {
       return {
@@ -268,6 +272,7 @@ export class AiResponseParserService {
     }
   }
 
+  /** Corrige literales y comillas mal cerradas sin alterar texto que ya cumple la estructura JSON. */
   private repairJsonLiteralsAndQuotes(text: string): string {
     const stack: Array<{ type: '{' | '['; expecting: 'key' | 'colon' | 'value' | 'comma' }> = [];
     const out: string[] = [];
@@ -355,12 +360,14 @@ export class AiResponseParserService {
     return out.join('');
   }
 
+  /** Avanza hasta el siguiente carácter no blanco para inspeccionar la estructura del JSON. */
   private skipWhitespace(text: string, start: number): number {
     let i = start;
     while (i < text.length && /\s/.test(text[i] ?? '')) i++;
     return i;
   }
 
+  /** Determina si una cadena posterior a una coma parece ser una clave de objeto JSON. */
   private isLikelyJsonObjectKeyAfter(text: string, openingQuoteIdx: number): boolean {
     let esc = false;
     for (let i = openingQuoteIdx + 1; i < text.length; i++) {
@@ -382,6 +389,7 @@ export class AiResponseParserService {
     return false;
   }
 
+  /** Distingue comillas de cierre estructurales de comillas internas en JSON mal formado. */
   private isStructuralClosingQuote(
     text: string,
     quoteIdx: number,
@@ -433,6 +441,7 @@ export class AiResponseParserService {
     );
   }
 
+  /** Recupera campos de lectura o evaluación conocidos cuando no puede repararse el objeto completo. */
   private recoverKnownObjectFields(candidate: string): Record<string, unknown> | null {
     const keyRegex = /"(title|description|content|category|difficulty|score|feedback)"\s*:/g;
     const matches = Array.from(candidate.matchAll(keyRegex));
@@ -472,6 +481,7 @@ export class AiResponseParserService {
   }
 }
 
+/** Normaliza valores primitivos a texto no vacío y descarta tipos no admitidos. */
 function readOptionalText(value: unknown): string | null {
   if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
     const trimmed = String(value).trim();
@@ -480,6 +490,7 @@ function readOptionalText(value: unknown): string | null {
   return null;
 }
 
+/** Normaliza variantes de respuesta del proveedor a elementos de desglose léxico válidos. */
 function parseWordBreakdownList(raw: unknown): WordBreakdownItem[] {
   if (!Array.isArray(raw)) return [];
   const items: WordBreakdownItem[] = [];
@@ -506,6 +517,7 @@ function parseWordBreakdownList(raw: unknown): WordBreakdownItem[] {
   return items;
 }
 
+/** Convierte cadenas u objetos del proveedor en alternativas con registro y nota opcionales. */
 function parseAlternativeList(raw: unknown): AlternativeExpressionItem[] {
   if (!Array.isArray(raw)) return [];
   const items: AlternativeExpressionItem[] = [];
@@ -530,6 +542,7 @@ function parseAlternativeList(raw: unknown): AlternativeExpressionItem[] {
   return items;
 }
 
+/** Normaliza ejemplos de uso y descarta contextos que no contienen información legible. */
 function parseUsageContextList(raw: unknown): UsageContextItem[] {
   if (!Array.isArray(raw)) return [];
   const items: UsageContextItem[] = [];

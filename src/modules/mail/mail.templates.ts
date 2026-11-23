@@ -109,6 +109,7 @@ interface TemplateCopy {
   readonly footer: string;
 }
 
+/** Textos localizados del correo de confirmación de cuenta para cada idioma admitido. */
 const CONFIRMATION_COPY: Record<MailLocale, TemplateCopy> = {
   es: {
     subject: 'Confirma tu DolyCuenta — DolyNation',
@@ -165,6 +166,7 @@ const CONFIRMATION_COPY: Record<MailLocale, TemplateCopy> = {
   },
 };
 
+/** Textos localizados del correo de restablecimiento de contraseña. */
 const PASSWORD_RESET_COPY: Record<MailLocale, TemplateCopy> = {
   es: {
     subject: 'Restablece tu contraseña — DolyNation',
@@ -436,6 +438,7 @@ interface RequestMailStrings {
   readonly adminNoticeNote: string;
 }
 
+/** Textos localizados para notificaciones de aprobación, rechazo y revisión administrativa. */
 const REQUEST_STRINGS: Record<MailLocale, RequestMailStrings> = {
   es: {
     eyebrow: 'Edición académica',

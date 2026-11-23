@@ -7,6 +7,7 @@ export const DEEP_EXPLANATION_MAX_REQUESTS = 20;
 /** Ventana deslizante del límite (10 minutos). */
 export const DEEP_EXPLANATION_WINDOW_MS = 10 * 60_000;
 
+/** Umbral de entradas que activa la limpieza de ventanas sin llamadas recientes. */
 const MAX_TRACKED_USERS = 5000;
 
 /**
@@ -42,6 +43,7 @@ export class DeepExplanationRateLimitService {
     this.pruneExpired(windowStart);
   }
 
+  /** Elimina ventanas vencidas cuando el mapa excede su umbral para acotar memoria. */
   private pruneExpired(windowStart: number): void {
     if (this.buckets.size <= MAX_TRACKED_USERS) return;
     for (const [userId, timestamps] of this.buckets) {

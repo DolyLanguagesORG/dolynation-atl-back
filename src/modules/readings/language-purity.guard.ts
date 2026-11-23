@@ -217,10 +217,12 @@ export function inspectTextsPurity(
   };
 }
 
+/** Extrae tokens alfabéticos latinos para aplicar reglas de pureza lingüística por palabra. */
 function extractLatinWordTokens(text: string): string[] {
   return text.match(/[A-Za-z\u00C0-\u024F]+/g) ?? [];
 }
 
+/** Detecta vocabulario inglés de alta señal y conserva cognados permitidos para francés. */
 function hasHighSignalEnglishWord(text: string, lang: string): boolean {
   for (const token of extractLatinWordTokens(text)) {
     if (!HIGH_SIGNAL_ENGLISH_PROSE_WORDS.has(token)) continue;
@@ -230,6 +232,7 @@ function hasHighSignalEnglishWord(text: string, lang: string): boolean {
   return false;
 }
 
+/** Cuenta palabras funcionales inglesas inequívocas y se detiene al alcanzar el umbral de rechazo. */
 function countUnambiguousLowercaseEnglishWords(text: string): number {
   let hits = 0;
   for (const token of extractLatinWordTokens(text)) {

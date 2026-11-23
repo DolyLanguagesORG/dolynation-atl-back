@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { IsIn, IsOptional } from 'class-validator';
 import { BILLING_UI_MODES, type BillingUiMode } from '../billing.constants';
 
+/** Opciones para crear un checkout de pago único para el crédito de cambio de idioma. */
 export class CreateLanguageUnlockCheckoutDto {
   @ApiPropertyOptional({
     example: 'custom',

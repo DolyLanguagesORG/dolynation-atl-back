@@ -60,6 +60,7 @@ import { WebhookProcessedResponseDto } from './dto/webhook-response.dto';
 export class BillingController {
   constructor(private readonly billing: BillingService) {}
 
+  /** Expone la configuración pública de facturación y los precios disponibles. */
   @Public()
   @Get('config')
   @ApiOperation({
@@ -71,6 +72,7 @@ export class BillingController {
     return apiOk('Billing configuration', config);
   }
 
+  /** Inicia el checkout de Stripe para contratar un plan de suscripción. */
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
   @Post('checkout/subscription')
@@ -104,6 +106,7 @@ export class BillingController {
     return apiOk('Subscription checkout session created', session);
   }
 
+  /** Inicia un checkout de pago único para adquirir un crédito de cambio de idioma. */
   @ApiBearerAuth('access-token')
   @Post('checkout/language-unlock')
   @HttpCode(HttpStatus.CREATED)
@@ -140,6 +143,7 @@ export class BillingController {
     return apiOk('Language unlock checkout session created', session);
   }
 
+  /** Sincroniza una sesión de checkout del usuario y aplica su resultado de forma idempotente. */
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
   @Post('checkout/:sessionId/sync')
@@ -173,6 +177,7 @@ export class BillingController {
     return apiOk('Checkout session synchronized', status);
   }
 
+  /** Devuelve el plan efectivo, la suscripción y los pagos recientes del usuario autenticado. */
   @ApiBearerAuth('access-token')
   @AllowWithoutSubscription()
   @Get('status')
@@ -189,6 +194,7 @@ export class BillingController {
     return apiOk('Billing status', status);
   }
 
+  /** Cambia el nivel de una suscripción activa y devuelve su estado actualizado. */
   @ApiBearerAuth('access-token')
   @Post('subscription/change-plan')
   @HttpCode(HttpStatus.OK)
@@ -218,6 +224,7 @@ export class BillingController {
     return apiOk('Subscription plan updated', status);
   }
 
+  /** Programa la cancelación de la suscripción al final del periodo vigente. */
   @ApiBearerAuth('access-token')
   @Post('subscription/cancel')
   @HttpCode(HttpStatus.OK)
@@ -236,6 +243,7 @@ export class BillingController {
     return apiOk('Subscription scheduled for cancellation at period end', status);
   }
 
+  /** Reactiva una suscripción cuya cancelación al cierre del periodo estaba programada. */
   @ApiBearerAuth('access-token')
   @Post('subscription/resume')
   @HttpCode(HttpStatus.OK)
@@ -253,6 +261,7 @@ export class BillingController {
     return apiOk('Subscription resumed', status);
   }
 
+  /** Crea un SetupIntent para capturar o actualizar el método de pago del usuario. */
   @ApiBearerAuth('access-token')
   @Post('payment-method/setup-intent')
   @HttpCode(HttpStatus.CREATED)
@@ -279,6 +288,7 @@ export class BillingController {
     return apiOk('Setup intent created', intent);
   }
 
+  /** Asigna como predeterminado un método de pago confirmado y perteneciente al usuario. */
   @ApiBearerAuth('access-token')
   @Post('payment-method/default')
   @HttpCode(HttpStatus.OK)
@@ -301,6 +311,7 @@ export class BillingController {
     return apiOk('Default payment method updated', summary);
   }
 
+  /** Lista las facturas recientes asociadas a la cuenta autenticada. */
   @ApiBearerAuth('access-token')
   @Get('invoices')
   @ApiOperation({
@@ -315,6 +326,7 @@ export class BillingController {
     return apiOk('Billing invoices', invoices);
   }
 
+  /** Genera una URL temporal del portal de facturación de Stripe para el usuario. */
   @ApiBearerAuth('access-token')
   @Post('portal')
   @HttpCode(HttpStatus.OK)
@@ -331,6 +343,7 @@ export class BillingController {
     return apiOk('Billing portal session created', portal);
   }
 
+  /** Verifica y procesa el webhook de Stripe usando el cuerpo HTTP sin modificar. */
   @Public()
   @Post('webhook')
   @HttpCode(HttpStatus.OK)

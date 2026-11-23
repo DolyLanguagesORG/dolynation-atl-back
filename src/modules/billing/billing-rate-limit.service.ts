@@ -26,6 +26,7 @@ export const BILLING_RATE_LIMITS: Record<BillingRateLimitAction, BillingRateLimi
   status: { maxRequests: 30, windowMs: 60_000 },
 };
 
+/** Umbral de buckets que activa la eliminación de ventanas de facturación vencidas. */
 const MAX_TRACKED_BUCKETS = 2000;
 
 /**
@@ -67,6 +68,7 @@ export class BillingRateLimitService {
     this.buckets.clear();
   }
 
+  /** Retira ventanas vencidas cuando el mapa excede su umbral para acotar memoria. */
   private pruneExpiredBuckets(now: number): void {
     if (this.buckets.size <= MAX_TRACKED_BUCKETS) {
       return;

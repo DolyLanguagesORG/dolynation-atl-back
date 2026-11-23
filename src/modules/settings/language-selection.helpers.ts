@@ -5,6 +5,7 @@ import {
   type LanguageId,
 } from './settings.constants';
 
+/** Cantidad de milisegundos en un día para calcular vencimientos de cambios anuales. */
 const MS_PER_DAY = 86_400_000;
 
 /**

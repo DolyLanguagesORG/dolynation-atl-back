@@ -4,6 +4,7 @@ import {
   type SubscriptionTier,
 } from '../../subscriptions/subscriptions.constants';
 
+/** Datos no sensibles del método de pago predeterminado de una suscripción. */
 export class BillingPaymentMethodSummaryDto {
   @ApiProperty({
     example: 'visa',
@@ -34,6 +35,7 @@ export class BillingPaymentMethodSummaryDto {
   expYear!: number | null;
 }
 
+/** Estado y periodo vigente de una suscripción de Stripe, sin exponer datos del medio de pago. */
 export class BillingSubscriptionSummaryDto {
   @ApiProperty({
     example: 'active',
@@ -83,6 +85,7 @@ export class BillingSubscriptionSummaryDto {
   paymentMethod!: BillingPaymentMethodSummaryDto | null;
 }
 
+/** Registro reciente de un pago o factura mostrado en la pantalla de facturación. */
 export class BillingRecentPaymentDto {
   @ApiProperty({ example: 1, description: 'Internal payment record ID' })
   id!: number;
@@ -123,6 +126,7 @@ export class BillingRecentPaymentDto {
   createdAt!: Date;
 }
 
+/** Estado de facturación del usuario y su historial reciente de pagos. */
 export class BillingStatusResponseDto {
   @ApiProperty({
     example: 'stripe',

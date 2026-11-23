@@ -9,8 +9,11 @@
  */
 export type ParserEvent = { type: 'text'; value: string };
 
+/** Etiquetas que delimitan el bloque de razonamiento que no se envía al usuario. */
 const OPEN_TAG = '<think>';
+/** Etiqueta de cierre del bloque que se descarta del texto visible. */
 const CLOSE_TAG = '</think>';
+/** Longitud retenida entre fragmentos para detectar una etiqueta de apertura partida. */
 const HOLD_LEN = OPEN_TAG.length;
 
 /**

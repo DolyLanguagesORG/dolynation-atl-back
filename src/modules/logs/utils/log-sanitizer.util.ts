@@ -1,9 +1,15 @@
+/** Marcador común usado en registros cuando un campo sensible se oculta. */
 const REDACTED = '[REDACTED]';
+/** Profundidad máxima recorrida al sanitizar objetos anidados. */
 const MAX_DEPTH = 8;
+/** Cantidad máxima de elementos de un arreglo que se conserva en un registro. */
 const MAX_ARRAY_ITEMS = 100;
+/** Longitud total máxima de una cadena guardada en los registros. */
 const MAX_STRING_LENGTH = 2000;
+/** Prefijo visible conservado antes de marcar una cadena como truncada. */
 const STRING_PREVIEW_LENGTH = 1000;
 
+/** Nombres normalizados de propiedades que contienen credenciales o datos de sesión. */
 const SENSITIVE_NORMALIZED_KEYS = new Set<string>([
   'password',
   'newpassword',
@@ -28,6 +34,7 @@ const SENSITIVE_NORMALIZED_KEYS = new Set<string>([
   'clientsecret',
 ]);
 
+/** Detecta nombres de propiedades que podrían contener credenciales o datos de sesión. */
 function isSensitiveKey(key: string): boolean {
   const normalized = key.replace(/[-_\s]/g, '').toLowerCase();
   if (SENSITIVE_NORMALIZED_KEYS.has(normalized)) {
@@ -46,6 +53,7 @@ function isSensitiveKey(key: string): boolean {
   return false;
 }
 
+/** Limita cadenas extensas para evitar registros desproporcionados. */
 function truncateLongString(value: string): string {
   if (value.length <= MAX_STRING_LENGTH) {
     return value;
@@ -53,6 +61,7 @@ function truncateLongString(value: string): string {
   return `${value.slice(0, STRING_PREVIEW_LENGTH)}... [truncated: total ${value.length} chars]`;
 }
 
+/** Sanitiza recursivamente valores, redacta secretos y corta ciclos o estructuras demasiado profundas. */
 function sanitizeInternal(value: unknown, depth: number, seen: WeakSet<object>): unknown {
   if (value === null || value === undefined) {
     return value;

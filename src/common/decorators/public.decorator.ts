@@ -1,5 +1,6 @@
 import { SetMetadata } from '@nestjs/common';
 
+/** Clave de metadata que identifica controladores y rutas públicas ante el guard global. */
 export const IS_PUBLIC_KEY = 'isPublic';
 
 /**

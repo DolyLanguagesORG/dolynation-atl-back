@@ -728,15 +728,19 @@ const COMPACT_UNAMBIGUOUS_SUBSTRINGS: readonly string[] = [
   'zxcvbn',
 ];
 
+/** Conjunto de consulta rápida para términos bloqueados en cualquier contexto. */
 const HARD_WORDS_SET = new Set<string>(HARD_BLACKLIST_WORDS);
+/** Conjunto de términos de muerte cuyo resultado depende del contexto educativo. */
 const CONTEXTUAL_DEATH_SET = new Set<string>(CONTEXTUAL_DEATH_WORDS);
 
+/** Comprueba si alguno de los tokens normalizados coincide con una palabra bloqueada. */
 function hasBlockedWord(text: string, wordSet: ReadonlySet<string>): boolean {
   if (text.length === 0) return false;
   const tokens = text.split(' ');
   return tokens.some((token) => wordSet.has(token));
 }
 
+/** Detecta frases bloqueadas respetando sus límites para evitar coincidencias parciales accidentales. */
 function hasBlockedPhrase(variants: readonly string[], phrases: readonly string[]): boolean {
   return variants.some((v) =>
     phrases.some(
@@ -749,6 +753,7 @@ function hasBlockedPhrase(variants: readonly string[], phrases: readonly string[
   );
 }
 
+/** Retira expresiones educativas permitidas antes de evaluar raíces de riesgo contextual. */
 function stripSafePhrases(spacedText: string): string {
   let result = ` ${spacedText} `;
   for (const phrase of SAFE_EDUCATIONAL_PHRASES) {
@@ -757,6 +762,7 @@ function stripSafePhrases(spacedText: string): string {
   return result.replace(/\s+/g, ' ').trim();
 }
 
+/** Evalúa representaciones alternativas para detectar evasiones por espacios o letras repetidas. */
 function checkVariantsAgainstWords(
   variants: NormalizedCategoryVariants,
   wordSet: ReadonlySet<string>,

@@ -69,8 +69,10 @@ const PROMPT_LOGS_PAGE_SIZE = 50;
 
 /** Tamaño de página predeterminado y máximo para consultas de logs de auditoría y errores. */
 const LOGS_DEFAULT_PAGE_SIZE = 50;
+/** Máximo de filas por página al consultar bitácoras administrativas. */
 const LOGS_MAX_PAGE_SIZE = 200;
 
+/** Convierte límites de fecha de consulta en fechas válidas y expande fechas finales al cierre del día. */
 function parseDateBound(raw: string | undefined, endOfDayIfDateOnly: boolean): Date | null {
   if (!raw) return null;
   const trimmed = raw.trim();
@@ -83,6 +85,7 @@ function parseDateBound(raw: string | undefined, endOfDayIfDateOnly: boolean): D
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+/** Acota el tamaño de página de bitácoras al intervalo permitido por el servicio. */
 function clampLogsLimit(raw: number | undefined): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) {
     return LOGS_DEFAULT_PAGE_SIZE;
@@ -90,6 +93,7 @@ function clampLogsLimit(raw: number | undefined): number {
   return Math.max(1, Math.min(LOGS_MAX_PAGE_SIZE, Math.floor(raw)));
 }
 
+/** Normaliza el desplazamiento de paginación para impedir valores negativos o no finitos. */
 function clampLogsOffset(raw: number | undefined): number {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) {
     return 0;
@@ -97,10 +101,12 @@ function clampLogsOffset(raw: number | undefined): number {
   return Math.max(0, Math.floor(raw));
 }
 
+/** Resuelve un idioma de correo admitido y usa el idioma predeterminado para valores inválidos. */
 function resolveMailLocale(locale: string | null | undefined): MailLocale {
   return isMailLocale(locale) ? locale : DEFAULT_UI_LOCALE;
 }
 
+/** Devuelve el nombre visible de un plan conocido o conserva el identificador recibido. */
 function resolvePlanDisplayName(tier: string | null | undefined): string | null {
   if (!tier) return null;
   return isValidSubscriptionTier(tier) ? SUBSCRIPTION_PLANS[tier].name : tier;
@@ -466,6 +472,7 @@ export class AdminService {
     }));
   }
 
+  /** Devuelve solicitudes enriquecidas con los datos actuales del usuario para el panel admin. */
   private async selectEnrichedRequests(
     conditions: SQL[],
     limit = REQUESTS_PAGE_SIZE,
@@ -796,6 +803,7 @@ export class AdminService {
     return { request: enriched, emailSent };
   }
 
+  /** Distingue entre una solicitud inexistente y otra que ya fue revisada. */
   private async throwNotFoundOrAlreadyReviewed(requestId: number): Promise<never> {
     const rows = await this.db
       .select({ id: accessRequests.id, status: accessRequests.status })
@@ -811,6 +819,7 @@ export class AdminService {
     throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'AccessRequest' });
   }
 
+  /** Recupera una solicitud y los datos de su usuario para construir el DTO administrativo. */
   private async findEnrichedRequestById(requestId: number): Promise<AdminAccessRequestDto> {
     const rows = await this.db
       .select({

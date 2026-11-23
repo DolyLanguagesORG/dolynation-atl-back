@@ -333,6 +333,7 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
 };
 /* eslint-enable @typescript-eslint/no-unsafe-enum-comparison */
 
+/** Valores del enum usados para validar de forma segura códigos desconocidos en tiempo de ejecución. */
 const ERROR_CODE_VALUES: ErrorCode[] = Object.values(ErrorCode);
 
 /** Valida si un valor desconocido corresponde a un `ErrorCode` reconocido. */

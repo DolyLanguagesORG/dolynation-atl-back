@@ -12,8 +12,10 @@ import type { Request, Response } from 'express';
 import { ErrorCode, ErrorCatalog, isErrorCode } from './error-codes';
 import { ErrorLogService, RequestContextService } from '../../modules/logs';
 
+/** Reconoce el formato `campo - mensaje` usado por los errores de validación. */
 const VALIDATION_MESSAGE_REGEX = /^([\w@.]+)\s+-\s+(.+)$/;
 
+/** Detalles internos que no deben filtrarse en el sobre de error público. */
 const INTERNAL_DETAIL_KEYS = new Set([
   'hint',
   'operation',
@@ -25,6 +27,7 @@ const INTERNAL_DETAIL_KEYS = new Set([
   'message',
 ]);
 
+/** Elimina de la respuesta pública los detalles reservados para uso interno. */
 function stripInternalDetails(
   details: Record<string, unknown> | undefined,
 ): Record<string, unknown> | undefined {
@@ -161,6 +164,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     return this.okResponse(fallback);
   }
 
+  /** Construye el sobre de error seguro y conserva el estado HTTP del catálogo. */
   private okResponse(
     meta: { code: ErrorCode; status: number; message: string },
     details?: Record<string, unknown>,
@@ -179,6 +183,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
   }
 
+  /** Obtiene del cuerpo una clave de error reconocida por el catálogo de la API. */
   private tryReadCodeFromBody(body: string | object): ErrorCode | null {
     if (typeof body !== 'object' || body === null) return null;
     const raw = (body as { code?: unknown }).code;
@@ -186,6 +191,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     return null;
   }
 
+  /** Extrae detalles estructurados de una excepción sin alterar respuestas no objetuales. */
   private tryReadDetailsFromBody(body: string | object): Record<string, unknown> | undefined {
     if (typeof body !== 'object' || body === null) return undefined;
     const d = (body as { details?: unknown }).details;
@@ -193,6 +199,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     return undefined;
   }
 
+  /** Traduce estados HTTP comunes al código estable correspondiente del catálogo. */
   private codeFromStatus(status: number): ErrorCode {
     switch (status) {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
@@ -218,26 +225,31 @@ export class AllExceptionsFilter implements ExceptionFilter {
     }
   }
 
+  /** Reconoce el arreglo de mensajes emitido por el ValidationPipe de NestJS. */
   private isValidationResponse(resp: string | object): boolean {
     if (typeof resp !== 'object' || resp === null) return false;
     const r = resp as { message?: unknown };
     return Array.isArray(r.message);
   }
 
+  /** Normaliza los mensajes de validación a cadenas para convertirlos en detalles por campo. */
   private asMessageArray(resp: string | object): string[] {
     const r = resp as { message?: unknown };
     if (Array.isArray(r.message)) return r.message.map((m) => String(m));
     return [];
   }
 
+  /** Devuelve un nombre seguro para registrar excepciones conocidas y desconocidas. */
   private errorName(exception: unknown): string {
     return exception instanceof Error ? exception.name : typeof exception;
   }
 
+  /** Obtiene el mensaje de una excepción para el registro interno del servidor. */
   private errorMessage(exception: unknown): string {
     return exception instanceof Error ? exception.message : String(exception);
   }
 
+  /** Obtiene la traza solo cuando el valor capturado es una instancia de Error. */
   private errorStack(exception: unknown): string | undefined {
     return exception instanceof Error ? exception.stack : undefined;
   }

@@ -13,7 +13,9 @@ export interface NormalizedCategoryVariants {
   compactCollapsedTwo: string;
 }
 
+/** Caracteres invisibles o de ancho cero que se eliminan antes de comparar nombres. */
 const INVISIBLE_CHARS_REGEX = /[\u200B-\u200D\uFEFF\u00AD]/g;
+/** Marcas Unicode combinantes removidas tras descomponer caracteres acentuados. */
 const COMBINING_MARKS_REGEX = /[\u0300-\u036f]/g;
 
 /** Mapa de homóglifos cirílicos y griegos comunes usados para evadir filtros de texto. */
@@ -115,6 +117,7 @@ function joinSingleCharRuns(spacedText: string): string {
   return result.join(' ');
 }
 
+/** Construye la clave canónica interna tras limpiar el nombre y unificar separadores. */
 function canonicalCategoryKeyRaw(raw: string): string {
   return stripDiacriticsAndHomoglyphs(cleanCategoryDisplayName(raw))
     .replace(/[_-]+/g, ' ')

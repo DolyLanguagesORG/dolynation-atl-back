@@ -10,6 +10,7 @@ import { AuditLogService } from '../logs';
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { getDateKeyInTimeZone, TIMEZONE_RESET } from '../subscriptions/subscriptions.constants';
 
+/** Longitud máxima de la clave canónica persistida para una categoría dinámica. */
 const MAX_CANONICAL_KEY_LENGTH = 120;
 
 /**

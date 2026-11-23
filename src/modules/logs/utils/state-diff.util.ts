@@ -7,6 +7,7 @@ export interface StateDiffResult {
   changedFields: string[];
 }
 
+/** Compara recursivamente arreglos y objetos planos para detectar cambios de estado. */
 function deepEqual(a: unknown, b: unknown): boolean {
   if (Object.is(a, b)) {
     return true;

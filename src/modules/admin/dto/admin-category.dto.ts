@@ -21,7 +21,7 @@ export class AdminCategoryDto {
 }
 
 /**
- * Query parameters supported by `GET /admin/users`.
+ * Filtros opcionales de búsqueda por nombre/correo y rol para `GET /admin/users`.
  */
 export class AdminUsersQueryDto {
   @ApiPropertyOptional({

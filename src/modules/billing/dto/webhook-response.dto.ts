@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+/** Resultado de recepción de un webhook, incluyendo si se ignoró por duplicado o entorno. */
 export class WebhookProcessedResponseDto {
   @ApiProperty({
     example: true,

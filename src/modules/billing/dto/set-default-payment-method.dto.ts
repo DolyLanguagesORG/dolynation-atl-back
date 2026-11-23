@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsString, Matches, MaxLength } from 'class-validator';
 
+/** Identificador del método de pago confirmado que se quiere asociar como predeterminado. */
 export class SetDefaultPaymentMethodDto {
   @ApiProperty({
     example: 'pm_1234567890',

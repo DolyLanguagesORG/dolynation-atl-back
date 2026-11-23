@@ -29,10 +29,12 @@ export interface OAuthExchangeResult {
   linkedExistingAccount: boolean;
 }
 
+/** Comprueba si el identificador recibido pertenece a los proveedores OAuth admitidos. */
 function isSupportedProvider(value: string): value is SupportedOAuthProvider {
   return (SUPPORTED_OAUTH_PROVIDERS as readonly string[]).includes(value);
 }
 
+/** Reconoce errores de unicidad de PostgreSQL, incluso cuando vienen envueltos en `cause`. */
 function isPgUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') {
     return false;
@@ -101,6 +103,7 @@ export class AuthOAuthService {
     return this.createAndLoginOAuthUser(profile, input.locale);
   }
 
+  /** Intercambia el código OAuth y registra fallos del proveedor sin exponerlos al cliente. */
   private async fetchVerifiedProfile(
     adapter: OAuthProviderAdapter,
     input: OAuthExchangeDto,
@@ -140,6 +143,7 @@ export class AuthOAuthService {
     }
   }
 
+  /** Busca la cuenta local vinculada a la identidad del proveedor. */
   private async findOAuthLink(
     provider: SupportedOAuthProvider,
     providerUserId: string,
@@ -157,6 +161,7 @@ export class AuthOAuthService {
     return rows[0] ?? null;
   }
 
+  /** Rechaza cuentas eliminadas o administrativas antes de completar el inicio de sesión OAuth. */
   private async assertNotAdminOrDeleted(
     user: UserWithRole | null,
     provider: SupportedOAuthProvider,
@@ -185,6 +190,7 @@ export class AuthOAuthService {
     return user;
   }
 
+  /** Marca el correo como verificado y devuelve el perfil actualizado de la cuenta. */
   private async ensureEmailVerified(user: UserWithRole): Promise<UserWithRole> {
     if (user.emailVerifiedAt) {
       return user;
@@ -193,6 +199,7 @@ export class AuthOAuthService {
     return (await this.users.findById(user.id)) ?? { ...user, emailVerifiedAt: new Date() };
   }
 
+  /** Emite una sesión para una identidad OAuth que ya está vinculada a una cuenta local. */
   private async loginWithExistingLink(
     link: typeof userOAuthAccounts.$inferSelect,
     profile: OAuthVerifiedProfile,
@@ -223,6 +230,7 @@ export class AuthOAuthService {
     };
   }
 
+  /** Vincula OAuth a una cuenta existente y asegura cuentas cuyo correo aún no estaba verificado. */
   private async linkAndLoginExistingUser(
     existingUser: UserWithRole,
     profile: OAuthVerifiedProfile,
@@ -268,6 +276,7 @@ export class AuthOAuthService {
     };
   }
 
+  /** Crea una cuenta verificada por el proveedor y recupera carreras de registro por correo único. */
   private async createAndLoginOAuthUser(
     profile: OAuthVerifiedProfile,
     locale?: string,
@@ -309,6 +318,7 @@ export class AuthOAuthService {
     };
   }
 
+  /** Persiste la identidad y acepta una carrera solo si ya pertenece al mismo usuario. */
   private async persistOAuthLinkOrVerifyRace(
     userId: number,
     profile: OAuthVerifiedProfile,

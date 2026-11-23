@@ -100,6 +100,7 @@ export class AuditLogService {
     });
   }
 
+  /** Añade el contexto HTTP, sanitiza el estado y persiste el evento de auditoría. */
   private async record(
     params: BaseAuditInput & {
       action: AuditAction;

@@ -10,13 +10,20 @@ import type {
 } from './oauth-provider.interface';
 import { OidcJwksVerifier } from './oidc-jwks.verifier';
 
+/** Endpoint de autorización OIDC de Google. */
 export const GOOGLE_AUTHORIZATION_ENDPOINT = 'https://accounts.google.com/o/oauth2/v2/auth';
+/** Endpoint de Google para intercambiar códigos de autorización por tokens. */
 export const GOOGLE_TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+/** Endpoint JWKS de Google para verificar firmas de ID tokens. */
 export const GOOGLE_JWKS_URI = 'https://www.googleapis.com/oauth2/v3/certs';
+/** Emisores OIDC de Google aceptados al validar el ID token. */
 export const GOOGLE_ISSUERS = ['https://accounts.google.com', 'accounts.google.com'] as const;
+/** Scopes mínimos solicitados para identificar al usuario y leer su perfil básico. */
 export const GOOGLE_SCOPES = ['openid', 'email', 'profile'] as const;
 
+/** Tiempo máximo de espera para las solicitudes HTTP al proveedor OAuth. */
 const GOOGLE_OAUTH_TIMEOUT_MS = 15_000;
+/** Errores de intercambio que indican un código o una solicitud OAuth inválidos. */
 const INVALID_CODE_OAUTH_ERRORS = new Set([
   'invalid_grant',
   'invalid_request',

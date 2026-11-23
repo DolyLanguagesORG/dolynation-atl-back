@@ -14,7 +14,7 @@ import { AUDIT_ACTIONS, ERROR_SEVERITIES, type AuditAction, type ErrorSeverity }
 import { AdminPromptLogDto } from './admin-category.dto';
 
 /**
- * Query parameters supported by `GET /admin/logs/audit`.
+ * Filtros de actor, entidad, acción, fechas y paginación para consultar la bitácora de auditoría.
  */
 export class AdminAuditLogsQueryDto {
   @ApiPropertyOptional({ example: 42, description: 'Filter by actor user id' })
@@ -127,7 +127,7 @@ export class AdminAuditLogsQueryDto {
 }
 
 /**
- * Query parameters supported by `GET /admin/logs/errors`.
+ * Filtros de severidad, origen, código, fechas y paginación para consultar la bitácora de errores.
  */
 export class AdminErrorLogsQueryDto {
   @ApiPropertyOptional({ example: 42, description: 'Filter by actor user id' })
@@ -237,7 +237,7 @@ export class AdminErrorLogsQueryDto {
 }
 
 /**
- * Audit log entry returned by `/admin/logs/audit` and `/admin/logs/trace/:requestId`.
+ * Registro de auditoría devuelto por `/admin/logs/audit` y `/admin/logs/trace/:requestId`.
  */
 export class AdminAuditLogItemDto {
   @ApiProperty({ example: 101, description: 'Unique audit log entry identifier' })
@@ -357,7 +357,7 @@ export class AdminAuditLogItemDto {
 }
 
 /**
- * Paginated response payload for `GET /admin/logs/audit`.
+ * Página de resultados de `GET /admin/logs/audit` junto con sus datos de paginación.
  */
 export class AdminAuditLogListResponseDto {
   @ApiProperty({ type: () => [AdminAuditLogItemDto], description: 'Matching audit log entries' })
@@ -374,7 +374,7 @@ export class AdminAuditLogListResponseDto {
 }
 
 /**
- * Error log entry returned by `/admin/logs/errors` and `/admin/logs/trace/:requestId`.
+ * Registro de error devuelto por `/admin/logs/errors` y `/admin/logs/trace/:requestId`.
  */
 export class AdminErrorLogItemDto {
   @ApiProperty({ example: 55, description: 'Unique error log entry identifier' })
@@ -483,7 +483,7 @@ export class AdminErrorLogItemDto {
 }
 
 /**
- * Paginated response payload for `GET /admin/logs/errors`.
+ * Página de resultados de `GET /admin/logs/errors` junto con sus datos de paginación.
  */
 export class AdminErrorLogListResponseDto {
   @ApiProperty({ type: () => [AdminErrorLogItemDto], description: 'Matching error log entries' })
@@ -500,7 +500,7 @@ export class AdminErrorLogListResponseDto {
 }
 
 /**
- * Combined chronological trace across audit_logs, error_logs and prompt_logs for a single requestId.
+ * Traza cronológica de auditoría, errores y prompts asociados a una misma petición.
  */
 export class AdminRequestTraceDto {
   @ApiProperty({

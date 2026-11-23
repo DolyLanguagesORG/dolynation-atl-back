@@ -58,15 +58,24 @@ interface AiModerationItem {
   blueprint?: unknown;
 }
 
+/** Límite del caché L1 para evitar crecimiento sin cota durante la moderación. */
 const MAX_CACHE_ENTRIES = 2000;
+/** Tiempo mínimo para generar una guía editorial, aunque el límite general sea menor. */
 const MIN_BLUEPRINT_TIMEOUT_MS = 18_000;
+/** Número máximo de evaluaciones simultáneas enviadas a Google Decisions. */
 const GOOGLE_DECISIONS_CONCURRENCY = 4;
+/** Confianza mínima para aceptar un rechazo semántico de Google. */
 const GOOGLE_DECISIONS_MIN_REJECT_CONFIDENCE = 0.55;
+/** Probabilidad mínima de aprobación requerida para aceptar una categoría. */
 const GOOGLE_DECISIONS_MIN_ALLOW_PROB = 0.6;
+/** Probabilidad mínima de contenido significativo para aceptar un resultado `noul`. */
 const GOOGLE_DECISIONS_MIN_NOUL_ALLOW = 0.55;
+/** Umbral superior de `noul` por debajo del cual se rechaza contenido sin sentido. */
 const GOOGLE_DECISIONS_MAX_NOUL_REJECT = 0.3;
+/** Zona ambigua de `noul` que requiere validación mediante otra capa de moderación. */
 const GOOGLE_DECISIONS_BORDERLINE_NOUL = 0.45;
 
+/** Categorías de alto riesgo que reciben un umbral más estricto en OpenAI Moderation. */
 const CRITICAL_OPENAI_CATEGORIES = new Set<string>([
   'sexual/minors',
   'self-harm/intent',
@@ -137,6 +146,7 @@ export class CategoryAiModeratorService {
     return aiConfig?.defaultProvider ?? 'minimax';
   }
 
+  /** Determina si la configuración permite usar IA sistémica para moderar categorías. */
   private canUseSystemAi(
     modConfig: AppConfigService['moderation'],
     overrideProvider?: ProviderName,
@@ -189,6 +199,7 @@ export class CategoryAiModeratorService {
     return null;
   }
 
+  /** Aplica límites y valores predeterminados adecuados al proveedor de moderación elegido. */
   private buildModerationRequestOptions(
     provider: ProviderName,
     maxTokens: number,
@@ -517,6 +528,7 @@ export class CategoryAiModeratorService {
     });
   }
 
+  /** Busca una decisión usando la clave canónica para tolerar diferencias de formato. */
   private findDecisionByKey(
     decisions: ReadonlyMap<string, CategoryModerationDecision>,
     key: string,
@@ -529,6 +541,7 @@ export class CategoryAiModeratorService {
     return undefined;
   }
 
+  /** Devuelve una entrada vigente y elimina de inmediato las que ya expiraron. */
   private getCached(key: string): CacheEntry | undefined {
     const entry = this.cache.get(key);
     if (!entry) return undefined;
@@ -539,6 +552,7 @@ export class CategoryAiModeratorService {
     return entry;
   }
 
+  /** Guarda una decisión con vencimiento y acota el tamaño del caché en memoria. */
   private setCached(
     key: string,
     decision: CategoryModerationDecision,
@@ -560,6 +574,7 @@ export class CategoryAiModeratorService {
     });
   }
 
+  /** Completa decisiones desde PostgreSQL y devuelve las categorías que aún requieren moderación. */
   private async resolveFromPersistentCache(
     remaining: readonly string[],
     decisions: Map<string, CategoryModerationDecision>,
@@ -629,6 +644,7 @@ export class CategoryAiModeratorService {
     }
   }
 
+  /** Aplica veredictos de un lote al caché y persiste solo las decisiones resueltas. */
   private async applyBatchVerdicts(
     remaining: readonly string[],
     batchDecisions: ReadonlyMap<string, CategoryModerationDecision>,
@@ -672,6 +688,7 @@ export class CategoryAiModeratorService {
     return nextRemaining;
   }
 
+  /** Inserta o actualiza veredictos persistentes, incluyendo revalidaciones del caché antiguo. */
   private async writePersistentCache(
     entries: readonly PendingCacheWrite[],
     revalidatedKeys?: ReadonlySet<string>,
@@ -770,6 +787,7 @@ export class CategoryAiModeratorService {
     }
   }
 
+  /** Guarda la guía editorial generada para reutilizarla con la categoría aprobada. */
   private async persistProfileUpdate(
     key: string,
     sampleCategory: string,
@@ -825,6 +843,7 @@ export class CategoryAiModeratorService {
     }
   }
 
+  /** Ejecuta la capa gratuita de moderación de OpenAI y deja el flujo seguir si el proveedor falla. */
   private async checkOpenAiModeration(
     categories: readonly string[],
     modConfig: AppConfigService['moderation'],
@@ -911,6 +930,7 @@ export class CategoryAiModeratorService {
     }
   }
 
+  /** Evalúa categorías con Google Decisions en lotes limitados por la concurrencia configurada. */
   private async checkGoogleDecisionsBatch(
     categories: readonly string[],
     modConfig: AppConfigService['moderation'],
@@ -933,6 +953,7 @@ export class CategoryAiModeratorService {
     return map;
   }
 
+  /** Solicita el veredicto semántico de una categoría y deja ambiguos para la capa siguiente. */
   private async evaluateSingleWithGoogleDecisions(
     category: string,
     modConfig: AppConfigService['moderation'],
@@ -988,6 +1009,7 @@ export class CategoryAiModeratorService {
     }
   }
 
+  /** Genera una guía editorial reutilizable y la guarda junto con el veredicto aprobado. */
   private async generateAndStoreBlueprint(
     key: string,
     category: string,
@@ -1032,6 +1054,7 @@ export class CategoryAiModeratorService {
     }
   }
 
+  /** Modera un lote con IA sistémica y normaliza los veredictos recibidos. */
   private async checkSystemAiBatch(
     categories: readonly string[],
     timeoutMs: number,
@@ -1113,6 +1136,7 @@ export class CategoryAiModeratorService {
   }
 }
 
+/** Elimina categorías repetidas por su clave canónica y conserva la primera forma escrita. */
 function deduplicateByCanonicalKey(categories: readonly string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -1125,6 +1149,7 @@ function deduplicateByCanonicalKey(categories: readonly string[]): string[] {
   return unique;
 }
 
+/** Reconstruye un veredicto desde la entrada interna almacenada en el caché. */
 function toDecision(category: string, entry: CacheEntry): CategoryModerationDecision {
   if (entry.allowed) {
     return { category, allowed: true };
@@ -1137,6 +1162,7 @@ function toDecision(category: string, entry: CacheEntry): CategoryModerationDeci
   };
 }
 
+/** Identifica la primera categoría de moderación cuyo puntaje supera su umbral aplicable. */
 function findViolatedOpenAiScore(item: OpenAiModerationResult, threshold: number): string | null {
   const scores = item.category_scores;
   if (!scores) return null;
@@ -1152,6 +1178,7 @@ function findViolatedOpenAiScore(item: OpenAiModerationResult, threshold: number
   return null;
 }
 
+/** Extrae el objeto JSON de una respuesta del modelo tras retirar bloques y ruido del proveedor. */
 function cleanJsonEnvelope(raw: string): Record<string, unknown> | null {
   const cleaned = normalizeSmartQuoteStrings(
     raw
@@ -1175,6 +1202,7 @@ function cleanJsonEnvelope(raw: string): Record<string, unknown> | null {
   }
 }
 
+/** Valida el contenedor JSON de moderación y devuelve su arreglo de resultados. */
 function parseAiModerationPayload(raw: string): AiModerationItem[] | null {
   const parsed = cleanJsonEnvelope(raw);
   if (!parsed || !Array.isArray(parsed.results)) {
@@ -1183,6 +1211,7 @@ function parseAiModerationPayload(raw: string): AiModerationItem[] | null {
   return parsed.results as AiModerationItem[];
 }
 
+/** Limpia, deduplica y limita una lista de texto producida por el proveedor de IA. */
 function normalizeStringList(raw: unknown, maxItems: number): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set<string>();
@@ -1200,6 +1229,7 @@ function normalizeStringList(raw: unknown, maxItems: number): string[] {
   return items;
 }
 
+/** Valida y limita los campos de una guía editorial generada antes de guardarla. */
 function normalizeBlueprint(raw: unknown, fallbackCategory: string): CategoryPromptProfile | null {
   if (!raw || typeof raw !== 'object') return null;
   const candidate = raw as Record<string, unknown>;
@@ -1230,6 +1260,7 @@ function normalizeBlueprint(raw: unknown, fallbackCategory: string): CategoryPro
   };
 }
 
+/** Extrae y normaliza la guía editorial devuelta por una sola solicitud de IA. */
 function parseSingleBlueprintPayload(
   raw: string,
   fallbackCategory: string,
@@ -1239,6 +1270,7 @@ function parseSingleBlueprintPayload(
   return normalizeBlueprint(parsed.blueprint ?? parsed, fallbackCategory);
 }
 
+/** Restringe el motivo de rechazo a los códigos de moderación reconocidos por la aplicación. */
 function sanitizeReason(reason: string): string {
   const normalized = reason
     .toLowerCase()
@@ -1254,6 +1286,7 @@ function sanitizeReason(reason: string): string {
   return 'unsafe_or_non_educational';
 }
 
+/** Aplica umbrales de confianza al veredicto de Google y devuelve `null` si requiere otra capa. */
 function interpretGoogleCategoryDecision(
   category: string,
   response: CreateDecisionResponse,
@@ -1308,6 +1341,7 @@ function interpretGoogleCategoryDecision(
   return null;
 }
 
+/** Permite únicamente rutas de moderación para evitar enviar categorías a endpoints arbitrarios. */
 function isFreeOpenAiModerationEndpoint(rawUrl: string): boolean {
   try {
     const parsed = new URL(rawUrl);
@@ -1317,6 +1351,7 @@ function isFreeOpenAiModerationEndpoint(rawUrl: string): boolean {
   }
 }
 
+/** Convierte el nombre persistido de una capa a una variante reconocida por el dominio. */
 function toModerationLayer(raw: string | null): ModerationLayer | undefined {
   switch (raw) {
     case 'format':
@@ -1330,11 +1365,13 @@ function toModerationLayer(raw: string | null): ModerationLayer | undefined {
   }
 }
 
+/** Obtiene un mensaje legible para registrar errores tipados o valores desconocidos. */
 function describeError(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
 
+/** Rechaza una operación lenta al vencer el plazo y limpia el temporizador al resolverla. */
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {

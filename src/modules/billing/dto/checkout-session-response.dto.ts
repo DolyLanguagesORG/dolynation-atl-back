@@ -6,6 +6,7 @@ import {
   type PaidSubscriptionTier,
 } from '../billing.constants';
 
+/** Datos de inicialización del checkout de Stripe en modo hospedado o integrado. */
 export class CheckoutSessionResponseDto {
   @ApiProperty({
     example: 'cs_test_123456',

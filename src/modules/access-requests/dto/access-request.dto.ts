@@ -44,7 +44,7 @@ export class CreateAccessRequestDto {
 }
 
 /**
- * Access request record returned to the requesting user.
+ * Registro de solicitud de acceso devuelto al usuario que la presentó.
  */
 export class AccessRequestItemDto {
   @ApiProperty({ example: 12, description: 'Unique access request identifier' })
