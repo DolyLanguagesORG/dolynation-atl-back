@@ -19,7 +19,7 @@ const baseMailConfig = {
   from: 'no-reply@dolynation.example',
   fromName: 'DolyNation Editorial',
   secure: false,
-  frontendBaseUrl: 'https://devweb.yacaterkos.tech',
+  frontendBaseUrl: 'https://devweb.dolynation.app',
   verificationRequired: false,
 };
 
@@ -204,7 +204,7 @@ describe('MailService', () => {
         }),
       );
       const payload = sendMail.mock.calls[0]?.[0] as { html: string; text: string };
-      expect(payload.html).toContain('https://devweb.yacaterkos.tech/verify-email?token=tok-123');
+      expect(payload.html).toContain('https://devweb.dolynation.app/verify-email?token=tok-123');
       expect(payload.text).toContain('tok-123');
     });
   });
@@ -226,7 +226,7 @@ describe('MailService', () => {
         }),
       );
       const payload = sendMail.mock.calls[0]?.[0] as { html: string };
-      expect(payload.html).toContain('https://devweb.yacaterkos.tech/reset-password?token=tok-456');
+      expect(payload.html).toContain('https://devweb.dolynation.app/reset-password?token=tok-456');
     });
   });
 });
