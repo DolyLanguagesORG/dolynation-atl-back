@@ -11,6 +11,13 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.14.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.13.1...v0.14.0) (2026-11-23)
+
+
+### Features
+
+* **security:** implementa proteccion anti-bot con cloudflare turnstile y rate limit por ip ([#173](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/173)) ([e40f96f](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/e40f96f6e8db3677cdd339d1ebab9d6ee0312558))
+
 ## [0.13.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.13.0...v0.13.1) (2026-11-22)
 
 
