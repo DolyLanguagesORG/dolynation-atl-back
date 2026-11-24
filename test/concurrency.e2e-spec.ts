@@ -190,6 +190,29 @@ describe('Concurrent requests (e2e)', () => {
     delete process.env.BILLING_PROVIDER;
   });
 
+  it('does not save the reading when the client gives up while the AI is still answering', async () => {
+    const student = await prepareStudent('abort');
+
+    // El cliente corta la petición antes de que la IA (250 ms) responda.
+    // superagent no invoca el callback de `end` cuando se aborta: no se espera.
+    const request = generateReading(student.auth);
+    request.end(() => undefined);
+    await delay(80);
+    request.abort();
+
+    // Tiempo de sobra para que el backend hubiera terminado e insertado.
+    await delay(AI_LATENCY_MS * 4);
+
+    const rows = await db
+      .select({ id: readings.id })
+      .from(readings)
+      .where(eq(readings.userId, student.id));
+    expect(rows).toHaveLength(0);
+
+    // Puede reintentar de inmediato: no se gastó cuota ni cupo pendiente.
+    await generateReading(student.auth).expect(201);
+  });
+
   it('never creates more than 3 pending readings when generations run in parallel', async () => {
     const student = await prepareStudent('pending');
 

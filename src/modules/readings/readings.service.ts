@@ -119,7 +119,28 @@ export class ReadingsService {
     userId: number;
     options: GenerateReadingDto;
     aiOptions?: AIRequestOptions;
+    /** Se aborta si el cliente se desconecta o vence el plazo: entonces no se guarda nada. */
+    signal?: AbortSignal;
   }): Promise<Reading> {
+    try {
+      return await this.generateCancellable(input);
+    } catch (err) {
+      if (input.signal?.aborted) {
+        throw new AppHttpException(ErrorCode.AI_GENERATION_TIMEOUT);
+      }
+      throw err;
+    }
+  }
+
+  private async generateCancellable(input: {
+    userId: number;
+    options: GenerateReadingDto;
+    aiOptions?: AIRequestOptions;
+    signal?: AbortSignal;
+  }): Promise<Reading> {
+    const aiOptions: AIRequestOptions | undefined = input.signal
+      ? { ...input.aiOptions, signal: input.signal }
+      : input.aiOptions;
     const user = await this.users.findById(input.userId);
     if (!user) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
@@ -195,6 +216,7 @@ export class ReadingsService {
     let lowestSimilarityScore = Number.POSITIVE_INFINITY;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      input.signal?.throwIfAborted();
       const { prompt, lensId } = await this.buildDynamicReadingPrompt({
         category: input.options.category,
         difficulty: requestedDifficulty,
@@ -203,15 +225,16 @@ export class ReadingsService {
         recentReadings: recentSummaries,
         usedLensIds,
         rejectedAngles,
-        ...(input.aiOptions !== undefined ? { aiOptions: input.aiOptions } : {}),
+        ...(aiOptions !== undefined ? { aiOptions } : {}),
       });
       usedLensIds.add(lensId);
 
+      input.signal?.throwIfAborted();
       const candidate = await this.executeWithPurityGuard<GeneratedText>({
         systemPrompt: prompt.systemPrompt,
         userPrompt: prompt.userPrompt,
         targetLanguage,
-        ...(input.aiOptions !== undefined ? { aiOptions: input.aiOptions } : {}),
+        ...(aiOptions !== undefined ? { aiOptions } : {}),
         parse: (raw) =>
           this.parser.parseGeneratedText(raw, [input.options.category, ...userCategories]),
         extractTexts: (item) => [item.title, item.description, item.content],
@@ -309,6 +332,9 @@ export class ReadingsService {
           max: MAX_PENDING,
         });
       }
+      // Última revisión antes de guardar: si el cliente ya se fue o venció el plazo, no se
+      // crea la lectura (ni cuenta para la cuota diaria) y puede reintentar.
+      input.signal?.throwIfAborted();
       const [created] = await tx.insert(readings).values(row).returning();
       if (!created) {
         throw new Error('Insert returned no rows');

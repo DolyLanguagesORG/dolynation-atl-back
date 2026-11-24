@@ -79,6 +79,7 @@ export enum ErrorCode {
 
   // === Proveedor de IA (4xx: cuota del provider, no del usuario) ===
   AI_RATE_LIMITED = 'AI_RATE_LIMITED',
+  AI_GENERATION_TIMEOUT = 'AI_GENERATION_TIMEOUT',
 
   // === Servidor (5xx) ===
   INTERNAL_ERROR = 'INTERNAL_ERROR',
@@ -367,6 +368,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.AI_RATE_LIMITED,
     429,
     'The service is experiencing high demand. Please try again in a few minutes.',
+  ),
+  [ErrorCode.AI_GENERATION_TIMEOUT]: entry(
+    ErrorCode.AI_GENERATION_TIMEOUT,
+    504,
+    'The generation took too long and was cancelled. Nothing was saved or charged; please try again.',
   ),
 };
 /* eslint-enable @typescript-eslint/no-unsafe-enum-comparison */
