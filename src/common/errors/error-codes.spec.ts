@@ -93,6 +93,7 @@ describe('ErrorCatalog', () => {
       ErrorCode.AUTH_PASSWORD_TOO_WEAK,
       ErrorCode.AUTH_EMAIL_NOT_VERIFIED,
       ErrorCode.AUTH_EMAIL_TOKEN_INVALID,
+      ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED,
     ];
     for (const code of authCodes) {
       expect(ErrorCatalog[code].status).toBeGreaterThanOrEqual(400);
@@ -109,6 +110,7 @@ describe('ErrorCatalog', () => {
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_INVALID_CODE].status).toBe(400);
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_STATE_INVALID].status).toBe(400);
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_EMAIL_UNVERIFIED].status).toBe(403);
+    expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_ACCOUNT_LINK_REQUIRED].status).toBe(409);
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN].status).toBe(403);
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_PROVIDER_ERROR].status).toBe(502);
     expect(ErrorCatalog[ErrorCode.AUTH_OAUTH_NOT_CONFIGURED].status).toBe(503);

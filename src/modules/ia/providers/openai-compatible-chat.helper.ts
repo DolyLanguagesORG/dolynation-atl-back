@@ -26,6 +26,8 @@ export interface OpenAICompatibleRequestConfig {
   body: Record<string, unknown>;
   /** Logger del proveedor: deja traza de los reintentos por fallo transitorio. */
   logger?: Logger;
+  /** Cancelación externa de la petición (ver `AIRequestOptions.signal`). */
+  signal?: AbortSignal;
 }
 
 /**
@@ -38,6 +40,12 @@ export async function postOpenAICompatibleChat(
 ): Promise<OpenAICompatibleChatResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.timeoutMs);
+  const abortFromCaller = (): void => controller.abort();
+  if (config.signal?.aborted) {
+    controller.abort();
+  } else {
+    config.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
 
   try {
     const res = await fetchWithRetry({
@@ -65,6 +73,7 @@ export async function postOpenAICompatibleChat(
     return (await res.json()) as OpenAICompatibleChatResponse;
   } finally {
     clearTimeout(timer);
+    config.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 

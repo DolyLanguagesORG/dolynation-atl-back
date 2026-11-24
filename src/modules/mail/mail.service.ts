@@ -366,14 +366,11 @@ export class MailService {
     providerName: string;
     locale: MailLocale;
   }): Promise<void> {
-    const forgotPasswordUrl = buildFrontendUrl(
-      this.config.mail.frontendBaseUrl,
-      FRONTEND_FORGOT_PASSWORD_PATH,
-    );
+    const loginUrl = buildFrontendUrl(this.config.mail.frontendBaseUrl, FRONTEND_LOGIN_PATH);
     const rendered = renderOAuthOnlyPasswordAttempt(input.locale, {
       fullName: input.fullName,
       providerName: input.providerName,
-      forgotPasswordUrl,
+      loginUrl,
     });
     await this.send({ to: input.to, ...rendered });
   }

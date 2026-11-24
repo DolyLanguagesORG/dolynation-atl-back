@@ -100,7 +100,7 @@ export class AuthOAuthService {
 
     const existingUser = await this.users.findByEmailInsensitive(profile.email);
     if (existingUser) {
-      return this.linkAndLoginExistingUser(existingUser, profile);
+      return this.rejectUnlinkedExistingUser(existingUser, profile);
     }
 
     return this.createAndLoginOAuthUser(profile, input.locale);
@@ -233,55 +233,26 @@ export class AuthOAuthService {
     };
   }
 
-  /** Vincula OAuth a una cuenta existente y asegura cuentas cuyo correo aún no estaba verificado. */
-  private async linkAndLoginExistingUser(
+  /** Rechaza OAuth sobre una cuenta local que todavía no tiene el proveedor vinculado explícitamente. */
+  private async rejectUnlinkedExistingUser(
     existingUser: UserWithRole,
     profile: OAuthVerifiedProfile,
   ): Promise<OAuthExchangeResult> {
     const activeUser = await this.assertNotAdminOrDeleted(existingUser, profile.provider);
-    const passwordRemoved = !activeUser.emailVerifiedAt && Boolean(activeUser.password);
-
-    // Nadie demostró ser dueño de este correo al registrar la cuenta: la contraseña (y las
-    // sesiones abiertas con ella) pudo fijarla un tercero antes que el dueño real llegara con
-    // Google (pre-account hijacking). Se invalidan antes de entregarle la cuenta.
-    if (!activeUser.emailVerifiedAt) {
-      await this.users.clearPassword(activeUser.id);
-      await this.auth.logoutAll(activeUser.id);
-      await this.auditLogs?.logEvent({
-        module: 'auth',
-        action: 'AUTH',
-        event: 'auth.oauth_unverified_account_secured',
-        entityType: 'users',
-        entityId: activeUser.id,
-        actorUserId: activeUser.id,
-        actorEmail: activeUser.email,
-        actorRole: activeUser.role,
-        targetUserId: activeUser.id,
-        summary: `Password and sessions revoked before linking ${profile.provider} to unverified account #${activeUser.id}`,
-        metadata: { provider: profile.provider },
-      });
-    }
-
-    await this.persistOAuthLinkOrVerifyRace(activeUser.id, profile);
-
-    const verifiedUser = await this.ensureEmailVerified(activeUser);
-    const session = await this.auth.issueOAuthSession(verifiedUser, {
-      provider: profile.provider,
-      event: 'auth.oauth_account_linked',
-      isNewUser: false,
-      linkedExistingAccount: true,
+    await this.auditLogs?.logEvent({
+      module: 'auth',
+      action: 'AUTH',
+      event: 'auth.oauth_link_required',
+      entityType: 'users',
+      entityId: activeUser.id,
+      actorUserId: activeUser.id,
+      actorEmail: activeUser.email,
+      actorRole: activeUser.role,
+      targetUserId: activeUser.id,
+      summary: `OAuth sign-in rejected for existing account #${activeUser.id}; provider link is required`,
+      metadata: { provider: profile.provider, reason: 'existing_account_unlinked' },
     });
-
-    // La vinculación no es silenciosa (back#188): el dueño del correo recibe un aviso. Sin
-    // esperar, para no retrasar el inicio de sesión por el SMTP.
-    void this.auth.notifyOAuthAccountLinked(verifiedUser, profile.provider, passwordRemoved);
-
-    return {
-      ...session,
-      provider: profile.provider,
-      isNewUser: false,
-      linkedExistingAccount: true,
-    };
+    throw new AppHttpException(ErrorCode.AUTH_OAUTH_ACCOUNT_LINK_REQUIRED);
   }
 
   /** Crea una cuenta verificada por el proveedor y recupera carreras de registro por correo único. */
@@ -303,7 +274,7 @@ export class AuthOAuthService {
       if (isPgUniqueViolation(error)) {
         const racedUser = await this.users.findByEmailInsensitive(profile.email);
         if (racedUser) {
-          return this.linkAndLoginExistingUser(racedUser, profile);
+          return this.rejectUnlinkedExistingUser(racedUser, profile);
         }
       }
       throw error;

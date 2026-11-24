@@ -360,7 +360,7 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(JSON.stringify(res.body)).not.toContain(TEST_MS_CLIENT_SECRET);
   });
 
-  it('creates an OAuth-only student, blocks password login until password reset, and logs in on returning exchange', async () => {
+  it('creates an OAuth-only student, blocks password login and password reset, and logs in on returning exchange', async () => {
     const suffix = uniqueSuffix();
     const email = `oauth-student-${suffix}@example.com`;
     const newEmail = `oauth-student-renamed-${suffix}@example.com`;
@@ -413,31 +413,26 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(dbLink.userId).toBe(userId);
     expect(dbLink.providerEmail).toBe(email);
 
-    // Password login fails cleanly for OAuth-only account
+    // Password login fails cleanly for OAuth-only account and notifies owner
     const failedLogin = await supertest(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email, password: 'any-password-123' })
-      .expect(401);
-    expect(failedLogin.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
+      .expect(403);
+    expect(failedLogin.body.error.code).toBe('AUTH_PASSWORD_LOGIN_NOT_ALLOWED');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mail.oauthNotices).toContainEqual({
+      kind: 'password_attempt',
+      to: email,
+      providerName: 'Google',
+    });
 
-    // User can set a password later via forgot-password + reset-password
+    // Password reset is blocked for OAuth-only accounts.
+    const resetTokenBefore = mail.lastToken('reset', email);
     await supertest(app.getHttpServer())
       .post('/api/v1/auth/forgot-password')
       .send({ email })
       .expect(200);
-    const resetToken = mail.lastToken('reset', email);
-    expect(resetToken).toBeTruthy();
-
-    const newPassword = 'AddedPassword123!';
-    await supertest(app.getHttpServer())
-      .post('/api/v1/auth/reset-password')
-      .send({ token: resetToken, password: newPassword })
-      .expect(200);
-
-    await supertest(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ email, password: newPassword })
-      .expect(200);
+    expect(mail.lastToken('reset', email)).toBe(resetTokenBefore);
 
     // Returning Google OAuth exchange with same sub does not duplicate user and updates providerEmail
     mockByCode.set(code2, {
@@ -469,7 +464,7 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(updatedLink.providerEmail).toBe(newEmail);
   });
 
-  it('auto-links an existing unverified student by case-insensitive email and verifies emailVerifiedAt', async () => {
+  it('rejects OAuth for an existing unlinked student by case-insensitive email', async () => {
     const suffix = uniqueSuffix();
     const email = `oauth-link-${suffix}@example.com`;
     const sub = `google-link-sub-${suffix}`;
@@ -490,32 +485,29 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
       name: 'Existing Student',
     });
 
-    const linked = await supertest(app.getHttpServer())
+    const rejected = await supertest(app.getHttpServer())
       .post('/api/v1/auth/oauth/google/exchange')
       .send({
         code,
         codeVerifier: 'v'.repeat(43),
         redirectUri: TEST_REDIRECT_URI,
       })
-      .expect(200);
+      .expect(409);
 
-    expect(linked.body.data.user.id).toBe(existingId);
-    expect(linked.body.data.isNewUser).toBe(false);
-    expect(linked.body.data.linkedExistingAccount).toBe(true);
-    expect(linked.body.data.user.emailVerifiedAt).toBeTruthy();
+    expect(rejected.body.error.code).toBe('AUTH_OAUTH_ACCOUNT_LINK_REQUIRED');
 
     const [storedUser] = await db.select().from(users).where(eq(users.id, existingId)).limit(1);
-    expect(storedUser.emailVerifiedAt).not.toBeNull();
+    expect(storedUser.emailVerifiedAt).toBeNull();
+    expect(storedUser.password).not.toBeNull();
 
     const links = await db
       .select()
       .from(userOAuthAccounts)
       .where(eq(userOAuthAccounts.userId, existingId));
-    expect(links).toHaveLength(1);
-    expect(links[0]?.providerUserId).toBe(sub);
+    expect(links).toHaveLength(0);
   });
 
-  it('pre-account hijack: linking Google to an unverified account kills the password and sessions set by whoever registered it', async () => {
+  it('prevents OAuth from taking over an unverified traditional account', async () => {
     const suffix = uniqueSuffix();
     const victimEmail = `victim-${suffix}@example.com`;
     const attackerPassword = 'AttackerKnows123!';
@@ -529,7 +521,7 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     const accountId = attackerReg.body.data.user.id as number;
     const attackerRefresh = attackerReg.body.data.tokens.refreshToken as string;
 
-    // 2. La víctima, dueña real del correo, entra con Google.
+    // 2. La víctima, dueña real del correo, intenta entrar con Google.
     mockByCode.set(code, {
       kind: 'ok',
       sub: `google-victim-${suffix}`,
@@ -540,41 +532,26 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     const victimLogin = await supertest(app.getHttpServer())
       .post('/api/v1/auth/oauth/google/exchange')
       .send({ code, codeVerifier: 'v'.repeat(43), redirectUri: TEST_REDIRECT_URI })
-      .expect(200);
-    expect(victimLogin.body.data.user.id).toBe(accountId);
-    expect(victimLogin.body.data.linkedExistingAccount).toBe(true);
+      .expect(409);
+    expect(victimLogin.body.error.code).toBe('AUTH_OAUTH_ACCOUNT_LINK_REQUIRED');
 
-    // 3. Ni la contraseña ni la sesión del atacante sirven ya.
+    // 3. La contraseña y la sesión del atacante siguen siendo válidas hasta que las cambie.
     const attackerLogin = await supertest(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email: victimEmail, password: attackerPassword })
-      .expect(401);
-    expect(attackerLogin.body.error.code).toBe('AUTH_INVALID_CREDENTIALS');
+      .expect(200);
+    expect(attackerLogin.body.data.user.id).toBe(accountId);
+
+    const [stored] = await db.select().from(users).where(eq(users.id, accountId)).limit(1);
+    expect(stored.password).not.toBeNull();
 
     await supertest(app.getHttpServer())
       .post('/api/v1/auth/refresh')
       .send({ refreshToken: attackerRefresh })
-      .expect(401);
-
-    const [stored] = await db.select().from(users).where(eq(users.id, accountId)).limit(1);
-    expect(stored?.password).toBeNull();
-
-    // La vinculación no es silenciosa (back#188): el dueño del correo recibe el aviso.
-    expect(mail.oauthNotices).toContainEqual({
-      kind: 'linked',
-      to: victimEmail,
-      providerName: 'Google',
-      passwordRemoved: true,
-    });
-
-    // La sesión de la víctima sigue funcionando.
-    await supertest(app.getHttpServer())
-      .post('/api/v1/auth/refresh')
-      .send({ refreshToken: victimLogin.body.data.tokens.refreshToken as string })
       .expect(200);
   });
 
-  it('keeps the password of an already verified account when Google is linked', async () => {
+  it('rejects Google OAuth for an already verified traditional account without changing its password', async () => {
     const suffix = uniqueSuffix();
     const email = `verified-${suffix}@example.com`;
     const password = 'OwnerPassword123!';
@@ -594,10 +571,11 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
       email_verified: true,
       name: 'Owner',
     });
-    await supertest(app.getHttpServer())
+    const rejected = await supertest(app.getHttpServer())
       .post('/api/v1/auth/oauth/google/exchange')
       .send({ code, codeVerifier: 'v'.repeat(43), redirectUri: TEST_REDIRECT_URI })
-      .expect(200);
+      .expect(409);
+    expect(rejected.body.error.code).toBe('AUTH_OAUTH_ACCOUNT_LINK_REQUIRED');
 
     await supertest(app.getHttpServer())
       .post('/api/v1/auth/login')
@@ -812,7 +790,7 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(ftpRedirectRes.body.error.code).toBe('VALIDATION_ERROR');
   });
 
-  it('supports Microsoft Entra ID signup (preferred_username), multi-provider Google+Microsoft linking, admin block, and issuer/email checks', async () => {
+  it('supports Microsoft Entra ID signup, rejects a second unlinked provider, and enforces admin/issuer/email checks', async () => {
     const suffix = uniqueSuffix();
     const sharedEmail = `multi-oauth-${suffix}@school.edu`;
     const msOnlySub = `ms-school-sub-${suffix}`;
@@ -837,7 +815,7 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(msRes.body.data.user.email).toBe(sharedEmail);
     const sharedUserId = msRes.body.data.user.id as number;
 
-    // 2. El mismo estudiante inicia sesión con Google y auto-vincula el segundo proveedor a la misma cuenta
+    // 2. Un segundo proveedor con el mismo correo no se vincula automáticamente.
     mockByCode.set(googleCode, {
       kind: 'ok',
       sub: `google-for-ms-sub-${suffix}`,
@@ -846,20 +824,18 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
       name: 'Estudiante Entra',
     });
 
-    const linkedGoogleRes = await supertest(app.getHttpServer())
+    const rejectedGoogleRes = await supertest(app.getHttpServer())
       .post('/api/v1/auth/oauth/google/exchange')
       .send({ code: googleCode, codeVerifier, redirectUri: TEST_REDIRECT_URI })
-      .expect(200);
-    expect(linkedGoogleRes.body.data.user.id).toBe(sharedUserId);
-    expect(linkedGoogleRes.body.data.isNewUser).toBe(false);
-    expect(linkedGoogleRes.body.data.linkedExistingAccount).toBe(true);
+      .expect(409);
+    expect(rejectedGoogleRes.body.error.code).toBe('AUTH_OAUTH_ACCOUNT_LINK_REQUIRED');
 
     const links = await db
       .select()
       .from(userOAuthAccounts)
       .where(eq(userOAuthAccounts.userId, sharedUserId));
-    expect(links).toHaveLength(2);
-    expect(links.map((row) => row.provider).sort()).toEqual(['google', 'microsoft']);
+    expect(links).toHaveLength(1);
+    expect(links.map((row) => row.provider)).toEqual(['microsoft']);
 
     // 3. Bloqueo de cuentas admin con Microsoft
     const adminRoles = await db.select().from(roles).where(eq(roles.name, 'admin')).limit(1);

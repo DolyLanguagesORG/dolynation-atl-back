@@ -84,6 +84,7 @@ export class MiniMaxProvider implements AIProvider {
       timeoutMs: minimax.timeoutMs,
       body,
       logger: this.logger,
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
 
     return extractChatCompletionText({

@@ -37,12 +37,14 @@ describe('Mail templates de OAuth (back#188)', () => {
     const mail = renderOAuthOnlyPasswordAttempt('es', {
       fullName: 'Elena',
       providerName: 'Microsoft',
-      forgotPasswordUrl: forgotUrl,
+      loginUrl,
     });
 
     expect(mail.subject).toBe('Intento de acceso con contraseña — DolyNation');
     expect(mail.html).toContain('Tu cuenta usa Microsoft');
-    expect(mail.html).toContain(forgotUrl);
+    expect(mail.html).toContain('Ir a iniciar sesión');
+    expect(mail.html).toContain(loginUrl);
+    expect(mail.html).not.toContain('/forgot-password');
   });
 
   it.each(MAIL_LOCALES)('las dos plantillas renderizan completas en %s', (locale) => {
@@ -62,7 +64,7 @@ describe('Mail templates de OAuth (back#188)', () => {
       renderOAuthOnlyPasswordAttempt(locale, {
         fullName: 'Ada',
         providerName: 'Google',
-        forgotPasswordUrl: forgotUrl,
+        loginUrl,
       }),
     ];
 

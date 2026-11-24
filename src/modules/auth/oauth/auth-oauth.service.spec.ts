@@ -12,16 +12,10 @@ describe('AuthOAuthService', () => {
   let usersService: jest.Mocked<
     Pick<
       UsersService,
-      | 'findById'
-      | 'findByEmailInsensitive'
-      | 'createOAuthUser'
-      | 'markEmailVerified'
-      | 'clearPassword'
+      'findById' | 'findByEmailInsensitive' | 'createOAuthUser' | 'markEmailVerified'
     >
   >;
-  let authService: jest.Mocked<
-    Pick<AuthService, 'issueOAuthSession' | 'logoutAll' | 'notifyOAuthAccountLinked'>
-  >;
+  let authService: jest.Mocked<Pick<AuthService, 'issueOAuthSession'>>;
   let googleProvider: jest.Mocked<
     Pick<GoogleOAuthProvider, 'provider' | 'getPublicConfig' | 'exchangeCodeForProfile'>
   >;
@@ -89,12 +83,9 @@ describe('AuthOAuthService', () => {
       findByEmailInsensitive: jest.fn(),
       createOAuthUser: jest.fn(),
       markEmailVerified: jest.fn().mockResolvedValue(undefined),
-      clearPassword: jest.fn().mockResolvedValue(undefined),
     };
     authService = {
       issueOAuthSession: jest.fn(),
-      logoutAll: jest.fn().mockResolvedValue(undefined),
-      notifyOAuthAccountLinked: jest.fn().mockResolvedValue(undefined),
     };
     googleProvider = {
       provider: 'google',
@@ -217,50 +208,26 @@ describe('AuthOAuthService', () => {
     expect(result.linkedExistingAccount).toBe(false);
   });
 
-  it('auto-links existing unverified student account by matching email and marks email verified', async () => {
+  it('rejects OAuth sign-in for an existing unlinked student account without changing its password', async () => {
     const unverifiedStudent: UserWithRole = {
       ...studentUser,
+      password: 'argon2-hash',
       emailVerifiedAt: null,
-      password: '$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaA',
-    };
-    const verifiedStudent: UserWithRole = {
-      ...studentUser,
-      emailVerifiedAt: new Date('2026-11-21T00:00:00Z'),
     };
     mockSelectOAuthLink([]);
     usersService.findByEmailInsensitive.mockResolvedValue(unverifiedStudent);
-    usersService.findById.mockResolvedValue(verifiedStudent);
-    authService.issueOAuthSession.mockResolvedValue({
-      user: {
-        id: verifiedStudent.id,
-        email: verifiedStudent.email,
-        fullName: verifiedStudent.fullName,
-        role: 'student',
-        subscriptionTier: null,
-        currentStreak: 0,
-        lastStreakDate: null,
-        emailVerifiedAt: verifiedStudent.emailVerifiedAt,
-        locale: 'es',
-        createdAt: verifiedStudent.createdAt,
-      },
-      tokens: { accessToken: 'a.jwt', refreshToken: 'r.jwt', expiresIn: 300 },
-    });
 
-    const result = await service.exchangeCode('google', exchangeInput);
-
-    expect(usersService.markEmailVerified).toHaveBeenCalledWith(unverifiedStudent.id);
-    // La contraseña y las sesiones de una cuenta sin verificar no se heredan.
-    expect(usersService.clearPassword).toHaveBeenCalledWith(unverifiedStudent.id);
-    expect(authService.logoutAll).toHaveBeenCalledWith(unverifiedStudent.id);
-    // La vinculación no es silenciosa (back#188): se avisa al dueño del correo.
-    expect(authService.notifyOAuthAccountLinked).toHaveBeenCalledWith(
-      expect.objectContaining({ id: unverifiedStudent.id }),
-      'google',
-      true,
+    const err = await service.exchangeCode('google', exchangeInput).then(
+      () => null,
+      (caught: unknown) => caught as AppHttpException,
     );
-    expect(dbMock.insert).toHaveBeenCalledTimes(1);
-    expect(result.isNewUser).toBe(false);
-    expect(result.linkedExistingAccount).toBe(true);
+
+    expect(err?.getResponse()).toMatchObject({
+      code: ErrorCode.AUTH_OAUTH_ACCOUNT_LINK_REQUIRED,
+    });
+    expect(usersService.markEmailVerified).not.toHaveBeenCalled();
+    expect(dbMock.insert).not.toHaveBeenCalled();
+    expect(authService.issueOAuthSession).not.toHaveBeenCalled();
   });
 
   it('blocks OAuth auto-linking and sign-in for administrator accounts matched by email', async () => {

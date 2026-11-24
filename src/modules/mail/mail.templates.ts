@@ -718,7 +718,7 @@ export interface OAuthAccountLinkedInput {
 export interface OAuthOnlyPasswordAttemptInput {
   fullName: string | null;
   providerName: string;
-  forgotPasswordUrl: string;
+  loginUrl: string;
 }
 
 interface OAuthNoticeStrings {
@@ -757,9 +757,8 @@ const OAUTH_NOTICE_STRINGS: Record<MailLocale, OAuthNoticeStrings> = {
     attemptHeadline: (p) => `Tu cuenta usa ${p}`,
     attemptBody: (p) =>
       `alguien intentó entrar a tu DolyCuenta con una contraseña, pero tu cuenta se creó con ${p} ` +
-      `y no tiene contraseña. Para entrar, usa "Continuar con ${p}". Si también quieres poder ` +
-      'entrar con contraseña, crea una.',
-    attemptCta: 'Crear una contraseña',
+      `y no admite acceso ni recuperación por contraseña. Para entrar, usa "Continuar con ${p}".`,
+    attemptCta: 'Ir a iniciar sesión',
     attemptNote: (p) =>
       `Si no fuiste tú, ignora este mensaje: nadie puede entrar sin tu cuenta de ${p}.`,
   },
@@ -782,9 +781,8 @@ const OAUTH_NOTICE_STRINGS: Record<MailLocale, OAuthNoticeStrings> = {
     attemptHeadline: (p) => `Your account uses ${p}`,
     attemptBody: (p) =>
       'someone tried to sign in to your DolyAccount with a password, but your account was created ' +
-      `with ${p} and has no password. To sign in, use "Continue with ${p}". If you also want to ` +
-      'sign in with a password, create one.',
-    attemptCta: 'Create a password',
+      `with ${p} and does not use password login or password reset. To sign in, use "Continue with ${p}".`,
+    attemptCta: 'Go to sign in',
     attemptNote: (p) =>
       `If this was not you, ignore this message: nobody can sign in without your ${p} account.`,
   },
@@ -809,9 +807,9 @@ const OAUTH_NOTICE_STRINGS: Record<MailLocale, OAuthNoticeStrings> = {
     attemptHeadline: (p) => `Votre compte utilise ${p}`,
     attemptBody: (p) =>
       "quelqu'un a essayé de se connecter à votre DolyCompte avec un mot de passe, mais votre compte " +
-      `a été créé avec ${p} et n'a pas de mot de passe. Pour vous connecter, utilisez « Continuer ` +
-      `avec ${p} ». Si vous voulez aussi pouvoir vous connecter avec un mot de passe, créez-en un.`,
-    attemptCta: 'Créer un mot de passe',
+      `a été créé avec ${p} et n'accepte ni la connexion ni la réinitialisation par mot de passe. ` +
+      `Pour vous connecter, utilisez « Continuer avec ${p} ».`,
+    attemptCta: 'Aller à la connexion',
     attemptNote: (p) =>
       `Si ce n'était pas vous, ignorez ce message : personne ne peut se connecter sans votre compte ${p}.`,
   },
@@ -834,9 +832,9 @@ const OAUTH_NOTICE_STRINGS: Record<MailLocale, OAuthNoticeStrings> = {
     attemptHeadline: (p) => `Il tuo account usa ${p}`,
     attemptBody: (p) =>
       'qualcuno ha provato ad accedere al tuo DolyAccount con una password, ma il tuo account è stato ' +
-      `creato con ${p} e non ha una password. Per accedere, usa "Continua con ${p}". Se vuoi anche ` +
-      'poter accedere con una password, creane una.',
-    attemptCta: 'Crea una password',
+      `creato con ${p} e non consente l'accesso né il recupero con password. Per accedere, usa ` +
+      `"Continua con ${p}".`,
+    attemptCta: "Vai all'accesso",
     attemptNote: (p) =>
       `Se non sei stato tu, ignora questo messaggio: nessuno può accedere senza il tuo account ${p}.`,
   },
@@ -883,7 +881,7 @@ export function renderOAuthAccountLinked(
 
 /**
  * Renderiza el aviso enviado cuando alguien intenta entrar con contraseña a una cuenta que solo
- * usa OAuth. La respuesta del login sigue siendo genérica para no revelar qué correos existen.
+ * usa OAuth.
  */
 export function renderOAuthOnlyPasswordAttempt(
   locale: MailLocale,
@@ -901,7 +899,7 @@ export function renderOAuthOnlyPasswordAttempt(
   const greeting = buildGreeting(copy, input.fullName);
   return {
     subject: copy.subject,
-    html: renderHtml({ locale, copy, greeting, url: input.forgotPasswordUrl }),
-    text: renderText(copy, greeting, input.forgotPasswordUrl),
+    html: renderHtml({ locale, copy, greeting, url: input.loginUrl }),
+    text: renderText(copy, greeting, input.loginUrl),
   };
 }
