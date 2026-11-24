@@ -11,6 +11,14 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.15.2](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.15.1...v0.15.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **auth:** avisar por correo al vincular OAuth y al intentar contraseña en cuentas solo-OAuth ([#191](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/191)) ([674e19b](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/674e19b26c8d2bcba00791a5150dffa3c1b1b74c)), closes [#188](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/188)
+* **auth:** bloquea contrasena en cuentas OAuth-only ([#194](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/194)) ([4cf637e](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/4cf637e070fd2b0ec2ae62f835f74b8b19d281c4)), closes [#193](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/193)
+
 ## [0.15.1](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.15.0...v0.15.1) (2026-11-24)
 
 
