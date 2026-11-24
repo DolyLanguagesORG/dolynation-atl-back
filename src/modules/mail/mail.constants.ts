@@ -46,6 +46,12 @@ export const FRONTEND_FRIENDS_PATH = '/friends';
 /** Ruta del frontend para abrir una invitación compartible de amistad. */
 export const FRONTEND_FRIEND_INVITE_PATH = '/friends/invite';
 
+/** Ruta del frontend para iniciar sesión. */
+export const FRONTEND_LOGIN_PATH = '/login';
+
+/** Ruta del frontend para pedir el enlace de crear o restablecer contraseña. */
+export const FRONTEND_FORGOT_PASSWORD_PATH = '/forgot-password';
+
 /**
  * Límite de solicitudes de restablecimiento por dirección de correo dentro de
  * la ventana de `FORGOT_PASSWORD_THROTTLE_WINDOW_MS`.

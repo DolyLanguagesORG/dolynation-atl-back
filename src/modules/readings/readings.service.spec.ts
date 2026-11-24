@@ -305,6 +305,90 @@ describe('ReadingsService', () => {
       expect(result.title).toBe('T');
     });
 
+    describe('cancelación (cliente desconectado o plazo vencido)', () => {
+      const params: RandomPromptParams = {
+        category: 'history',
+        difficulty: 'medium',
+        size: 'medium',
+        subcategories: ['Subcategory test'],
+        contentType: 'interesting_discovery',
+        perspective: 'causes',
+        uniqueFocusElement: 'its impact on daily life',
+      };
+      const reading = {
+        id: 1,
+        userId: 42,
+        status: 'pending',
+        title: 'T',
+        description: 'D',
+        content: 'C',
+        category: 'history' as const,
+        difficulty: 'medium' as const,
+        wordCount: 1,
+        score: null,
+        passed: null,
+        createdAt: new Date(),
+        updatedAt: null,
+        deletedAt: null,
+      };
+      const generateInput = {
+        userId: 42,
+        options: {
+          category: 'history',
+          difficulty: 'medium' as const,
+          size: 'medium' as const,
+          language: 'en' as const,
+        },
+      };
+
+      beforeEach(() => {
+        promptGen.generateRandomParams.mockReturnValue(params);
+        promptGen.buildPrompt.mockReturnValue({
+          systemPrompt: 'sys',
+          userPrompt: 'usr',
+          seed: 'seed-1',
+          params,
+        });
+        parser.parseGeneratedText.mockReturnValue(reading);
+      });
+
+      it('does not save the reading when the signal aborts while the AI is answering', async () => {
+        const controller = new AbortController();
+        factory.getFullResponse.mockImplementation(() => {
+          controller.abort();
+          return Promise.resolve(
+            '{"title":"T","description":"D","content":"C","category":"history","difficulty":"medium"}',
+          );
+        });
+        const localDb = makeDbReturning(reading);
+        service = await buildModuleWithDb(localDb);
+
+        await expect(
+          service.generate({ ...generateInput, signal: controller.signal }),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: ErrorCode.AI_GENERATION_TIMEOUT }),
+        });
+        expect(localDb.insert).not.toHaveBeenCalled();
+      });
+
+      it('passes the signal to every AI call so the provider request is cancelled too', async () => {
+        const controller = new AbortController();
+        factory.getFullResponse.mockResolvedValue(
+          '{"title":"T","description":"D","content":"C","category":"history","difficulty":"medium"}',
+        );
+        const localDb = makeDbReturning(reading);
+        service = await buildModuleWithDb(localDb);
+
+        await service.generate({ ...generateInput, signal: controller.signal });
+
+        expect(factory.getFullResponse).toHaveBeenCalled();
+        for (const call of factory.getFullResponse.mock.calls) {
+          expect(call[1]).toMatchObject({ signal: controller.signal });
+        }
+        expect(localDb.insert).toHaveBeenCalledTimes(1);
+      });
+    });
+
     it('passes the client-controlled category/difficulty/size to the prompt generator verbatim', async () => {
       const params: RandomPromptParams = {
         category: 'programming',

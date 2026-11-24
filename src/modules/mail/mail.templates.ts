@@ -746,3 +746,204 @@ export function renderFriendRequestNotice(
     text: renderText(copy, greeting, input.requestUrl),
   };
 }
+
+/** Datos del aviso de cuenta vinculada con un proveedor OAuth. */
+export interface OAuthAccountLinkedInput {
+  fullName: string | null;
+  /** Nombre visible del proveedor, p. ej. `Google`. */
+  providerName: string;
+  /** `true` si se quitó la contraseña porque el correo de la cuenta nunca se confirmó. */
+  passwordRemoved: boolean;
+  /** Botón: inicio de sesión, o crear contraseña si se quitó. */
+  actionUrl: string;
+}
+
+/** Datos del aviso de intento de acceso con contraseña a una cuenta que solo usa OAuth. */
+export interface OAuthOnlyPasswordAttemptInput {
+  fullName: string | null;
+  providerName: string;
+  loginUrl: string;
+}
+
+interface OAuthNoticeStrings {
+  readonly linkedSubject: (provider: string) => string;
+  readonly linkedHeadline: (provider: string) => string;
+  readonly linkedBody: (provider: string) => string;
+  readonly linkedCta: string;
+  readonly linkedNote: string;
+  readonly removedBody: (provider: string) => string;
+  readonly removedCta: string;
+  readonly removedNote: (provider: string) => string;
+  readonly attemptSubject: string;
+  readonly attemptHeadline: (provider: string) => string;
+  readonly attemptBody: (provider: string) => string;
+  readonly attemptCta: string;
+  readonly attemptNote: (provider: string) => string;
+}
+
+const OAUTH_NOTICE_STRINGS: Record<MailLocale, OAuthNoticeStrings> = {
+  es: {
+    linkedSubject: (p) => `Vinculamos tu DolyCuenta con ${p} — DolyNation`,
+    linkedHeadline: (p) => `Tu cuenta ahora también usa ${p}`,
+    linkedBody: (p) =>
+      `iniciaste sesión con ${p} y lo vinculamos a tu DolyCuenta, que ya existía con este correo. ` +
+      `Desde ahora puedes entrar con ${p} o con tu contraseña.`,
+    linkedCta: 'Ir a DolyNation',
+    linkedNote: 'Si no fuiste tú, restablece tu contraseña de inmediato y escríbenos a soporte.',
+    removedBody: (p) =>
+      `iniciaste sesión con ${p} y lo vinculamos a tu DolyCuenta. Como el correo de esta cuenta ` +
+      'nunca se había confirmado, quitamos la contraseña que tenía y cerramos sus sesiones abiertas: ' +
+      `así nadie que la haya creado sin acceso a tu correo puede entrar. Desde ahora entra con ${p}; ` +
+      'si también quieres usar contraseña, crea una nueva.',
+    removedCta: 'Crear una contraseña',
+    removedNote: (p) => `Si no fuiste tú quien entró con ${p}, escríbenos a soporte.`,
+    attemptSubject: 'Intento de acceso con contraseña — DolyNation',
+    attemptHeadline: (p) => `Tu cuenta usa ${p}`,
+    attemptBody: (p) =>
+      `alguien intentó entrar a tu DolyCuenta con una contraseña, pero tu cuenta se creó con ${p} ` +
+      `y no admite acceso ni recuperación por contraseña. Para entrar, usa "Continuar con ${p}".`,
+    attemptCta: 'Ir a iniciar sesión',
+    attemptNote: (p) =>
+      `Si no fuiste tú, ignora este mensaje: nadie puede entrar sin tu cuenta de ${p}.`,
+  },
+  en: {
+    linkedSubject: (p) => `We linked your DolyAccount with ${p} — DolyNation`,
+    linkedHeadline: (p) => `Your account now also uses ${p}`,
+    linkedBody: (p) =>
+      `you signed in with ${p} and we linked it to your existing DolyAccount with this email. ` +
+      `From now on you can sign in with ${p} or with your password.`,
+    linkedCta: 'Go to DolyNation',
+    linkedNote: 'If this was not you, reset your password right away and contact support.',
+    removedBody: (p) =>
+      `you signed in with ${p} and we linked it to your DolyAccount. Because the email of this ` +
+      'account had never been confirmed, we removed its previous password and closed its open ' +
+      'sessions, so nobody who created it without access to your inbox can sign in. From now on ' +
+      `sign in with ${p}; if you also want a password, create a new one.`,
+    removedCta: 'Create a password',
+    removedNote: (p) => `If you did not sign in with ${p}, contact support.`,
+    attemptSubject: 'Password sign-in attempt — DolyNation',
+    attemptHeadline: (p) => `Your account uses ${p}`,
+    attemptBody: (p) =>
+      'someone tried to sign in to your DolyAccount with a password, but your account was created ' +
+      `with ${p} and does not use password login or password reset. To sign in, use "Continue with ${p}".`,
+    attemptCta: 'Go to sign in',
+    attemptNote: (p) =>
+      `If this was not you, ignore this message: nobody can sign in without your ${p} account.`,
+  },
+  fr: {
+    linkedSubject: (p) => `Nous avons lié votre DolyCompte à ${p} — DolyNation`,
+    linkedHeadline: (p) => `Votre compte utilise désormais aussi ${p}`,
+    linkedBody: (p) =>
+      `vous vous êtes connecté avec ${p} et nous l'avons lié à votre DolyCompte existant avec cette ` +
+      `adresse. Vous pouvez désormais vous connecter avec ${p} ou avec votre mot de passe.`,
+    linkedCta: 'Aller sur DolyNation',
+    linkedNote:
+      "Si ce n'était pas vous, réinitialisez votre mot de passe immédiatement et contactez le support.",
+    removedBody: (p) =>
+      `vous vous êtes connecté avec ${p} et nous l'avons lié à votre DolyCompte. Comme l'adresse de ` +
+      "ce compte n'avait jamais été confirmée, nous avons supprimé son mot de passe précédent et fermé " +
+      "ses sessions ouvertes : personne l'ayant créé sans accès à votre boîte mail ne peut se connecter. " +
+      `Connectez-vous désormais avec ${p} ; si vous voulez aussi un mot de passe, créez-en un nouveau.`,
+    removedCta: 'Créer un mot de passe',
+    removedNote: (p) =>
+      `Si ce n'est pas vous qui vous êtes connecté avec ${p}, contactez le support.`,
+    attemptSubject: 'Tentative de connexion par mot de passe — DolyNation',
+    attemptHeadline: (p) => `Votre compte utilise ${p}`,
+    attemptBody: (p) =>
+      "quelqu'un a essayé de se connecter à votre DolyCompte avec un mot de passe, mais votre compte " +
+      `a été créé avec ${p} et n'accepte ni la connexion ni la réinitialisation par mot de passe. ` +
+      `Pour vous connecter, utilisez « Continuer avec ${p} ».`,
+    attemptCta: 'Aller à la connexion',
+    attemptNote: (p) =>
+      `Si ce n'était pas vous, ignorez ce message : personne ne peut se connecter sans votre compte ${p}.`,
+  },
+  it: {
+    linkedSubject: (p) => `Abbiamo collegato il tuo DolyAccount a ${p} — DolyNation`,
+    linkedHeadline: (p) => `Il tuo account ora usa anche ${p}`,
+    linkedBody: (p) =>
+      `hai effettuato l'accesso con ${p} e lo abbiamo collegato al tuo DolyAccount esistente con ` +
+      `questa email. D'ora in poi puoi accedere con ${p} o con la tua password.`,
+    linkedCta: 'Vai a DolyNation',
+    linkedNote: 'Se non sei stato tu, reimposta subito la password e contatta il supporto.',
+    removedBody: (p) =>
+      `hai effettuato l'accesso con ${p} e lo abbiamo collegato al tuo DolyAccount. Poiché l'email ` +
+      'di questo account non era mai stata confermata, abbiamo rimosso la password precedente e chiuso ' +
+      'le sessioni aperte: così nessuno che lo abbia creato senza accesso alla tua email può entrare. ' +
+      `D'ora in poi accedi con ${p}; se vuoi anche una password, creane una nuova.`,
+    removedCta: 'Crea una password',
+    removedNote: (p) => `Se non sei stato tu ad accedere con ${p}, contatta il supporto.`,
+    attemptSubject: 'Tentativo di accesso con password — DolyNation',
+    attemptHeadline: (p) => `Il tuo account usa ${p}`,
+    attemptBody: (p) =>
+      'qualcuno ha provato ad accedere al tuo DolyAccount con una password, ma il tuo account è stato ' +
+      `creato con ${p} e non consente l'accesso né il recupero con password. Per accedere, usa ` +
+      `"Continua con ${p}".`,
+    attemptCta: "Vai all'accesso",
+    attemptNote: (p) =>
+      `Se non sei stato tu, ignora questo messaggio: nessuno può accedere senza il tuo account ${p}.`,
+  },
+};
+
+/** Arma un `TemplateCopy` con el antetítulo, saludo y pie compartidos del locale. */
+function buildOAuthNoticeCopy(
+  locale: MailLocale,
+  parts: Pick<TemplateCopy, 'subject' | 'headline' | 'body' | 'cta' | 'note'>,
+): TemplateCopy {
+  const base = CONFIRMATION_COPY[locale];
+  return {
+    ...parts,
+    eyebrow: base.eyebrow,
+    greeting: base.greeting,
+    fallback: base.fallback,
+    footer: base.footer,
+  };
+}
+
+/**
+ * Renderiza el aviso enviado cuando un proveedor OAuth se vincula a una cuenta que ya existía.
+ */
+export function renderOAuthAccountLinked(
+  locale: MailLocale,
+  input: OAuthAccountLinkedInput,
+): RenderedMail {
+  const s = OAUTH_NOTICE_STRINGS[locale];
+  const p = input.providerName;
+  const copy = buildOAuthNoticeCopy(locale, {
+    subject: s.linkedSubject(p),
+    headline: s.linkedHeadline(p),
+    body: input.passwordRemoved ? s.removedBody(p) : s.linkedBody(p),
+    cta: input.passwordRemoved ? s.removedCta : s.linkedCta,
+    note: input.passwordRemoved ? s.removedNote(p) : s.linkedNote,
+  });
+  const greeting = buildGreeting(copy, input.fullName);
+  return {
+    subject: copy.subject,
+    html: renderHtml({ locale, copy, greeting, url: input.actionUrl }),
+    text: renderText(copy, greeting, input.actionUrl),
+  };
+}
+
+/**
+ * Renderiza el aviso enviado cuando alguien intenta entrar con contraseña a una cuenta que solo
+ * usa OAuth.
+ */
+export function renderOAuthOnlyPasswordAttempt(
+  locale: MailLocale,
+  input: OAuthOnlyPasswordAttemptInput,
+): RenderedMail {
+  const s = OAUTH_NOTICE_STRINGS[locale];
+  const p = input.providerName;
+  const copy = buildOAuthNoticeCopy(locale, {
+    subject: s.attemptSubject,
+    headline: s.attemptHeadline(p),
+    body: s.attemptBody(p),
+    cta: s.attemptCta,
+    note: s.attemptNote(p),
+  });
+  const greeting = buildGreeting(copy, input.fullName);
+  return {
+    subject: copy.subject,
+    html: renderHtml({ locale, copy, greeting, url: input.loginUrl }),
+    text: renderText(copy, greeting, input.loginUrl),
+  };
+}

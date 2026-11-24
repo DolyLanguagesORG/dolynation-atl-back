@@ -8,11 +8,15 @@ import {
   renderAccessRequestRejected,
   renderAccountConfirmation,
   renderAdminAccessRequestNotice,
+  renderOAuthAccountLinked,
+  renderOAuthOnlyPasswordAttempt,
   renderPasswordReset,
   renderFriendRequestNotice,
 } from './mail.templates';
 import {
   FRONTEND_ADMIN_PATH,
+  FRONTEND_FORGOT_PASSWORD_PATH,
+  FRONTEND_LOGIN_PATH,
   FRONTEND_PROFILE_PATH,
   FRONTEND_RESET_PASSWORD_PATH,
   FRONTEND_SELECT_PLAN_PATH,
@@ -346,6 +350,48 @@ export class MailService {
       fullName: input.fullName,
       requesterName: input.requesterName,
       requestUrl,
+    });
+    await this.send({ to: input.to, ...rendered });
+  }
+
+  /**
+   * Avisa que un proveedor OAuth se vinculó a una cuenta que ya existía. Si se quitó la
+   * contraseña (correo nunca confirmado), el botón lleva a crear una nueva.
+   */
+  async sendOAuthAccountLinked(input: {
+    to: string;
+    fullName: string | null;
+    providerName: string;
+    passwordRemoved: boolean;
+    locale: MailLocale;
+  }): Promise<void> {
+    const actionUrl = buildFrontendUrl(
+      this.config.mail.frontendBaseUrl,
+      input.passwordRemoved ? FRONTEND_FORGOT_PASSWORD_PATH : FRONTEND_LOGIN_PATH,
+    );
+    const rendered = renderOAuthAccountLinked(input.locale, {
+      fullName: input.fullName,
+      providerName: input.providerName,
+      passwordRemoved: input.passwordRemoved,
+      actionUrl,
+    });
+    await this.send({ to: input.to, ...rendered });
+  }
+
+  /**
+   * Avisa al dueño de una cuenta que solo usa OAuth que alguien intentó entrar con contraseña.
+   */
+  async sendOAuthOnlyPasswordAttempt(input: {
+    to: string;
+    fullName: string | null;
+    providerName: string;
+    locale: MailLocale;
+  }): Promise<void> {
+    const loginUrl = buildFrontendUrl(this.config.mail.frontendBaseUrl, FRONTEND_LOGIN_PATH);
+    const rendered = renderOAuthOnlyPasswordAttempt(input.locale, {
+      fullName: input.fullName,
+      providerName: input.providerName,
+      loginUrl,
     });
     await this.send({ to: input.to, ...rendered });
   }
