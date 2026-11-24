@@ -24,6 +24,11 @@ export interface AIRequestOptions {
   temperature?: number;
   /** Nivel de esfuerzo de razonamiento en modelos compatibles (p. ej. MiniMax-M3 o Gemini 3). */
   reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  /**
+   * Cancela la llamada en curso (cliente desconectado o plazo vencido) para dejar de
+   * consumir tokens. No se envía al proveedor.
+   */
+  signal?: AbortSignal;
 }
 
 /** Metadatos descriptivos del proveedor y modelo de IA activo. */
