@@ -82,6 +82,7 @@ export class GoogleProvider implements AIProvider {
       timeoutMs: google.timeoutMs,
       body,
       logger: this.logger,
+      ...(options?.signal ? { signal: options.signal } : {}),
     });
 
     return extractChatCompletionText({
