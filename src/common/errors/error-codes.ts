@@ -66,6 +66,20 @@ export enum ErrorCode {
   CATEGORY_MODERATION_REJECTED = 'CATEGORY_MODERATION_REJECTED',
   CATEGORY_DAILY_LIMIT_REACHED = 'CATEGORY_DAILY_LIMIT_REACHED',
 
+  // === Amistades y rachas (4xx) ===
+  FRIENDSHIP_SELF_ACTION_NOT_ALLOWED = 'FRIENDSHIP_SELF_ACTION_NOT_ALLOWED',
+  FRIENDSHIP_ALREADY_EXISTS = 'FRIENDSHIP_ALREADY_EXISTS',
+  FRIENDSHIP_REQUEST_ALREADY_PENDING = 'FRIENDSHIP_REQUEST_ALREADY_PENDING',
+  FRIENDSHIP_REQUEST_NOT_PENDING = 'FRIENDSHIP_REQUEST_NOT_PENDING',
+  FRIENDSHIP_NOT_FOUND = 'FRIENDSHIP_NOT_FOUND',
+  FRIENDSHIP_USER_BLOCKED = 'FRIENDSHIP_USER_BLOCKED',
+  FRIENDSHIP_INVITE_LINK_INVALID = 'FRIENDSHIP_INVITE_LINK_INVALID',
+  FRIENDSHIP_LIMIT_REACHED = 'FRIENDSHIP_LIMIT_REACHED',
+  FRIEND_STREAK_ALREADY_EXISTS = 'FRIEND_STREAK_ALREADY_EXISTS',
+  FRIEND_STREAK_INVALID_STATE = 'FRIEND_STREAK_INVALID_STATE',
+  FRIEND_STREAK_CATEGORIES_INVALID = 'FRIEND_STREAK_CATEGORIES_INVALID',
+  FRIEND_STREAK_LANGUAGE_INCOMPATIBLE = 'FRIEND_STREAK_LANGUAGE_INCOMPATIBLE',
+
   // === Validación (4xx) ===
   VALIDATION_ERROR = 'VALIDATION_ERROR',
 
@@ -315,6 +329,66 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.CATEGORY_DAILY_LIMIT_REACHED,
     429,
     'Daily limit for adding or evaluating new custom categories has been reached. Try again tomorrow.',
+  ),
+  [ErrorCode.FRIENDSHIP_SELF_ACTION_NOT_ALLOWED]: entry(
+    ErrorCode.FRIENDSHIP_SELF_ACTION_NOT_ALLOWED,
+    400,
+    'You cannot perform a friendship action against your own account',
+  ),
+  [ErrorCode.FRIENDSHIP_ALREADY_EXISTS]: entry(
+    ErrorCode.FRIENDSHIP_ALREADY_EXISTS,
+    409,
+    'This friendship already exists',
+  ),
+  [ErrorCode.FRIENDSHIP_REQUEST_ALREADY_PENDING]: entry(
+    ErrorCode.FRIENDSHIP_REQUEST_ALREADY_PENDING,
+    409,
+    'A friendship request is already pending for this user',
+  ),
+  [ErrorCode.FRIENDSHIP_REQUEST_NOT_PENDING]: entry(
+    ErrorCode.FRIENDSHIP_REQUEST_NOT_PENDING,
+    409,
+    'This friendship request is no longer pending',
+  ),
+  [ErrorCode.FRIENDSHIP_NOT_FOUND]: entry(
+    ErrorCode.FRIENDSHIP_NOT_FOUND,
+    404,
+    'Friendship or friendship request not found',
+  ),
+  [ErrorCode.FRIENDSHIP_USER_BLOCKED]: entry(
+    ErrorCode.FRIENDSHIP_USER_BLOCKED,
+    403,
+    'This friendship action is unavailable because one of the users is blocked',
+  ),
+  [ErrorCode.FRIENDSHIP_INVITE_LINK_INVALID]: entry(
+    ErrorCode.FRIENDSHIP_INVITE_LINK_INVALID,
+    400,
+    'This friendship invite link is invalid, expired, revoked, or exhausted',
+  ),
+  [ErrorCode.FRIENDSHIP_LIMIT_REACHED]: entry(
+    ErrorCode.FRIENDSHIP_LIMIT_REACHED,
+    429,
+    'The friendship limit for this account has been reached',
+  ),
+  [ErrorCode.FRIEND_STREAK_ALREADY_EXISTS]: entry(
+    ErrorCode.FRIEND_STREAK_ALREADY_EXISTS,
+    409,
+    'An unfinished friend streak already exists for this pair',
+  ),
+  [ErrorCode.FRIEND_STREAK_INVALID_STATE]: entry(
+    ErrorCode.FRIEND_STREAK_INVALID_STATE,
+    409,
+    'The friend streak is not in a state that allows this action',
+  ),
+  [ErrorCode.FRIEND_STREAK_CATEGORIES_INVALID]: entry(
+    ErrorCode.FRIEND_STREAK_CATEGORIES_INVALID,
+    400,
+    'Each friend streak participant must provide exactly two valid categories',
+  ),
+  [ErrorCode.FRIEND_STREAK_LANGUAGE_INCOMPATIBLE]: entry(
+    ErrorCode.FRIEND_STREAK_LANGUAGE_INCOMPATIBLE,
+    400,
+    'The selected language is not active for both participants',
   ),
   [ErrorCode.VALIDATION_ERROR]: entry(
     ErrorCode.VALIDATION_ERROR,

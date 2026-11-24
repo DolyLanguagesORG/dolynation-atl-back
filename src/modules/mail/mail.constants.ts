@@ -40,6 +40,12 @@ export const FRONTEND_SELECT_PLAN_PATH = '/select-plan';
 /** Ruta del frontend para el panel administrativo. */
 export const FRONTEND_ADMIN_PATH = '/admin';
 
+/** Ruta del frontend para revisar solicitudes y gestionar amistades. */
+export const FRONTEND_FRIENDS_PATH = '/friends';
+
+/** Ruta del frontend para abrir una invitación compartible de amistad. */
+export const FRONTEND_FRIEND_INVITE_PATH = '/friends/invite';
+
 /**
  * Límite de solicitudes de restablecimiento por dirección de correo dentro de
  * la ventana de `FORGOT_PASSWORD_THROTTLE_WINDOW_MS`.

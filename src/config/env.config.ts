@@ -54,6 +54,14 @@ export class AppConfigService {
   get port(): number {
     return this.config.get('PORT', { infer: true });
   }
+  /** Configuración del cierre y generación diaria de rachas. */
+  get friendStreak(): { enabled: boolean; expression: string; retryExpression: string } {
+    return {
+      enabled: this.config.get('FRIEND_STREAK_CRON_ENABLED', { infer: true }) === 'true',
+      expression: this.config.get('FRIEND_STREAK_CRON_EXPRESSION', { infer: true }),
+      retryExpression: this.config.get('FRIEND_STREAK_RETRY_CRON_EXPRESSION', { infer: true }),
+    };
+  }
   /** Dirección de red a la que se enlaza el servidor. */
   get host(): string {
     return this.config.get('HOST', { infer: true });

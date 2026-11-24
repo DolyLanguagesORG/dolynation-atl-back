@@ -775,6 +775,56 @@ describe('ReadingsService', () => {
       expect(factory.getFullResponse).not.toHaveBeenCalled();
     });
 
+    it('reconcilia la racha en un reintento idempotente sin volver a llamar a la IA', async () => {
+      const readingYaEvaluada = {
+        id: 10,
+        userId: 42,
+        title: 't',
+        description: 'd',
+        content: 'c',
+        category: 'technology',
+        difficulty: 'easy',
+        wordCount: 80,
+        status: 'completed',
+        score: 88,
+        passed: true,
+        userResponse: 'My summary.',
+        feedback: 'Good job.',
+        evaluationOperationId: 'retry-op',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        deletedAt: null,
+      };
+      const dbConEvaluada = {
+        insert: jest.fn(),
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue([readingYaEvaluada]),
+            }),
+          }),
+        }),
+        update: jest.fn(),
+        delete: jest.fn(),
+      };
+      service = await buildModuleWithDb(dbConEvaluada);
+      const reconcile = jest
+        .spyOn(service as any, 'markFriendStreakCompletion')
+        .mockResolvedValue(undefined);
+
+      const result = await service.evaluate(
+        10,
+        42,
+        { userResponse: 'My summary.' },
+        undefined,
+        'retry-op',
+      );
+
+      expect(reconcile).toHaveBeenCalledWith(10, 42);
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+      expect(result.score).toBe(88);
+    });
+
     it('persists the user response and the AI feedback on the reading row', async () => {
       // The schema previously only stored score/passed. We now persist the
       // user's written summary AND the AI feedback so the mobile client can
@@ -2165,6 +2215,29 @@ describe('ReadingsService', () => {
         options: { category: 'Filosofía', difficulty: 'medium', size: 'short', language: 'es' },
       });
       expect(failOpenSaved.title).toBe(attempt2Row.title);
+    });
+  });
+
+  describe('pending personal quota', () => {
+    it('counts only personal pending readings, not friend copies', async () => {
+      const localDb = {
+        ...db,
+        select: jest.fn().mockReturnValue({
+          from: jest.fn().mockReturnValue({
+            where: jest.fn().mockResolvedValue([{ count: 0 }]),
+          }),
+        }),
+      };
+      service = await buildModuleWithDb(localDb);
+
+      const getPendingCount = (
+        service as unknown as { getPendingCount: (userId: number) => Promise<number> }
+      ).getPendingCount.bind(service);
+
+      // The database query returns zero personal pending readings even when
+      // friend_copy rows exist for the same user.
+      await expect(getPendingCount(42)).resolves.toBe(0);
+      expect(localDb.select).toHaveBeenCalledTimes(1);
     });
   });
 });

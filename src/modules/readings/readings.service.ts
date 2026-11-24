@@ -33,14 +33,21 @@ import { CategoryModerationService } from '../moderation/category-moderation.ser
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { DRIZZLE } from '../../database/database.tokens';
 import type { DrizzleDb, DrizzleExecutor } from '../../database/database.module';
-import { readingExplanations, readings, users } from '../../database/drizzle/schema';
+import {
+  friendStreakDays,
+  friendStreaks,
+  readingExplanations,
+  readings,
+  users,
+} from '../../database/drizzle/schema';
 import type {
   ExplanationEntryType,
   NewReading,
   Reading,
   ReadingExplanation,
 } from '../../database/drizzle/types';
-import { and, desc, eq, ilike, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, or, sql } from 'drizzle-orm';
+import { getDateKeyInTimeZone } from '../subscriptions/subscriptions.constants';
 import type { ExplanationResultDto, GlossaryEntryDto } from '../../common/types/api-response.dto';
 import {
   GenerateReadingDto,
@@ -112,6 +119,28 @@ export class ReadingsService {
     @Optional() private readonly errorLogs?: ErrorLogService,
   ) {}
 
+  /** Genera la única lectura de IA del día de una racha; las copias no consumen cuota. */
+  async generateFriendStreakReading(input: {
+    userId: number;
+    category: string;
+    language: string;
+    difficulty: DifficultyLevel;
+    size: TextSize;
+    friendStreakDayId?: number;
+  }): Promise<Reading> {
+    return this.generate({
+      userId: input.userId,
+      options: {
+        category: input.category,
+        language: input.language as 'es' | 'en' | 'fr' | 'it',
+        difficulty: input.difficulty,
+        size: input.size,
+      },
+      originType: 'friend_streak',
+      friendStreakDayId: input.friendStreakDayId,
+    });
+  }
+
   /**
    * Genera una nueva lectura adaptada a las preferencias, idioma y plan de suscripción del usuario.
    */
@@ -119,7 +148,10 @@ export class ReadingsService {
     userId: number;
     options: GenerateReadingDto;
     aiOptions?: AIRequestOptions;
+    originType?: 'personal' | 'friend_streak';
+    friendStreakDayId?: number;
   }): Promise<Reading> {
+    const originType = input.originType ?? 'personal';
     const user = await this.users.findById(input.userId);
     if (!user) {
       throw new AppHttpException(ErrorCode.RESOURCE_NOT_FOUND, { resource: 'User' });
@@ -127,7 +159,7 @@ export class ReadingsService {
 
     // Validación de suscripción activa y límites diarios del plan
     await this.subscriptions.assertSubscriptionActive(input.userId);
-    await this.subscriptions.assertCanGenerateReading(input.userId);
+    if (originType === 'personal') await this.subscriptions.assertCanGenerateReading(input.userId);
 
     // Validación estricta del idioma objetivo obligatorio frente a la selección activa del plan
     const targetLanguage =
@@ -139,15 +171,16 @@ export class ReadingsService {
     }
     await this.subscriptions.assertLanguageAllowed(input.userId, targetLanguage);
 
-    const pendingCount = await this.getPendingCount(input.userId);
-    if (pendingCount >= MAX_PENDING) {
+    const pendingCount = originType === 'personal' ? await this.getPendingCount(input.userId) : 0;
+    if (originType === 'personal' && pendingCount >= MAX_PENDING) {
       throw new AppHttpException(ErrorCode.READING_PENDING_LIMIT_REACHED, { max: MAX_PENDING });
     }
 
     // Validación dinámica de categoría:
     // La categoría solicitada DEBE estar dentro de las preferencias configuradas por el usuario.
-    const userCategories = await this.settings.getCategories(input.userId);
-    if (userCategories.length < MIN_USER_CATEGORIES) {
+    const userCategories =
+      originType === 'personal' ? await this.settings.getCategories(input.userId) : [];
+    if (originType === 'personal' && userCategories.length < MIN_USER_CATEGORIES) {
       throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
         category: input.options.category,
         minCategories: MIN_USER_CATEGORIES,
@@ -164,7 +197,7 @@ export class ReadingsService {
         (requestedKey.length > 0 && canonicalCategoryKey(c) === requestedKey),
     );
 
-    if (!isAllowed) {
+    if (originType === 'personal' && !isAllowed) {
       throw new AppHttpException(ErrorCode.RESOURCE_FORBIDDEN, {
         category: input.options.category,
         message: `Category '${input.options.category}' is not in your configured preferences. Please add it to your categories in settings first.`,
@@ -284,6 +317,8 @@ export class ReadingsService {
     const wordCount = parsed.content.trim().split(/\s+/).filter(Boolean).length;
     const row: NewReading = {
       userId: input.userId,
+      originType,
+      ...(input.friendStreakDayId ? { friendStreakDayId: input.friendStreakDayId } : {}),
       title: parsed.title,
       description: parsed.description,
       content: parsed.content,
@@ -303,8 +338,9 @@ export class ReadingsService {
         .from(users)
         .where(eq(users.id, input.userId))
         .for('no key update');
-      await this.subscriptions.assertCanGenerateReading(input.userId, tx);
-      if ((await this.countPending(input.userId, tx)) >= MAX_PENDING) {
+      if (originType === 'personal')
+        await this.subscriptions.assertCanGenerateReading(input.userId, tx);
+      if (originType === 'personal' && (await this.countPending(input.userId, tx)) >= MAX_PENDING) {
         throw new AppHttpException(ErrorCode.READING_PENDING_LIMIT_REACHED, {
           max: MAX_PENDING,
         });
@@ -462,6 +498,9 @@ export class ReadingsService {
         reading.evaluationOperationId &&
         reading.evaluationOperationId === operationId
       ) {
+        // The first request may have persisted the evaluation before its streak hook failed.
+        // Reconcile here without invoking the AI a second time.
+        await this.markFriendStreakCompletion(id, userId);
         return {
           score: reading.score ?? 0,
           passed: reading.passed ?? false,
@@ -526,6 +565,8 @@ Evaluate how well the user understood the main idea of the text.`;
       throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
     }
 
+    await this.markFriendStreakCompletion(updated.id, userId);
+
     await this.users.recordDailyActivity(userId);
     await this.promptLogs.logPromptSuccess('reading_evaluated', userId, id, `eval:${id}`, {
       score: result.score,
@@ -569,6 +610,74 @@ Evaluate how well the user understood the main idea of the text.`;
       userResponse: dto.userResponse,
       reading: updated,
     };
+  }
+
+  /** Marca la respuesta privada del día y suma la racha solo cuando ambos terminaron. */
+  private async markFriendStreakCompletion(readingId: number, userId: number): Promise<void> {
+    if (readingId <= 0) return;
+    if (typeof (this.db as unknown as { transaction?: unknown }).transaction !== 'function') return;
+    await this.db.transaction(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(friendStreakDays)
+        .where(
+          or(
+            eq(friendStreakDays.userLowReadingId, readingId),
+            eq(friendStreakDays.userHighReadingId, readingId),
+          ),
+        );
+      const current = rows[0];
+      if (!current) return;
+      const streakRows = await tx
+        .select()
+        .from(friendStreaks)
+        .where(eq(friendStreaks.id, current.streakId));
+      const currentStreak = streakRows[0];
+      if (currentStreak?.status !== 'active') return;
+      const today = getDateKeyInTimeZone('America/Mexico_City');
+      if (current.streakDate !== today) return;
+      const [day] = await tx
+        .select()
+        .from(friendStreakDays)
+        .where(eq(friendStreakDays.id, current.id))
+        .for('update');
+      if (day?.status !== 'pending') return;
+      const low = day.userLowReadingId === readingId || currentStreak.userLowId === userId;
+      const patch = low ? { userLowCompletedAt: new Date() } : { userHighCompletedAt: new Date() };
+      const [marked] = await tx
+        .update(friendStreakDays)
+        .set(patch)
+        .where(
+          and(
+            eq(friendStreakDays.id, day.id),
+            low
+              ? isNull(friendStreakDays.userLowCompletedAt)
+              : isNull(friendStreakDays.userHighCompletedAt),
+          ),
+        )
+        .returning();
+      if (!marked?.userLowCompletedAt || !marked.userHighCompletedAt) return;
+      const [streak] = await tx
+        .select()
+        .from(friendStreaks)
+        .where(eq(friendStreaks.id, currentStreak.id))
+        .for('update');
+      if (!streak) return;
+      const next = streak.currentStreak + 1;
+      await tx
+        .update(friendStreaks)
+        .set({
+          currentStreak: next,
+          longestStreak: Math.max(next, streak.longestStreak),
+          lastCompletedDate: today,
+          updatedAt: new Date(),
+        })
+        .where(eq(friendStreaks.id, streak.id));
+      await tx
+        .update(friendStreakDays)
+        .set({ status: 'completed', updatedAt: new Date() })
+        .where(eq(friendStreakDays.id, day.id));
+    });
   }
 
   /**
@@ -975,8 +1084,18 @@ Evaluate how well the user understood the main idea of the text.`;
 
   /** Cuenta cuántas lecturas pendientes tiene actualmente el usuario. */
   private async getPendingCount(userId: number): Promise<number> {
-    const pending = await this.listPending(userId);
-    return pending.length;
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(readings)
+      .where(
+        and(
+          eq(readings.userId, userId),
+          eq(readings.status, 'pending'),
+          eq(readings.originType, 'personal'),
+          isNull(readings.deletedAt),
+        ),
+      );
+    return rows[0]?.count ?? 0;
   }
 
   /** Cuenta lecturas pendientes directamente dentro del ejecutor o transacción recibido. */
@@ -988,6 +1107,7 @@ Evaluate how well the user understood the main idea of the text.`;
         and(
           eq(readings.userId, userId),
           eq(readings.status, 'pending'),
+          eq(readings.originType, 'personal'),
           isNull(readings.deletedAt),
         ),
       );

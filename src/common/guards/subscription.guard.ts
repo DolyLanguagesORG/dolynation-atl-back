@@ -8,6 +8,7 @@ import { users } from '../../database/drizzle/schema';
 import { ALLOW_WITHOUT_SUBSCRIPTION_KEY } from '../decorators/allow-without-subscription.decorator';
 import { ALLOW_ADMIN_SESSION_KEY, IS_ADMIN_ONLY_KEY } from '../decorators/admin-only.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { OPTIONAL_AUTH_KEY } from '../decorators/optional-auth.decorator';
 import type { AuthUser } from '../decorators/current-user.decorator';
 import { AppHttpException } from '../errors/app-http.exception';
 import { ErrorCode } from '../errors/error-codes';
@@ -39,9 +40,15 @@ export class SubscriptionGuard implements CanActivate {
       return true;
     }
 
+    const isOptionalAuth = this.reflector.getAllAndOverride<boolean>(OPTIONAL_AUTH_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+
     const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
     const user = req.user;
     if (!user) {
+      if (isOptionalAuth) return true;
       throw new AppHttpException(ErrorCode.AUTH_UNAUTHORIZED);
     }
 

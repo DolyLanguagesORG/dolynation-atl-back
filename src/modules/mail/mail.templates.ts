@@ -83,6 +83,13 @@ export interface AdminAccessRequestNoticeInput {
   adminUrl: string;
 }
 
+/** Datos del aviso bilingüe de una nueva solicitud de amistad. */
+export interface FriendRequestNoticeInput {
+  fullName: string | null;
+  requesterName: string;
+  requestUrl: string;
+}
+
 /** Correo renderizado, listo para enviarse. */
 export interface RenderedMail {
   subject: string;
@@ -700,5 +707,42 @@ export function renderAdminAccessRequestNotice(
       `${s.adminNoticeMessageLabel}:`,
       messageText,
     ]),
+  };
+}
+
+/** Renderiza el correo bilingüe que lleva a gestionar una solicitud de amistad. */
+export function renderFriendRequestNotice(
+  locale: MailLocale,
+  input: FriendRequestNoticeInput,
+): RenderedMail {
+  const spanish = locale === 'es';
+  const copy: TemplateCopy = spanish
+    ? {
+        subject: 'Tienes una nueva solicitud de amistad — DolyNation',
+        eyebrow: 'DolyNation social',
+        headline: 'Nueva solicitud de amistad',
+        greeting: 'Hola',
+        body: `${input.requesterName} quiere agregarte como amigo en DolyNation. Revisa la solicitud para aceptar o rechazarla.`,
+        cta: 'Revisar solicitud',
+        fallback: 'Si el botón no funciona, copia esta dirección en tu navegador:',
+        note: 'Si no reconoces esta solicitud, puedes rechazarla desde tu cuenta.',
+        footer: 'DolyNation Editorial · Soporte académico · Privacidad',
+      }
+    : {
+        subject: 'You have a new friendship request — DolyNation',
+        eyebrow: 'DolyNation social',
+        headline: 'New friendship request',
+        greeting: 'Hi',
+        body: `${input.requesterName} wants to add you as a friend on DolyNation. Review the request to accept or reject it.`,
+        cta: 'Review request',
+        fallback: 'If the button does not work, copy this address into your browser:',
+        note: 'If you do not recognize this request, you can reject it from your account.',
+        footer: 'DolyNation Editorial · Academic support · Privacy',
+      };
+  const greeting = buildGreeting(copy, input.fullName);
+  return {
+    subject: copy.subject,
+    html: renderHtml({ locale, copy, greeting, url: input.requestUrl }),
+    text: renderText(copy, greeting, input.requestUrl),
   };
 }
