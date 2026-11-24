@@ -61,6 +61,7 @@ describe('Concurrent requests (e2e)', () => {
 
   const prepareStudent = async (tag: string): Promise<{ id: number; auth: string }> => {
     const student = await registerUser(tag);
+    await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, student.id));
     await supertest(server())
       .post('/api/v1/user/subscription')
       .set('Authorization', student.auth)
