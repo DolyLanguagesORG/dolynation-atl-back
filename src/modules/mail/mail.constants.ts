@@ -40,6 +40,12 @@ export const FRONTEND_SELECT_PLAN_PATH = '/select-plan';
 /** Ruta del frontend para el panel administrativo. */
 export const FRONTEND_ADMIN_PATH = '/admin';
 
+/** Ruta del frontend para revisar solicitudes y gestionar amistades. */
+export const FRONTEND_FRIENDS_PATH = '/friends';
+
+/** Ruta del frontend para abrir una invitación compartible de amistad. */
+export const FRONTEND_FRIEND_INVITE_PATH = '/friends/invite';
+
 /** Ruta del frontend para iniciar sesión. */
 export const FRONTEND_LOGIN_PATH = '/login';
 

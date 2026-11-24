@@ -127,7 +127,13 @@ export class SubscriptionsService {
     const readingsCountResult = await this.db
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
-      .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));
+      .where(
+        and(
+          eq(readings.userId, userId),
+          eq(readings.originType, 'personal'),
+          gte(readings.createdAt, startOfDay),
+        ),
+      );
     const readingsCreatedToday = readingsCountResult[0]?.count ?? 0;
 
     // Preguntas o explicaciones solicitadas hoy
@@ -389,7 +395,13 @@ export class SubscriptionsService {
     const result = await dbClient
       .select({ count: sql<number>`count(*)::int` })
       .from(readings)
-      .where(and(eq(readings.userId, userId), gte(readings.createdAt, startOfDay)));
+      .where(
+        and(
+          eq(readings.userId, userId),
+          eq(readings.originType, 'personal'),
+          gte(readings.createdAt, startOfDay),
+        ),
+      );
 
     const used = result[0]?.count ?? 0;
     if (used >= plan.dailyReadingsLimit) {

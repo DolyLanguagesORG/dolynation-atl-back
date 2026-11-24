@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 import { validateEnv, type EnvSchema } from './config/env.validation';
@@ -21,6 +22,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { IaModule } from './modules/ia/ia.module';
 import { HealthModule } from './modules/health/health.module';
 import { VersionModule } from './modules/version/version.module';
+import { FriendshipsModule } from './modules/friendships/friendships.module';
 
 /**
  * Módulo raíz de la aplicación.
@@ -31,6 +33,7 @@ import { VersionModule } from './modules/version/version.module';
  */
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     // Carga y valida variables de entorno al arranque; falla rápido si falta alguna clave crítica.
     ConfigModule.forRoot({
       isGlobal: true,
@@ -95,6 +98,7 @@ import { VersionModule } from './modules/version/version.module';
     IaModule,
     HealthModule,
     VersionModule,
+    FriendshipsModule,
   ],
 })
 export class AppModule implements NestModule {

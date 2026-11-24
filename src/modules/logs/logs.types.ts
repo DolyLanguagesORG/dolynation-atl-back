@@ -29,6 +29,7 @@ export const LOG_MODULES = [
   'ia',
   'mail',
   'security',
+  'friendships',
   'system',
 ] as const;
 

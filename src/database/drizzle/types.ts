@@ -17,6 +17,11 @@ import type {
   billingSubscriptions,
   billingPayments,
   billingWebhookEvents,
+  friendships,
+  friendInviteLinks,
+  userBlocks,
+  friendStreaks,
+  friendStreakDays,
 } from './schema';
 
 /** Modelos inferidos de lectura (`Select`) e inserción (`Insert`) a partir del esquema Drizzle. */
@@ -45,6 +50,26 @@ export type { AccessRequestType, AccessRequestStatus } from './schema';
 
 export type Reading = InferSelectModel<typeof readings>;
 export type NewReading = InferInsertModel<typeof readings>;
+export type { ReadingOriginType } from './schema';
+
+export type Friendship = InferSelectModel<typeof friendships>;
+export type NewFriendship = InferInsertModel<typeof friendships>;
+export type FriendInviteLink = InferSelectModel<typeof friendInviteLinks>;
+export type NewFriendInviteLink = InferInsertModel<typeof friendInviteLinks>;
+export type UserBlock = InferSelectModel<typeof userBlocks>;
+export type NewUserBlock = InferInsertModel<typeof userBlocks>;
+export type FriendStreak = InferSelectModel<typeof friendStreaks>;
+export type NewFriendStreak = InferInsertModel<typeof friendStreaks>;
+export type FriendStreakDay = InferSelectModel<typeof friendStreakDays>;
+export type NewFriendStreakDay = InferInsertModel<typeof friendStreakDays>;
+export type {
+  FriendshipStatus,
+  FriendshipOrigin,
+  FriendStreakStatus,
+  FriendStreakDifficulty,
+  FriendStreakSize,
+  FriendStreakDayStatus,
+} from './schema';
 
 export type ReadingExplanation = InferSelectModel<typeof readingExplanations>;
 export type NewReadingExplanation = InferInsertModel<typeof readingExplanations>;

@@ -13,6 +13,15 @@ const baseEnvSchema = z.object({
   // ===== Aplicación =====
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   PORT: z.coerce.number().int().positive().default(3333),
+  FRIEND_STREAK_CRON_ENABLED: z.preprocess(
+    emptyToUndefined,
+    z.enum(['true', 'false']).default('true'),
+  ),
+  FRIEND_STREAK_CRON_EXPRESSION: z.preprocess(emptyToUndefined, z.string().default('0 6 * * *')),
+  FRIEND_STREAK_RETRY_CRON_EXPRESSION: z.preprocess(
+    emptyToUndefined,
+    z.string().default('*/15 6-23 * * *'),
+  ),
   HOST: z.string().default('0.0.0.0'),
   API_PREFIX: z.string().default('api/v1'),
   APP_NAME: z.string().default('dolynglish-backend'),

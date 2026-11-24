@@ -4,10 +4,18 @@ import type { Test as SupertestRequest } from 'supertest';
 import type { INestApplication } from '@nestjs/common';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../src/database/database.tokens';
 import type { DrizzleDb } from '../src/database/database.module';
-import { readingExplanations, readings, users, userSettings } from '../src/database/drizzle/schema';
+import {
+  categoryDailyUsage,
+  friendships,
+  moderatedCategories,
+  readingExplanations,
+  readings,
+  users,
+  userSettings,
+} from '../src/database/drizzle/schema';
 import { AIProviderFactory } from '../src/modules/ia/providers/ai-provider.factory';
 import type { ChatMessage } from '../src/modules/ia/providers/ai-provider.interface';
 import { GoogleDecisionsService } from '../src/modules/ia/decisions/google-decisions.service';
@@ -53,6 +61,7 @@ describe('Concurrent requests (e2e)', () => {
 
   const prepareStudent = async (tag: string): Promise<{ id: number; auth: string }> => {
     const student = await registerUser(tag);
+    await db.update(users).set({ emailVerifiedAt: new Date() }).where(eq(users.id, student.id));
     await supertest(server())
       .post('/api/v1/user/subscription')
       .set('Authorization', student.auth)
@@ -232,6 +241,154 @@ describe('Concurrent requests (e2e)', () => {
     expect(created).toBe(3);
     expect(blocked).toBe(3);
     expect(pendingRows).toHaveLength(3);
+  });
+
+  it('does not count pending friend copies against personal reading creation', async () => {
+    const student = await prepareStudent('friend-copy-quota');
+    await db.insert(readings).values(
+      Array.from({ length: 3 }, (_, index) => ({
+        userId: student.id,
+        originType: 'friend_copy' as const,
+        title: `Friend copy ${index + 1}`,
+        description: 'Private copy fixture',
+        content: READING_PARAGRAPHS.join('\n\n'),
+        category: 'technology',
+        difficulty: 'medium',
+        language: 'en',
+        wordCount: 30,
+        status: 'pending',
+        createdAt: new Date(),
+      })),
+    );
+
+    await generateReading(student.auth).expect(201);
+
+    const [counts] = await db
+      .select({
+        personalPending: sql<number>`count(*) filter (where ${readings.originType} = 'personal')::int`,
+        allPending: sql<number>`count(*)::int`,
+      })
+      .from(readings)
+      .where(and(eq(readings.userId, student.id), eq(readings.status, 'pending')));
+
+    expect(counts).toEqual({ personalPending: 1, allPending: 4 });
+  });
+
+  it('serves private friend readings safely and copies readings/categories through the API', async () => {
+    const student = await prepareStudent('friend-reader');
+    const friend = await prepareStudent('friend-owner');
+    const now = new Date();
+    const [friendship] = await db
+      .insert(friendships)
+      .values({
+        requesterId: student.id,
+        addresseeId: friend.id,
+        status: 'accepted',
+        origin: 'email',
+        createdAt: now,
+        updatedAt: now,
+      })
+      .returning({ id: friendships.id });
+    expect(friendship).toBeDefined();
+
+    const [source] = await db
+      .insert(readings)
+      .values({
+        userId: friend.id,
+        originType: 'personal',
+        title: 'Friend private reading',
+        description: 'A reading shared privately with a friend',
+        content: READING_PARAGRAPHS.join('\n\n'),
+        category: 'technology',
+        difficulty: 'medium',
+        language: 'en',
+        wordCount: 30,
+        status: 'completed',
+        score: 97,
+        passed: true,
+        userResponse: 'Private answer',
+        feedback: 'Private feedback',
+        createdAt: now,
+      })
+      .returning({ id: readings.id });
+    expect(source).toBeDefined();
+
+    await db
+      .update(userSettings)
+      .set({ preferredCategories: ['technology', 'science'], updatedAt: now })
+      .where(eq(userSettings.userId, friend.id));
+    await db
+      .insert(moderatedCategories)
+      .values({
+        canonicalKey: 'science',
+        sampleCategory: 'Science',
+        allowed: true,
+        provider: 'system',
+      })
+      .onConflictDoUpdate({
+        target: moderatedCategories.canonicalKey,
+        set: { sampleCategory: 'Science', allowed: true, updatedAt: now },
+      });
+
+    const listed = await supertest(server())
+      .get(`/api/v1/friends/${friend.id}/readings`)
+      .set('Authorization', student.auth)
+      .expect(200);
+    expect(listed.body.data).toHaveLength(1);
+    expect(listed.body.data[0]).not.toHaveProperty('score');
+    expect(listed.body.data[0]).not.toHaveProperty('passed');
+    expect(listed.body.data[0]).not.toHaveProperty('userResponse');
+    expect(listed.body.data[0]).not.toHaveProperty('feedback');
+
+    const opened = await supertest(server())
+      .get(`/api/v1/friends/${friend.id}/readings/${source.id}`)
+      .set('Authorization', student.auth)
+      .expect(200);
+    expect(opened.body.data.id).toBe(source.id);
+    expect(opened.body.data).not.toHaveProperty('score');
+    expect(opened.body.data).not.toHaveProperty('feedback');
+
+    const started = await supertest(server())
+      .post(`/api/v1/friends/${friend.id}/readings/${source.id}/start`)
+      .set('Authorization', student.auth)
+      .expect(200);
+    const copyId = started.body.data.readingId as number;
+    await supertest(server())
+      .post(`/api/v1/friends/${friend.id}/readings/${source.id}/start`)
+      .set('Authorization', student.auth)
+      .expect(200)
+      .expect(({ body }) => expect(body.data.readingId).toBe(copyId));
+    const [copy] = await db.select().from(readings).where(eq(readings.id, copyId));
+    expect(copy).toMatchObject({
+      userId: student.id,
+      sourceReadingId: source.id,
+      originType: 'friend_copy',
+      status: 'pending',
+    });
+
+    const categoriesBefore = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(categoryDailyUsage)
+      .where(eq(categoryDailyUsage.userId, student.id));
+    const categories = await supertest(server())
+      .get(`/api/v1/friends/${friend.id}/categories`)
+      .set('Authorization', student.auth)
+      .expect(200);
+    expect(categories.body.data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ canonicalKey: 'science' })]),
+    );
+
+    const copiedCategories = await supertest(server())
+      .post(`/api/v1/friends/${friend.id}/categories/copy`)
+      .set('Authorization', student.auth)
+      .send({ categories: ['science'] })
+      .expect(200);
+    expect(copiedCategories.body.data.activated).toContain('science');
+    const categoriesAfter = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(categoryDailyUsage)
+      .where(eq(categoryDailyUsage.userId, student.id));
+    expect(categoriesAfter[0]?.count).toBe(categoriesBefore[0]?.count);
   });
 
   it('evaluates a reading only once when the summary is submitted twice in parallel', async () => {

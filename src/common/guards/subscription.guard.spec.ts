@@ -6,6 +6,7 @@ import { ErrorCode } from '../errors/error-codes';
 import { ALLOW_WITHOUT_SUBSCRIPTION_KEY } from '../decorators/allow-without-subscription.decorator';
 import { ALLOW_ADMIN_SESSION_KEY, IS_ADMIN_ONLY_KEY } from '../decorators/admin-only.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { OPTIONAL_AUTH_KEY } from '../decorators/optional-auth.decorator';
 import { SubscriptionGuard } from './subscription.guard';
 
 describe('SubscriptionGuard', () => {
@@ -46,6 +47,12 @@ describe('SubscriptionGuard', () => {
       (key: string) => key === ALLOW_WITHOUT_SUBSCRIPTION_KEY,
     );
     await expect(guard.canActivate(createContext({ id: 7, email: 'u@x.com' }))).resolves.toBe(true);
+    expect(dbMock.select).not.toHaveBeenCalled();
+  });
+
+  it('allows anonymous @OptionalAuth() routes without querying subscriptions', async () => {
+    reflector.getAllAndOverride.mockImplementation((key: string) => key === OPTIONAL_AUTH_KEY);
+    await expect(guard.canActivate(createContext())).resolves.toBe(true);
     expect(dbMock.select).not.toHaveBeenCalled();
   });
 

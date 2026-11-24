@@ -11,6 +11,7 @@ import {
   renderOAuthAccountLinked,
   renderOAuthOnlyPasswordAttempt,
   renderPasswordReset,
+  renderFriendRequestNotice,
 } from './mail.templates';
 import {
   FRONTEND_ADMIN_PATH,
@@ -21,6 +22,7 @@ import {
   FRONTEND_SELECT_PLAN_PATH,
   FRONTEND_SETUP_PREFERENCES_PATH,
   FRONTEND_VERIFY_EMAIL_PATH,
+  FRONTEND_FRIENDS_PATH,
   buildFrontendUrl,
 } from './mail.constants';
 import type { MailLocale, MailMessage, MailTransport } from './mail.types';
@@ -329,6 +331,25 @@ export class MailService {
       planName: input.planName,
       userMessage: input.userMessage,
       adminUrl,
+    });
+    await this.send({ to: input.to, ...rendered });
+  }
+
+  /** Envía el aviso bilingüe de una nueva solicitud de amistad. */
+  async sendFriendRequestNotice(input: {
+    to: string;
+    fullName: string | null;
+    requesterName: string;
+    requestId: number;
+    locale: MailLocale;
+  }): Promise<void> {
+    const requestUrl = buildFrontendUrl(this.config.mail.frontendBaseUrl, FRONTEND_FRIENDS_PATH, {
+      requestId: String(input.requestId),
+    });
+    const rendered = renderFriendRequestNotice(input.locale, {
+      fullName: input.fullName,
+      requesterName: input.requesterName,
+      requestUrl,
     });
     await this.send({ to: input.to, ...rendered });
   }

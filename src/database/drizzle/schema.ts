@@ -9,8 +9,10 @@ import {
   boolean,
   jsonb,
   index,
+  check,
   unique,
   uniqueIndex,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -190,6 +192,18 @@ export const readings = pgTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
+    originType: varchar('origin_type', { length: 20 })
+      .$type<ReadingOriginType>()
+      .notNull()
+      .default('personal'),
+    sourceReadingId: integer('source_reading_id').references((): AnyPgColumn => readings.id, {
+      onDelete: 'set null',
+    }),
+    /** Se completa para las lecturas generadas por una racha; la FK vive en el SQL de infraestructura. */
+    friendStreakDayId: integer('friend_streak_day_id').references(
+      (): AnyPgColumn => friendStreakDays.id,
+      { onDelete: 'set null' },
+    ),
     title: varchar('title', { length: 255 }).notNull(),
     description: text('description').notNull(),
     content: text('content').notNull(),
@@ -215,8 +229,235 @@ export const readings = pgTable(
   (table) => ({
     userIdIdx: index('idx_readings_user_id').on(table.userId),
     statusIdx: index('idx_readings_status').on(table.status),
+    sourceReadingUnique: uniqueIndex('uq_readings_user_source_reading')
+      .on(table.userId, table.sourceReadingId)
+      .where(sql`${table.sourceReadingId} IS NOT NULL AND ${table.deletedAt} IS NULL`),
+    userOriginCreatedIdx: index('idx_readings_user_origin_created').on(
+      table.userId,
+      table.originType,
+      table.createdAt,
+    ),
+    originTypeCheck: check(
+      'readings_origin_type_check',
+      sql`${table.originType} IN ('personal', 'friend_copy', 'friend_streak')`,
+    ),
   }),
 );
+
+/** Origen de una lectura y sus reglas de cuota/privacidad asociadas. */
+export type ReadingOriginType = 'personal' | 'friend_copy' | 'friend_streak';
+
+/** Estado de una solicitud o relación de amistad. */
+export type FriendshipStatus = 'pending' | 'accepted' | 'rejected' | 'cancelled';
+
+/** Canal por el que se originó una solicitud de amistad. */
+export type FriendshipOrigin = 'email' | 'invite_link';
+
+/** Solicitud o relación bilateral de amistad. */
+export const friendships = pgTable(
+  'friendships',
+  {
+    id: serial('id').primaryKey(),
+    requesterId: integer('requester_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    addresseeId: integer('addressee_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: varchar('status', { length: 20 })
+      .$type<FriendshipStatus>()
+      .notNull()
+      .default('pending'),
+    origin: varchar('origin', { length: 20 }).$type<FriendshipOrigin>().notNull().default('email'),
+    respondedAt: timestamp('responded_at', { withTimezone: false }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    requesterIdx: index('idx_friendships_requester_id').on(table.requesterId),
+    addresseeIdx: index('idx_friendships_addressee_id').on(table.addresseeId),
+    statusIdx: index('idx_friendships_status').on(table.status),
+    activePairUnique: uniqueIndex('uq_friendships_active_pair')
+      .using(
+        'btree',
+        sql`LEAST(${table.requesterId}, ${table.addresseeId})`,
+        sql`GREATEST(${table.requesterId}, ${table.addresseeId})`,
+      )
+      .where(sql`${table.status} IN ('pending', 'accepted')`),
+    statusCheck: check(
+      'friendships_status_check',
+      sql`${table.status} IN ('pending', 'accepted', 'rejected', 'cancelled')`,
+    ),
+    originCheck: check(
+      'friendships_origin_check',
+      sql`${table.origin} IN ('email', 'invite_link')`,
+    ),
+    differentUsersCheck: check(
+      'friendships_different_users_check',
+      sql`${table.requesterId} <> ${table.addresseeId}`,
+    ),
+  }),
+);
+
+/** Enlace compartible de invitación; solo se persiste el hash del token. */
+export const friendInviteLinks = pgTable(
+  'friend_invite_links',
+  {
+    id: serial('id').primaryKey(),
+    creatorUserId: integer('creator_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: varchar('token_hash', { length: 64 }).notNull().unique(),
+    maxUses: integer('max_uses').default(1),
+    usesCount: integer('uses_count').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: false }).notNull(),
+    revokedAt: timestamp('revoked_at', { withTimezone: false }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    creatorIdx: index('idx_friend_invite_links_creator_user_id').on(table.creatorUserId),
+    expiresIdx: index('idx_friend_invite_links_expires_at').on(table.expiresAt),
+    maxUsesCheck: check(
+      'friend_invite_links_max_uses_check',
+      sql`${table.maxUses} IS NULL OR ${table.maxUses} >= 1`,
+    ),
+    usesCountCheck: check('friend_invite_links_uses_count_check', sql`${table.usesCount} >= 0`),
+  }),
+);
+
+/** Bloqueo unidireccional entre dos usuarios. */
+export const userBlocks = pgTable(
+  'user_blocks',
+  {
+    id: serial('id').primaryKey(),
+    blockerId: integer('blocker_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    blockedId: integer('blocked_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    blockerIdx: index('idx_user_blocks_blocker_id').on(table.blockerId),
+    blockedIdx: index('idx_user_blocks_blocked_id').on(table.blockedId),
+    pairUnique: unique('uq_user_blocks_blocker_blocked').on(table.blockerId, table.blockedId),
+    differentUsersCheck: check(
+      'user_blocks_different_users_check',
+      sql`${table.blockerId} <> ${table.blockedId}`,
+    ),
+  }),
+);
+
+/** Configuración y acumulado de una racha compartida entre dos amigos. */
+export const friendStreaks = pgTable(
+  'friend_streaks',
+  {
+    id: serial('id').primaryKey(),
+    friendshipId: integer('friendship_id')
+      .notNull()
+      .references(() => friendships.id, { onDelete: 'cascade' }),
+    userLowId: integer('user_low_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    userHighId: integer('user_high_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    initiatedByUserId: integer('initiated_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: varchar('status', { length: 20 })
+      .$type<FriendStreakStatus>()
+      .notNull()
+      .default('pending_partner'),
+    userLowCategories: jsonb('user_low_categories').$type<string[]>().notNull().default([]),
+    userHighCategories: jsonb('user_high_categories').$type<string[]>().notNull().default([]),
+    language: varchar('language', { length: 10 }).notNull(),
+    difficulty: varchar('difficulty', { length: 20 })
+      .$type<FriendStreakDifficulty>()
+      .notNull()
+      .default('medium'),
+    size: varchar('size', { length: 20 }).$type<FriendStreakSize>().notNull().default('medium'),
+    currentStreak: integer('current_streak').notNull().default(0),
+    longestStreak: integer('longest_streak').notNull().default(0),
+    lastCompletedDate: date('last_completed_date'),
+    startedAt: timestamp('started_at', { withTimezone: false }),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    friendshipIdx: index('idx_friend_streaks_friendship_id').on(table.friendshipId),
+    statusIdx: index('idx_friend_streaks_status').on(table.status),
+    activePairUnique: uniqueIndex('uq_friend_streaks_active_pair')
+      .on(table.userLowId, table.userHighId)
+      .where(sql`${table.status} IN ('pending_partner', 'active', 'paused')`),
+    statusCheck: check(
+      'friend_streaks_status_check',
+      sql`${table.status} IN ('pending_partner', 'active', 'paused', 'ended')`,
+    ),
+    languageCheck: check(
+      'friend_streaks_language_check',
+      sql`${table.language} IN ('es', 'en', 'fr', 'it')`,
+    ),
+    difficultyCheck: check(
+      'friend_streaks_difficulty_check',
+      sql`${table.difficulty} IN ('easy', 'medium', 'hard')`,
+    ),
+    sizeCheck: check(
+      'friend_streaks_size_check',
+      sql`${table.size} IN ('short', 'medium', 'long')`,
+    ),
+    orderedUsersCheck: check(
+      'friend_streaks_ordered_users_check',
+      sql`${table.userLowId} < ${table.userHighId}`,
+    ),
+  }),
+);
+
+/** Lecturas privadas generadas para cada participante en un día de racha. */
+export const friendStreakDays = pgTable(
+  'friend_streak_days',
+  {
+    id: serial('id').primaryKey(),
+    streakId: integer('streak_id')
+      .notNull()
+      .references(() => friendStreaks.id, { onDelete: 'cascade' }),
+    streakDate: date('streak_date').notNull(),
+    selectedCategory: varchar('selected_category', { length: 100 }).notNull(),
+    userLowReadingId: integer('user_low_reading_id').references(() => readings.id, {
+      onDelete: 'set null',
+    }),
+    userHighReadingId: integer('user_high_reading_id').references(() => readings.id, {
+      onDelete: 'set null',
+    }),
+    userLowCompletedAt: timestamp('user_low_completed_at', { withTimezone: false }),
+    userHighCompletedAt: timestamp('user_high_completed_at', { withTimezone: false }),
+    status: varchar('status', { length: 25 })
+      .$type<FriendStreakDayStatus>()
+      .notNull()
+      .default('pending'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: false }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: false }).notNull().defaultNow(),
+  },
+  (table) => ({
+    dateStatusIdx: index('idx_friend_streak_days_date_status').on(table.streakDate, table.status),
+    streakDateUnique: unique('uq_friend_streak_days_streak_date').on(
+      table.streakId,
+      table.streakDate,
+    ),
+    statusCheck: check(
+      'friend_streak_days_status_check',
+      sql`${table.status} IN ('pending', 'completed', 'missed', 'generation_failed')`,
+    ),
+  }),
+);
+
+/** Estado de una racha compartida. */
+export type FriendStreakStatus = 'pending_partner' | 'active' | 'paused' | 'ended';
+export type FriendStreakDifficulty = 'easy' | 'medium' | 'hard';
+export type FriendStreakSize = 'short' | 'medium' | 'long';
+export type FriendStreakDayStatus = 'pending' | 'completed' | 'missed' | 'generation_failed';
 
 /** Bitácora de auditoría para eventos de generación de prompts, errores de IA y eventos de auth. */
 export const promptLogs = pgTable(
@@ -619,4 +860,9 @@ export const schema = {
   billingSubscriptions,
   billingPayments,
   billingWebhookEvents,
+  friendships,
+  friendInviteLinks,
+  userBlocks,
+  friendStreaks,
+  friendStreakDays,
 };
