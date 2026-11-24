@@ -419,7 +419,18 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
       .send({ email, password: 'any-password-123' })
       .expect(403);
     expect(failedLogin.body.error.code).toBe('AUTH_PASSWORD_LOGIN_NOT_ALLOWED');
-    await new Promise((resolve) => setImmediate(resolve));
+    const deadline = Date.now() + 2_000;
+    while (
+      Date.now() < deadline &&
+      !mail.oauthNotices.some(
+        (notice) =>
+          notice.kind === 'password_attempt' &&
+          notice.to === email &&
+          notice.providerName === 'Google',
+      )
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
     expect(mail.oauthNotices).toContainEqual({
       kind: 'password_attempt',
       to: email,
