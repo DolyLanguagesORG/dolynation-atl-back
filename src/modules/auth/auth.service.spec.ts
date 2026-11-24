@@ -300,7 +300,9 @@ describe('AuthService', () => {
       );
 
       expect(error).toBeInstanceOf(AppHttpException);
-      expect(error?.getResponse()).toMatchObject({ code: ErrorCode.AUTH_INVALID_CREDENTIALS });
+      expect(error?.getResponse()).toMatchObject({
+        code: ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED,
+      });
       expect(usersService.verifyPassword).toHaveBeenCalledTimes(1);
     });
 
@@ -530,6 +532,19 @@ describe('AuthService', () => {
   });
 
   describe('forgotPassword', () => {
+    it('does not send password reset mail or issue a token for OAuth-only accounts', async () => {
+      usersService.findByEmailInsensitive.mockResolvedValue({
+        ...userRowFixture,
+        password: null,
+      });
+
+      const result = await service.forgotPassword('a@b.c');
+
+      expect(result).toEqual({ emailSent: true });
+      expect(emailTokenService.issue).not.toHaveBeenCalled();
+      expect(mailService.sendPasswordReset).not.toHaveBeenCalled();
+    });
+
     it('sends the reset email to an existing account', async () => {
       usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
 
@@ -614,8 +629,33 @@ describe('AuthService', () => {
   });
 
   describe('resetPassword', () => {
+    it('rejects password reset for an OAuth-only account', async () => {
+      emailTokenService.consume.mockResolvedValue({ userId: 7 });
+      usersService.findById.mockResolvedValue({
+        ...userRowFixture,
+        id: 7,
+        password: null,
+      });
+
+      const error = await service.resetPassword('token', 'newSecret123').then(
+        () => null,
+        (caught: unknown) => caught as AppHttpException,
+      );
+
+      expect(error).toBeInstanceOf(AppHttpException);
+      expect(error?.getResponse()).toMatchObject({
+        code: ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED,
+      });
+      expect(usersService.updatePassword).not.toHaveBeenCalled();
+    });
+
     it('updates the password and revokes every active session', async () => {
       emailTokenService.consume.mockResolvedValue({ userId: 7 });
+      usersService.findById.mockResolvedValue({
+        ...userRowFixture,
+        id: 7,
+        password: 'hash',
+      });
       const where = jest.fn().mockResolvedValue(undefined);
       const set = jest.fn().mockReturnValue({ where });
       db.update.mockReturnValue({ set });
