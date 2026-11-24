@@ -20,10 +20,12 @@ export enum ErrorCode {
   AUTH_UNAUTHORIZED = 'AUTH_UNAUTHORIZED',
   AUTH_EMAIL_NOT_VERIFIED = 'AUTH_EMAIL_NOT_VERIFIED',
   AUTH_EMAIL_TOKEN_INVALID = 'AUTH_EMAIL_TOKEN_INVALID',
+  AUTH_PASSWORD_LOGIN_NOT_ALLOWED = 'AUTH_PASSWORD_LOGIN_NOT_ALLOWED',
   AUTH_OAUTH_NOT_CONFIGURED = 'AUTH_OAUTH_NOT_CONFIGURED',
   AUTH_OAUTH_UNSUPPORTED_PROVIDER = 'AUTH_OAUTH_UNSUPPORTED_PROVIDER',
   AUTH_OAUTH_INVALID_CODE = 'AUTH_OAUTH_INVALID_CODE',
   AUTH_OAUTH_EMAIL_UNVERIFIED = 'AUTH_OAUTH_EMAIL_UNVERIFIED',
+  AUTH_OAUTH_ACCOUNT_LINK_REQUIRED = 'AUTH_OAUTH_ACCOUNT_LINK_REQUIRED',
   AUTH_OAUTH_ADMIN_FORBIDDEN = 'AUTH_OAUTH_ADMIN_FORBIDDEN',
   AUTH_OAUTH_PROVIDER_ERROR = 'AUTH_OAUTH_PROVIDER_ERROR',
   AUTH_OAUTH_STATE_INVALID = 'AUTH_OAUTH_STATE_INVALID',
@@ -151,6 +153,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     400,
     'This link is invalid, has expired or has already been used. Please request a new one.',
   ),
+  [ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED]: entry(
+    ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED,
+    403,
+    'This account was created with an OAuth provider. Continue with that provider to sign in.',
+  ),
   [ErrorCode.AUTH_OAUTH_NOT_CONFIGURED]: entry(
     ErrorCode.AUTH_OAUTH_NOT_CONFIGURED,
     503,
@@ -170,6 +177,11 @@ export const ErrorCatalog: Record<ErrorCode, ErrorMeta> = {
     ErrorCode.AUTH_OAUTH_EMAIL_UNVERIFIED,
     403,
     'Your OAuth provider account does not have a verified email address.',
+  ),
+  [ErrorCode.AUTH_OAUTH_ACCOUNT_LINK_REQUIRED]: entry(
+    ErrorCode.AUTH_OAUTH_ACCOUNT_LINK_REQUIRED,
+    409,
+    'An account with this email already exists. Sign in with your password or link the OAuth provider from your profile.',
   ),
   [ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN]: entry(
     ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN,

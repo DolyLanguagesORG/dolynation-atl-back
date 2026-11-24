@@ -194,7 +194,7 @@ export class AuthService implements IAuthService {
         summary: `Failed password login attempt (OAuth-only account) for user #${user.id}`,
         metadata: { attemptedEmail: input.email, reason: 'oauth_only_account' },
       });
-      throw new AppHttpException(ErrorCode.AUTH_INVALID_CREDENTIALS);
+      throw new AppHttpException(ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED);
     }
     const ok = await this.users.verifyPassword(input.password, user.password);
     if (!ok) {
@@ -571,6 +571,22 @@ export class AuthService implements IAuthService {
       return { emailSent: true };
     }
 
+    if (!user.password) {
+      await this.auditLogs?.logEvent({
+        module: 'auth',
+        action: 'AUTH',
+        event: 'auth.forgot_password_requested',
+        entityType: 'users',
+        entityId: user.id,
+        actorUserId: user.id,
+        actorEmail: user.email,
+        targetUserId: user.id,
+        summary: `Password reset blocked for OAuth-only account #${user.id}`,
+        metadata: { email: normalized, accountExists: true, oauthOnlyAccount: true, sent: false },
+      });
+      return { emailSent: true };
+    }
+
     let mailDispatched = false;
     try {
       const token = await this.emailTokens.issue({
@@ -690,6 +706,11 @@ export class AuthService implements IAuthService {
     const consumed = await this.emailTokens.consume(token, EMAIL_TOKEN_TYPE_PASSWORD_RESET);
     if (!consumed) {
       throw new AppHttpException(ErrorCode.AUTH_EMAIL_TOKEN_INVALID);
+    }
+
+    const user = await this.users.findById(consumed.userId);
+    if (!user?.password) {
+      throw new AppHttpException(ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED);
     }
 
     await this.users.updatePassword(consumed.userId, password);

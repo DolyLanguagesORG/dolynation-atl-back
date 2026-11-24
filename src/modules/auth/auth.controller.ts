@@ -188,6 +188,10 @@ export class AuthController {
   @ApiOperation({ summary: 'Autenticar usuario con correo electrónico y contraseña' })
   @ApiOkResponseOf(AuthResponseDto)
   @ApiUnauthorizedResponse({ description: 'Credenciales inválidas', type: ApiErrorDto })
+  @ApiForbiddenResponse({
+    description: 'This account uses an OAuth provider and cannot sign in with a password',
+    type: ApiErrorDto,
+  })
   @ApiBadRequestResponse({ description: 'Error de validación', type: ApiErrorDto })
   async login(@Body() dto: LoginDto): Promise<ApiResponse<AuthResponseDto>> {
     const result = await this.auth.login(dto);
@@ -225,6 +229,10 @@ export class AuthController {
   @ApiOkResponseOf(OAuthAuthResponseDto)
   @ApiBadRequestResponse({
     description: 'Unsupported provider, invalid authorization code, or validation error',
+    type: ApiErrorDto,
+  })
+  @ApiConflictResponse({
+    description: 'An account with this email exists but has not explicitly linked this provider',
     type: ApiErrorDto,
   })
   @ApiForbiddenResponse({
