@@ -11,17 +11,24 @@ import {
   Post,
   Query,
   Headers,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiForbiddenResponse,
+  ApiGatewayTimeoutResponse,
   ApiNotFoundResponse,
   ApiOperation,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
+import {
+  createRequestCancellation,
+  READING_GENERATION_DEADLINE_MS,
+} from '../../common/http/request-cancellation';
 import { ApiErrorDto } from '../../common/errors/api-error.dto';
 import {
   DeepExplanationResultDto,
@@ -104,12 +111,27 @@ export class ReadingsController {
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
   })
+  @ApiGatewayTimeoutResponse({
+    description:
+      'La generación superó el plazo y se canceló sin guardar la lectura ni descontar cuota (AI_GENERATION_TIMEOUT)',
+    type: ApiErrorDto,
+  })
   async generate(
     @CurrentUser() current: AuthUser,
     @Body() dto: GenerateReadingDto,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<ApiResponse<ReadingDto>> {
-    const reading = await this.readings.generate({ userId: current.id, options: dto });
-    return apiOk<ReadingDto>('Reading generated successfully', reading);
+    const cancellation = createRequestCancellation(res, READING_GENERATION_DEADLINE_MS);
+    try {
+      const reading = await this.readings.generate({
+        userId: current.id,
+        options: dto,
+        signal: cancellation.signal,
+      });
+      return apiOk<ReadingDto>('Reading generated successfully', reading);
+    } finally {
+      cancellation.dispose();
+    }
   }
 
   /**
