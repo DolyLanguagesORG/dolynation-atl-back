@@ -28,7 +28,15 @@ describe('AuthService', () => {
   >;
   let jwtService: jest.Mocked<Pick<JwtService, 'signAsync' | 'verifyAsync'>>;
   let authEventLogService: jest.Mocked<Pick<AuthEventLogService, 'logAuthEvent'>>;
-  let mailService: jest.Mocked<Pick<MailService, 'sendAccountConfirmation' | 'sendPasswordReset'>>;
+  let mailService: jest.Mocked<
+    Pick<
+      MailService,
+      | 'sendAccountConfirmation'
+      | 'sendPasswordReset'
+      | 'sendOAuthAccountLinked'
+      | 'sendOAuthOnlyPasswordAttempt'
+    >
+  >;
   let emailTokenService: jest.Mocked<
     Pick<AuthEmailTokenService, 'issue' | 'consume' | 'revokeActive'>
   >;
@@ -96,6 +104,8 @@ describe('AuthService', () => {
     mailService = {
       sendAccountConfirmation: jest.fn().mockResolvedValue(undefined),
       sendPasswordReset: jest.fn().mockResolvedValue(undefined),
+      sendOAuthAccountLinked: jest.fn().mockResolvedValue(undefined),
+      sendOAuthOnlyPasswordAttempt: jest.fn().mockResolvedValue(undefined),
     };
 
     emailTokenService = {
@@ -304,6 +314,45 @@ describe('AuthService', () => {
         code: ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED,
       });
       expect(usersService.verifyPassword).toHaveBeenCalledTimes(1);
+    });
+
+    it('emails the owner of an OAuth-only account on password login attempt, and throttles repeats', async () => {
+      usersService.findByEmailInsensitive.mockResolvedValue({ ...userRowFixture, password: null });
+      usersService.verifyPassword.mockResolvedValue(false);
+      db.select.mockReturnValue({
+        from: jest.fn().mockReturnValue({
+          where: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue([{ provider: 'microsoft' }]),
+          }),
+        }),
+      });
+
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        await expect(
+          service.login({ email: 'a@b.c', password: 'any-password' }),
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED }),
+        });
+      }
+      await new Promise((resolve) => setImmediate(resolve));
+
+      // Mismo límite que forgot-password: no sirve para inundar la bandeja del dueño.
+      expect(mailService.sendOAuthOnlyPasswordAttempt).toHaveBeenCalledTimes(3);
+      expect(mailService.sendOAuthOnlyPasswordAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({ to: 'a@b.c', providerName: 'Microsoft' }),
+      );
+    });
+
+    it('does not email anyone when the password of a normal account is wrong', async () => {
+      usersService.findByEmailInsensitive.mockResolvedValue(userRowFixture);
+      usersService.verifyPassword.mockResolvedValue(false);
+
+      await expect(service.login({ email: 'a@b.c', password: 'wrong' })).rejects.toBeInstanceOf(
+        AppHttpException,
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(mailService.sendOAuthOnlyPasswordAttempt).not.toHaveBeenCalled();
     });
 
     it('blocks the login of an unverified account when the verification is required', async () => {

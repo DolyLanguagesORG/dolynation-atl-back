@@ -9,7 +9,7 @@ import { AuditLogService, ErrorLogService, RequestContextService } from '../logs
 import { RegisterDto, LoginDto } from './dto/auth.dto';
 import { createHash, randomUUID } from 'node:crypto';
 import { DRIZZLE } from '../../database/database.tokens';
-import { authAccessTokens } from '../../database/drizzle/schema';
+import { authAccessTokens, userOAuthAccounts } from '../../database/drizzle/schema';
 import type { DrizzleDb } from '../../database/database.module';
 import type { User } from '../../database/drizzle/types';
 import type { IAuthService, AuthTokens, AuthUserView, RegisterResult } from './auth.types';
@@ -194,6 +194,7 @@ export class AuthService implements IAuthService {
         summary: `Failed password login attempt (OAuth-only account) for user #${user.id}`,
         metadata: { attemptedEmail: input.email, reason: 'oauth_only_account' },
       });
+      this.notifyOAuthOnlyPasswordAttempt(user);
       throw new AppHttpException(ErrorCode.AUTH_PASSWORD_LOGIN_NOT_ALLOWED);
     }
     const ok = await this.users.verifyPassword(input.password, user.password);
@@ -769,6 +770,75 @@ export class AuthService implements IAuthService {
    * Nunca propaga el fallo: el alta y el reenvío deben sobrevivir a un problema
    * puntual del proveedor de correo.
    */
+  /**
+   * Avisa por correo que un proveedor OAuth se vinculó a una cuenta existente. Nunca propaga
+   * un fallo de correo: la vinculación y el inicio de sesión ya ocurrieron.
+   */
+  async notifyOAuthAccountLinked(
+    user: Pick<User, 'id' | 'email' | 'fullName' | 'locale'>,
+    provider: string,
+    passwordRemoved: boolean,
+  ): Promise<void> {
+    try {
+      await this.mail.sendOAuthAccountLinked({
+        to: user.email,
+        fullName: user.fullName,
+        providerName: oauthProviderDisplayName(provider),
+        passwordRemoved,
+        locale: resolveLocale(user.locale),
+      });
+    } catch (error) {
+      await this.logMailFailure(error, user, 'OAuth account linked notice');
+    }
+  }
+
+  /**
+   * Avisa al dueño de una cuenta sin contraseña (solo OAuth) que alguien intentó entrar con una.
+   * Se lanza sin esperar: el login responde igual y en el mismo tiempo exista o no la cuenta.
+   */
+  private notifyOAuthOnlyPasswordAttempt(user: UserWithRole): void {
+    if (!this.registerMailAttempt(`oauth-only:${normalizeEmail(user.email)}`)) {
+      return;
+    }
+    void (async () => {
+      try {
+        const links = await this.db
+          .select({ provider: userOAuthAccounts.provider })
+          .from(userOAuthAccounts)
+          .where(eq(userOAuthAccounts.userId, user.id))
+          .limit(1);
+        await this.mail.sendOAuthOnlyPasswordAttempt({
+          to: user.email,
+          fullName: user.fullName,
+          providerName: oauthProviderDisplayName(links[0]?.provider ?? 'google'),
+          locale: resolveLocale(user.locale),
+        });
+      } catch (error) {
+        await this.logMailFailure(error, user, 'OAuth-only password attempt notice');
+      }
+    })();
+  }
+
+  private async logMailFailure(
+    error: unknown,
+    user: Pick<User, 'id' | 'email'>,
+    what: string,
+  ): Promise<void> {
+    const errDesc = describeError(error);
+    this.logger.error(`No se pudo enviar el correo (${what}): ${errDesc}`);
+    await this.errorLogs?.logError({
+      severity: 'error',
+      source: 'mail_smtp',
+      module: 'auth',
+      errorCode: 'MAIL_DELIVERY_ERROR',
+      message: `Failed to send ${what} email: ${errDesc}`,
+      errorName: error instanceof Error ? error.name : typeof error,
+      errorStack: error instanceof Error ? (error.stack ?? null) : null,
+      actorUserId: user.id,
+      actorEmail: user.email,
+    });
+  }
+
   private async sendAccountConfirmationEmail(user: User): Promise<void> {
     try {
       const token = await this.emailTokens.issue({
@@ -842,6 +912,13 @@ export class AuthService implements IAuthService {
 }
 
 /** Normaliza un correo para comparar y para usarlo como clave de búsqueda. */
+/** Nombre visible del proveedor OAuth para los correos. */
+function oauthProviderDisplayName(provider: string): string {
+  if (provider === 'microsoft') return 'Microsoft';
+  if (provider === 'google') return 'Google';
+  return provider;
+}
+
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }

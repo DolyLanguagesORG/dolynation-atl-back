@@ -70,6 +70,36 @@ class FakeMailService {
     return Promise.resolve();
   }
 
+  readonly oauthNotices: {
+    kind: 'linked' | 'password_attempt';
+    to: string;
+    providerName: string;
+    passwordRemoved?: boolean;
+  }[] = [];
+
+  sendOAuthAccountLinked(input: {
+    to: string;
+    providerName: string;
+    passwordRemoved: boolean;
+  }): Promise<void> {
+    this.oauthNotices.push({
+      kind: 'linked',
+      to: input.to,
+      providerName: input.providerName,
+      passwordRemoved: input.passwordRemoved,
+    });
+    return Promise.resolve();
+  }
+
+  sendOAuthOnlyPasswordAttempt(input: { to: string; providerName: string }): Promise<void> {
+    this.oauthNotices.push({
+      kind: 'password_attempt',
+      to: input.to,
+      providerName: input.providerName,
+    });
+    return Promise.resolve();
+  }
+
   lastToken(type: 'confirmation' | 'reset', to?: string): string | null {
     const matching = this.sent.filter((entry) => entry.type === type && (!to || entry.to === to));
     return matching.length > 0 ? (matching[matching.length - 1]?.token ?? null) : null;
@@ -383,12 +413,18 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
     expect(dbLink.userId).toBe(userId);
     expect(dbLink.providerEmail).toBe(email);
 
-    // Password login fails cleanly for OAuth-only account
+    // Password login fails cleanly for OAuth-only account and notifies owner
     const failedLogin = await supertest(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ email, password: 'any-password-123' })
       .expect(403);
     expect(failedLogin.body.error.code).toBe('AUTH_PASSWORD_LOGIN_NOT_ALLOWED');
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(mail.oauthNotices).toContainEqual({
+      kind: 'password_attempt',
+      to: email,
+      providerName: 'Google',
+    });
 
     // Password reset is blocked for OAuth-only accounts.
     const resetTokenBefore = mail.lastToken('reset', email);
