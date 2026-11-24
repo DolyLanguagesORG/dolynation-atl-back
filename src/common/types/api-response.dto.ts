@@ -229,7 +229,7 @@ export class PasswordUpdatedDto {
 export class OAuthProviderConfigDto {
   @ApiProperty({
     example: 'google',
-    enum: ['google'],
+    enum: ['google', 'microsoft'],
     description: 'Identificador del proveedor OAuth 2.0 / OIDC',
   })
   provider!: string;
@@ -292,7 +292,7 @@ export class OAuthAuthResponseDto {
 
   @ApiProperty({
     example: 'google',
-    enum: ['google'],
+    enum: ['google', 'microsoft'],
     description: 'Proveedor OAuth utilizado para autenticar la sesión',
   })
   provider!: string;

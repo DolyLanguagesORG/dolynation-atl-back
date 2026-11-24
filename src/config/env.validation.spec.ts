@@ -175,11 +175,11 @@ describe('validateEnv', () => {
         SMTP_FROM: 'f',
         SMTP_FROM_NAME: 'D',
         SMTP_SECURE: 'false',
-        FRONTEND_BASE_URL: 'https://devweb.dolynation.app',
+        FRONTEND_BASE_URL: 'https://devplay.dolynation.app',
         EMAIL_VERIFICATION_REQUIRED: 'false',
       });
 
-      expect(env.FRONTEND_BASE_URL).toBe('https://devweb.dolynation.app');
+      expect(env.FRONTEND_BASE_URL).toBe('https://devplay.dolynation.app');
       expect(env.EMAIL_VERIFICATION_REQUIRED).toBe(false);
       expect(env.CATEGORY_MODERATION_AI_PROVIDER).toBe('auto');
       expect(env.GOOGLE_API_KEY).toBe('k');
@@ -359,15 +359,90 @@ describe('validateEnv', () => {
         CAPTCHA_SITE_KEY: '1x00000000000000000000AA',
         CAPTCHA_SECRET_KEY: '1x0000000000000000000000000000000AA',
         CAPTCHA_APPEARANCE: 'execute',
-        CAPTCHA_ALLOWED_HOSTNAMES: 'localhost,devweb.yacaterkos.tech',
+        CAPTCHA_ALLOWED_HOSTNAMES: 'localhost,devplay.dolynation.app',
         CAPTCHA_FAIL_OPEN: 'true',
-        CORS_ALLOWED_ORIGINS: 'http://localhost:3000,https://devweb.yacaterkos.tech',
+        CORS_ALLOWED_ORIGINS: 'http://localhost:3000,https://devplay.dolynation.app',
       });
 
       expect(env.CAPTCHA_PROVIDER).toBe('turnstile');
       expect(env.CAPTCHA_APPEARANCE).toBe('execute');
       expect(env.CAPTCHA_FAIL_OPEN).toBe(true);
-      expect(env.CORS_ALLOWED_ORIGINS).toBe('http://localhost:3000,https://devweb.yacaterkos.tech');
+      expect(env.CORS_ALLOWED_ORIGINS).toBe('http://localhost:3000,https://devplay.dolynation.app');
+    });
+  });
+
+  describe('MICROSOFT_OAUTH_*', () => {
+    it('acepta variables ausentes o vacias y aplica tenant "common" por defecto', () => {
+      const defaults = validateEnv(base);
+      expect(defaults.MICROSOFT_OAUTH_CLIENT_ID).toBeUndefined();
+      expect(defaults.MICROSOFT_OAUTH_CLIENT_SECRET).toBeUndefined();
+      expect(defaults.MICROSOFT_OAUTH_TENANT).toBe('common');
+      expect(defaults.MICROSOFT_OAUTH_REDIRECT_URI).toBeUndefined();
+
+      const blanks = validateEnv({
+        ...base,
+        MICROSOFT_OAUTH_CLIENT_ID: '',
+        MICROSOFT_OAUTH_CLIENT_SECRET: '',
+        MICROSOFT_OAUTH_TENANT: '',
+        MICROSOFT_OAUTH_REDIRECT_URI: '',
+      });
+      expect(blanks.MICROSOFT_OAUTH_CLIENT_ID).toBeUndefined();
+      expect(blanks.MICROSOFT_OAUTH_CLIENT_SECRET).toBeUndefined();
+      expect(blanks.MICROSOFT_OAUTH_TENANT).toBe('common');
+      expect(blanks.MICROSOFT_OAUTH_REDIRECT_URI).toBeUndefined();
+    });
+
+    it('rechaza configuracion Microsoft OAuth incompleta (solo clientId o solo clientSecret)', () => {
+      expect(() =>
+        validateEnv({ ...base, MICROSOFT_OAUTH_CLIENT_ID: 'ms-client-id-test' }),
+      ).toThrow(/MICROSOFT_OAUTH_CLIENT_SECRET/);
+
+      expect(() =>
+        validateEnv({ ...base, MICROSOFT_OAUTH_CLIENT_SECRET: 'ms-client-secret-test' }),
+      ).toThrow(/MICROSOFT_OAUTH_CLIENT_ID/);
+    });
+
+    it('valida MICROSOFT_OAUTH_TENANT para common, organizations, consumers o UUID', () => {
+      for (const tenant of [
+        'common',
+        'Organizations',
+        'consumers',
+        '12345678-1234-1234-1234-1234567890AB',
+      ]) {
+        const parsed = validateEnv({ ...base, MICROSOFT_OAUTH_TENANT: tenant });
+        expect(parsed.MICROSOFT_OAUTH_TENANT).toBe(tenant.toLowerCase());
+      }
+
+      for (const badTenant of ['invalid-tenant', '../evil', 'common/extra']) {
+        expect(() => validateEnv({ ...base, MICROSOFT_OAUTH_TENANT: badTenant })).toThrow(
+          /MICROSOFT_OAUTH_TENANT/,
+        );
+      }
+    });
+
+    it('valida formato URL de MICROSOFT_OAUTH_REDIRECT_URI cuando se provee', () => {
+      expect(() =>
+        validateEnv({
+          ...base,
+          MICROSOFT_OAUTH_CLIENT_ID: 'ms-client-id-test',
+          MICROSOFT_OAUTH_CLIENT_SECRET: 'ms-client-secret-test',
+          MICROSOFT_OAUTH_REDIRECT_URI: 'no-es-url',
+        }),
+      ).toThrow();
+
+      const valid = validateEnv({
+        ...base,
+        MICROSOFT_OAUTH_CLIENT_ID: 'ms-client-id-test',
+        MICROSOFT_OAUTH_CLIENT_SECRET: 'ms-client-secret-test',
+        MICROSOFT_OAUTH_TENANT: 'organizations',
+        MICROSOFT_OAUTH_REDIRECT_URI: 'http://localhost:3000/api/auth/oauth/microsoft/callback',
+      });
+      expect(valid.MICROSOFT_OAUTH_CLIENT_ID).toBe('ms-client-id-test');
+      expect(valid.MICROSOFT_OAUTH_CLIENT_SECRET).toBe('ms-client-secret-test');
+      expect(valid.MICROSOFT_OAUTH_TENANT).toBe('organizations');
+      expect(valid.MICROSOFT_OAUTH_REDIRECT_URI).toBe(
+        'http://localhost:3000/api/auth/oauth/microsoft/callback',
+      );
     });
   });
 });

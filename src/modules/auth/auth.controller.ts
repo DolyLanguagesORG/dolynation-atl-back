@@ -219,7 +219,7 @@ export class AuthController {
   })
   @ApiParam({
     name: 'provider',
-    enum: ['google'],
+    enum: ['google', 'microsoft'],
     description: 'External OAuth provider identifier',
   })
   @ApiOkResponseOf(OAuthAuthResponseDto)

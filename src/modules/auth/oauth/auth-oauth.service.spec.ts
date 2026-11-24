@@ -5,6 +5,7 @@ import type { UsersService, UserWithRole } from '../../users/users.service';
 import type { AuthService } from '../auth.service';
 import { AuthOAuthService } from './auth-oauth.service';
 import type { GoogleOAuthProvider } from './google-oauth.provider';
+import type { MicrosoftOAuthProvider } from './microsoft-oauth.provider';
 
 describe('AuthOAuthService', () => {
   let dbMock: { select: jest.Mock; insert: jest.Mock; update: jest.Mock };
@@ -21,6 +22,9 @@ describe('AuthOAuthService', () => {
   let authService: jest.Mocked<Pick<AuthService, 'issueOAuthSession' | 'logoutAll'>>;
   let googleProvider: jest.Mocked<
     Pick<GoogleOAuthProvider, 'provider' | 'getPublicConfig' | 'exchangeCodeForProfile'>
+  >;
+  let microsoftProvider: jest.Mocked<
+    Pick<MicrosoftOAuthProvider, 'provider' | 'getPublicConfig' | 'exchangeCodeForProfile'>
   >;
   let auditLogs: { logEvent: jest.Mock };
   let errorLogs: { logError: jest.Mock };
@@ -100,6 +104,17 @@ describe('AuthOAuthService', () => {
         fullName: 'Ana López',
       }),
     };
+    microsoftProvider = {
+      provider: 'microsoft',
+      getPublicConfig: jest.fn().mockReturnValue({ provider: 'microsoft', enabled: true }),
+      exchangeCodeForProfile: jest.fn().mockResolvedValue({
+        provider: 'microsoft',
+        providerUserId: 'ms-sub-1',
+        email: 'student@school.edu',
+        emailVerified: true,
+        fullName: 'Ana López',
+      }),
+    };
     auditLogs = { logEvent: jest.fn().mockResolvedValue(undefined) };
     errorLogs = { logError: jest.fn().mockResolvedValue(undefined) };
 
@@ -108,6 +123,7 @@ describe('AuthOAuthService', () => {
       usersService as never,
       authService as never,
       googleProvider as never,
+      microsoftProvider as never,
       auditLogs as never,
       errorLogs as never,
     );
@@ -277,5 +293,36 @@ describe('AuthOAuthService', () => {
 
     expect(err?.getResponse()).toMatchObject({ code: ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN });
     expect(authService.issueOAuthSession).not.toHaveBeenCalled();
+  });
+
+  it('lists both google and microsoft providers and supports microsoft student signup and admin block', async () => {
+    expect(service.listProviders()).toEqual({
+      providers: [
+        { provider: 'google', enabled: true },
+        { provider: 'microsoft', enabled: true },
+      ],
+    });
+
+    mockSelectOAuthLink([]);
+    usersService.findByEmailInsensitive.mockResolvedValue(adminUser);
+    microsoftProvider.exchangeCodeForProfile.mockResolvedValueOnce({
+      provider: 'microsoft',
+      providerUserId: 'ms-admin-sub',
+      email: adminUser.email,
+      emailVerified: true,
+      fullName: 'Admin',
+    });
+
+    const err = await service
+      .exchangeCode('microsoft', {
+        ...exchangeInput,
+        redirectUri: 'http://localhost:3000/api/auth/oauth/microsoft/callback',
+      })
+      .then(
+        () => null,
+        (caught: unknown) => caught as AppHttpException,
+      );
+
+    expect(err?.getResponse()).toMatchObject({ code: ErrorCode.AUTH_OAUTH_ADMIN_FORBIDDEN });
   });
 });
