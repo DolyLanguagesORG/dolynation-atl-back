@@ -239,6 +239,7 @@ export class AuthOAuthService {
     profile: OAuthVerifiedProfile,
   ): Promise<OAuthExchangeResult> {
     const activeUser = await this.assertNotAdminOrDeleted(existingUser, profile.provider);
+    const passwordRemoved = !activeUser.emailVerifiedAt && Boolean(activeUser.password);
 
     // Nadie demostró ser dueño de este correo al registrar la cuenta: la contraseña (y las
     // sesiones abiertas con ella) pudo fijarla un tercero antes que el dueño real llegara con
@@ -270,6 +271,10 @@ export class AuthOAuthService {
       isNewUser: false,
       linkedExistingAccount: true,
     });
+
+    // La vinculación no es silenciosa (back#188): el dueño del correo recibe un aviso. Sin
+    // esperar, para no retrasar el inicio de sesión por el SMTP.
+    void this.auth.notifyOAuthAccountLinked(verifiedUser, profile.provider, passwordRemoved);
 
     return {
       ...session,

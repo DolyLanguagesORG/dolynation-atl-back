@@ -40,6 +40,12 @@ export const FRONTEND_SELECT_PLAN_PATH = '/select-plan';
 /** Ruta del frontend para el panel administrativo. */
 export const FRONTEND_ADMIN_PATH = '/admin';
 
+/** Ruta del frontend para iniciar sesión. */
+export const FRONTEND_LOGIN_PATH = '/login';
+
+/** Ruta del frontend para pedir el enlace de crear o restablecer contraseña. */
+export const FRONTEND_FORGOT_PASSWORD_PATH = '/forgot-password';
+
 /**
  * Límite de solicitudes de restablecimiento por dirección de correo dentro de
  * la ventana de `FORGOT_PASSWORD_THROTTLE_WINDOW_MS`.

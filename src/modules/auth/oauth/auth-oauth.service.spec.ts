@@ -19,7 +19,9 @@ describe('AuthOAuthService', () => {
       | 'clearPassword'
     >
   >;
-  let authService: jest.Mocked<Pick<AuthService, 'issueOAuthSession' | 'logoutAll'>>;
+  let authService: jest.Mocked<
+    Pick<AuthService, 'issueOAuthSession' | 'logoutAll' | 'notifyOAuthAccountLinked'>
+  >;
   let googleProvider: jest.Mocked<
     Pick<GoogleOAuthProvider, 'provider' | 'getPublicConfig' | 'exchangeCodeForProfile'>
   >;
@@ -92,6 +94,7 @@ describe('AuthOAuthService', () => {
     authService = {
       issueOAuthSession: jest.fn(),
       logoutAll: jest.fn().mockResolvedValue(undefined),
+      notifyOAuthAccountLinked: jest.fn().mockResolvedValue(undefined),
     };
     googleProvider = {
       provider: 'google',
@@ -215,7 +218,11 @@ describe('AuthOAuthService', () => {
   });
 
   it('auto-links existing unverified student account by matching email and marks email verified', async () => {
-    const unverifiedStudent: UserWithRole = { ...studentUser, emailVerifiedAt: null };
+    const unverifiedStudent: UserWithRole = {
+      ...studentUser,
+      emailVerifiedAt: null,
+      password: '$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$aGFzaA',
+    };
     const verifiedStudent: UserWithRole = {
       ...studentUser,
       emailVerifiedAt: new Date('2026-11-21T00:00:00Z'),
@@ -245,6 +252,12 @@ describe('AuthOAuthService', () => {
     // La contraseña y las sesiones de una cuenta sin verificar no se heredan.
     expect(usersService.clearPassword).toHaveBeenCalledWith(unverifiedStudent.id);
     expect(authService.logoutAll).toHaveBeenCalledWith(unverifiedStudent.id);
+    // La vinculación no es silenciosa (back#188): se avisa al dueño del correo.
+    expect(authService.notifyOAuthAccountLinked).toHaveBeenCalledWith(
+      expect.objectContaining({ id: unverifiedStudent.id }),
+      'google',
+      true,
+    );
     expect(dbMock.insert).toHaveBeenCalledTimes(1);
     expect(result.isNewUser).toBe(false);
     expect(result.linkedExistingAccount).toBe(true);

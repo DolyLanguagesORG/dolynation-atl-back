@@ -70,6 +70,36 @@ class FakeMailService {
     return Promise.resolve();
   }
 
+  readonly oauthNotices: {
+    kind: 'linked' | 'password_attempt';
+    to: string;
+    providerName: string;
+    passwordRemoved?: boolean;
+  }[] = [];
+
+  sendOAuthAccountLinked(input: {
+    to: string;
+    providerName: string;
+    passwordRemoved: boolean;
+  }): Promise<void> {
+    this.oauthNotices.push({
+      kind: 'linked',
+      to: input.to,
+      providerName: input.providerName,
+      passwordRemoved: input.passwordRemoved,
+    });
+    return Promise.resolve();
+  }
+
+  sendOAuthOnlyPasswordAttempt(input: { to: string; providerName: string }): Promise<void> {
+    this.oauthNotices.push({
+      kind: 'password_attempt',
+      to: input.to,
+      providerName: input.providerName,
+    });
+    return Promise.resolve();
+  }
+
   lastToken(type: 'confirmation' | 'reset', to?: string): string | null {
     const matching = this.sent.filter((entry) => entry.type === type && (!to || entry.to === to));
     return matching.length > 0 ? (matching[matching.length - 1]?.token ?? null) : null;
@@ -528,6 +558,14 @@ describe('Google OAuth 2.0 / OIDC flows against PostgreSQL (e2e)', () => {
 
     const [stored] = await db.select().from(users).where(eq(users.id, accountId)).limit(1);
     expect(stored?.password).toBeNull();
+
+    // La vinculación no es silenciosa (back#188): el dueño del correo recibe el aviso.
+    expect(mail.oauthNotices).toContainEqual({
+      kind: 'linked',
+      to: victimEmail,
+      providerName: 'Google',
+      passwordRemoved: true,
+    });
 
     // La sesión de la víctima sigue funcionando.
     await supertest(app.getHttpServer())
