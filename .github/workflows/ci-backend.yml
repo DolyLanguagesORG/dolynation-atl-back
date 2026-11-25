@@ -67,9 +67,9 @@ jobs:
           npm run typecheck
           npm run lint:check
           npm run format:check
-          # `npm run test` ya corre SOLO las unitarias (ver `jest.config.ts`).
-          # Antes hacia falta el flag para que los e2e no se ejecutaran aqui.
-          npm run test
+          # `npm run test:cov` corre SOLO las unitarias (ver `jest.config.ts`) y
+          # verifica el umbral mínimo de cobertura (70 % líneas y sentencias).
+          npm run test:cov
 
       - name: Test del regex de pr-labels
         # El regex de palabras clave de cierre de pr-labels.yml copio una vez

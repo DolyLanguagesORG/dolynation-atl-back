@@ -122,6 +122,30 @@ describe('Auth endpoints (e2e)', () => {
     expect(me.body.data.email).toBe(email);
     expect(me.body.data).not.toHaveProperty('password');
 
+    await supertest(app.getHttpServer()).get('/api/v1/user/profile').expect(401);
+
+    const profileInitial = await supertest(app.getHttpServer())
+      .get('/api/v1/user/profile')
+      .set('Authorization', `Bearer ${secondTokens.accessToken}`)
+      .expect(200);
+    expect(profileInitial.body.data.email).toBe(email);
+    expect(profileInitial.body.data.fullName).toBe('Auth E2E User');
+    expect(profileInitial.body.data).not.toHaveProperty('password');
+
+    const updatedName = 'Updated Auth E2E User';
+    const profileUpdated = await supertest(app.getHttpServer())
+      .patch('/api/v1/user/profile')
+      .set('Authorization', `Bearer ${secondTokens.accessToken}`)
+      .send({ fullName: updatedName })
+      .expect(200);
+    expect(profileUpdated.body.data.fullName).toBe(updatedName);
+
+    const profilePersisted = await supertest(app.getHttpServer())
+      .get('/api/v1/user/profile')
+      .set('Authorization', `Bearer ${secondTokens.accessToken}`)
+      .expect(200);
+    expect(profilePersisted.body.data.fullName).toBe(updatedName);
+
     await supertest(app.getHttpServer())
       .get(`${baseUrl}/me`)
       .set('Authorization', `Bearer ${secondTokens.refreshToken}`)
