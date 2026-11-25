@@ -22,6 +22,12 @@ const config: Config = {
   testPathIgnorePatterns: ['/node_modules/', '/dist/'],
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.spec.ts', '!src/main.ts'],
   coverageDirectory: './coverage',
+  coverageThreshold: {
+    global: {
+      lines: 70,
+      statements: 70,
+    },
+  },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
