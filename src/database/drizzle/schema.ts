@@ -222,6 +222,8 @@ export const readings = pgTable(
     // en vez de error: sin esto, un envio reintentado evaluaria dos veces
     // (y la IA cobraria dos veces).
     evaluationOperationId: varchar('evaluation_operation_id', { length: 100 }),
+    /** Hash determinista de parámetros de generación para caché de lecturas. */
+    promptHash: varchar('prompt_hash', { length: 64 }),
     createdAt: timestamp('created_at', { withTimezone: false }).notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: false }),
     deletedAt: timestamp('deleted_at', { withTimezone: false }),
@@ -237,6 +239,9 @@ export const readings = pgTable(
       table.originType,
       table.createdAt,
     ),
+    userPromptHashIdx: index('idx_readings_user_prompt_hash')
+      .on(table.userId, table.promptHash)
+      .where(sql`${table.promptHash} IS NOT NULL AND ${table.deletedAt} IS NULL`),
     originTypeCheck: check(
       'readings_origin_type_check',
       sql`${table.originType} IN ('personal', 'friend_copy', 'friend_streak')`,

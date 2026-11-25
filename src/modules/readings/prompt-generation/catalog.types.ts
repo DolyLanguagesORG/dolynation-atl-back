@@ -91,8 +91,18 @@ export interface RandomPromptParams {
   avoidTopics?: string[];
   /** Títulos y descripciones recientes (hasta 10) para evitar repetición temática/semántica. */
   recentReadings?: RecentReadingSummary[];
-  /** Código de idioma objetivo (ej. `"en"`, `"es"`, `"fr"`, `"pt"`, `"de"`). Por defecto `"en"`. */
+  /** Código de idioma objetivo (ej. `"en"`, `"es"`, `"fr"`, `"it"`). Por defecto `"en"`. */
   language?: string;
+  /** Semilla opcional para generar parámetros y prompts reproducibles. */
+  seed?: string;
+}
+
+/** Plantilla lingüística versionada para un idioma objetivo admitido. */
+export interface LanguagePromptTemplate {
+  readonly language: 'es' | 'en' | 'fr' | 'it';
+  readonly languageName: string;
+  readonly version: string;
+  readonly styleGuides: Readonly<Record<DifficultyLevel, string>>;
 }
 
 /** Resultado estructurado de la etapa de lluvia de ideas y enriquecimiento temático. */
@@ -121,5 +131,6 @@ export interface GeneratedPrompt {
   systemPrompt: string;
   userPrompt: string;
   seed: string;
+  templateVersion: string;
   params: RandomPromptParams;
 }
