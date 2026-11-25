@@ -10,6 +10,7 @@ import {
 import type { CategoryPromptProfile } from '../../../database/drizzle/types';
 import { normalizeSmartQuoteStrings } from '../../ia/ai-json';
 import {
+  createSeededRng,
   getCategoryConfig,
   getUniqueFocusForCategory,
   pickExplorationLens,
@@ -24,11 +25,18 @@ import type {
   EnrichedTopic,
   EnrichmentPromptParams,
   GeneratedPrompt,
+  LanguagePromptTemplate,
   RandomPromptParams,
   RecentReadingSummary,
   TextSize,
   TextSizeConfig,
 } from './catalog.types';
+
+/** Versión vigente del catálogo de plantillas de generación por idioma. */
+export const PROMPT_TEMPLATE_VERSION = '2.0.0';
+
+/** Idiomas soportados con plantilla propia aislada. */
+export type SupportedPromptLanguage = 'es' | 'en' | 'fr' | 'it';
 
 /** Máximo de lecturas recientes consideradas en contexto anti-repetición. */
 const MAX_RECENT_READINGS_CONTEXT = 10;
@@ -60,31 +68,53 @@ const EXPLANATION_LEVEL_GUIDES: Record<string, string> = {
   hard: 'Advanced / Native-like (C1-C2): explain like an educated native speaker to another fluent reader, covering pragmatic tone, subtle nuance, and register.',
 };
 
-/** Guías lingüísticas y pedagógicas aisladas por idioma y nivel CEFR para evitar contaminación cruzada. */
-const LANGUAGE_STYLE_GUIDES: Record<string, Record<DifficultyLevel, string>> = {
+/** Catálogo versionado de plantillas lingüísticas aisladas por idioma y nivel CEFR. */
+export const LANGUAGE_PROMPT_TEMPLATES: Readonly<
+  Record<SupportedPromptLanguage, LanguagePromptTemplate>
+> = {
   es: {
-    easy: 'Write natural, neutral Spanish at A1-A2 level: present tense, basic preterite/imperfect, concrete everyday vocabulary, short sentences, and simple connectors (primero, además, por eso). Every single word must be purely Spanish.',
-    medium:
-      'Write natural, neutral Spanish at B1-B2 level: varied tenses including compound past and conditionals, passive "se", and smooth transitions (sin embargo, por lo tanto, aunque). Every single word must be purely Spanish.',
-    hard: 'Write authentic educated Spanish at C1-C2 level: nuanced subjunctive, precise nominalizations, idiomatic connectors, and rich domain vocabulary. Every single word must be purely Spanish.',
+    language: 'es',
+    languageName: 'Spanish',
+    version: PROMPT_TEMPLATE_VERSION,
+    styleGuides: {
+      easy: 'Write natural, neutral Spanish at A1-A2 level: present tense, basic preterite/imperfect, concrete everyday vocabulary, short sentences, and simple connectors (primero, además, por eso). Every single word must be purely Spanish.',
+      medium:
+        'Write natural, neutral Spanish at B1-B2 level: varied tenses including compound past and conditionals, passive "se", and smooth transitions (sin embargo, por lo tanto, aunque). Every single word must be purely Spanish.',
+      hard: 'Write authentic educated Spanish at C1-C2 level: nuanced subjunctive, precise nominalizations, idiomatic connectors, and rich domain vocabulary. Every single word must be purely Spanish.',
+    },
   },
   en: {
-    easy: 'Write clear standard English at A1-A2 level: rely on high-frequency words, crisp subject-verb-object sentences, and simple connectors without idioms or technical jargon.',
-    medium:
-      'Write clear standard English at B1-B2 level: combine relative clauses, everyday phrasal verbs, conditionals, and smooth transitions (however, moreover, as a result).',
-    hard: 'Write sophisticated standard English at C1-C2 level: employ academic collocations, complex subordination, cleft structures, and nuanced specialized terminology.',
+    language: 'en',
+    languageName: 'English',
+    version: PROMPT_TEMPLATE_VERSION,
+    styleGuides: {
+      easy: 'Write clear standard English at A1-A2 level: rely on high-frequency words, crisp subject-verb-object sentences, and simple connectors without idioms or technical jargon.',
+      medium:
+        'Write clear standard English at B1-B2 level: combine relative clauses, everyday phrasal verbs, conditionals, and smooth transitions (however, moreover, as a result).',
+      hard: 'Write sophisticated standard English at C1-C2 level: employ academic collocations, complex subordination, cleft structures, and nuanced specialized terminology.',
+    },
   },
   fr: {
-    easy: "Write authentic standard French at A1-A2 level (exact accents, elisions, and agreement): use présent, passé composé, futur proche, concrete everyday vocabulary, and short clear sentences (d'abord, ensuite, donc). Every single word must be purely French.",
-    medium:
-      'Write authentic standard French at B1-B2 level (exact accents and agreement): combine imparfait, conditionnel, pronoms relatifs, and logical markers (cependant, en effet, ainsi, par ailleurs). Every single word must be purely French.',
-    hard: 'Write authentic educated French at C1-C2 level (impeccable accents and syntax): use subjonctif, nominal structures, idiomatic expressions, and authentic French technical terms. Every single word must be purely French.',
+    language: 'fr',
+    languageName: 'French',
+    version: PROMPT_TEMPLATE_VERSION,
+    styleGuides: {
+      easy: "Write authentic standard French at A1-A2 level (exact accents, elisions, and agreement): use présent, passé composé, futur proche, concrete everyday vocabulary, and short clear sentences (d'abord, ensuite, donc). Every single word must be purely French.",
+      medium:
+        'Write authentic standard French at B1-B2 level (exact accents and agreement): combine imparfait, conditionnel, pronoms relatifs, and logical markers (cependant, en effet, ainsi, par ailleurs). Every single word must be purely French.',
+      hard: 'Write authentic educated French at C1-C2 level (impeccable accents and syntax): use subjonctif, nominal structures, idiomatic expressions, and authentic French technical terms. Every single word must be purely French.',
+    },
   },
   it: {
-    easy: 'Write natural standard Italian at A1-A2 level (exact accents, articles, and agreement): use presente, passato prossimo, concrete high-frequency vocabulary, and short clear sentences (prima, poi, per questo). Every single word must be purely Italian.',
-    medium:
-      'Write natural standard Italian at B1-B2 level (exact articles and agreement): combine imperfetto, condizionale, combined pronouns, and connectors (tuttavia, quindi, inoltre). Every single word must be purely Italian.',
-    hard: 'Write authentic essay-style Italian at C1-C2 level (impeccable accents and register): use congiuntivo, passive/impersonal "si" constructions, nuanced idioms, and specialized Italian vocabulary. Every single word must be purely Italian.',
+    language: 'it',
+    languageName: 'Italian',
+    version: PROMPT_TEMPLATE_VERSION,
+    styleGuides: {
+      easy: 'Write natural standard Italian at A1-A2 level (exact accents, articles, and agreement): use presente, passato prossimo, concrete high-frequency vocabulary, and short clear sentences (prima, poi, per questo). Every single word must be purely Italian.',
+      medium:
+        'Write natural standard Italian at B1-B2 level (exact articles and agreement): combine imperfetto, condizionale, combined pronouns, and connectors (tuttavia, quindi, inoltre). Every single word must be purely Italian.',
+      hard: 'Write authentic essay-style Italian at C1-C2 level (impeccable accents and register): use congiuntivo, passive/impersonal "si" constructions, nuanced idioms, and specialized Italian vocabulary. Every single word must be purely Italian.',
+    },
   },
 };
 
@@ -94,6 +124,18 @@ const LANGUAGE_STYLE_GUIDES: Record<string, Record<DifficultyLevel, string>> = {
  */
 @Injectable()
 export class PromptBuilderService {
+  private seedSequence = 0;
+
+  /**
+   * Resuelve la plantilla versionada correspondiente al idioma solicitado (con respaldo en inglés).
+   */
+  getTemplateForLanguage(language?: string): LanguagePromptTemplate {
+    const normalized = language?.trim().toLowerCase() ?? 'en';
+    if (normalized in LANGUAGE_PROMPT_TEMPLATES) {
+      return LANGUAGE_PROMPT_TEMPLATES[normalized as SupportedPromptLanguage];
+    }
+    return LANGUAGE_PROMPT_TEMPLATES.en;
+  }
   /**
    * Paso 1 (Prompt intermedio): Construye el prompt de enriquecimiento enviado al LLM
    * para proponer un subtema específico, original y sin clichés, junto con una perspectiva
@@ -232,27 +274,32 @@ Propose one fresh, concrete, engaging facet centered tightly on "${params.catego
    * aplicando las guías de vocabulario y gramática CEFR según la dificultad.
    */
   buildPrompt(params: RandomPromptParams): GeneratedPrompt {
+    const template = this.getTemplateForLanguage(params.language);
+    const explicitSeed = params.seed?.trim();
     return {
       systemPrompt: this.buildSystemPrompt(params.category, params.language),
       userPrompt: this.buildUserPrompt(params),
       params,
-      seed: this.generateSeed(params),
+      seed: explicitSeed && explicitSeed.length > 0 ? explicitSeed : this.generateSeed(params),
+      templateVersion: `${template.language}@${template.version}`,
     };
   }
 
   /**
-   * Genera un objeto de parámetros aleatorio pero válido. Se usa como respaldo cuando
-   * faltan campos categóricos en el cuerpo de la petición.
+   * Genera un objeto de parámetros aleatorio pero válido. Si se proporciona `partial.seed`,
+   * la selección es determinista para garantizar reproducibilidad.
    */
   generateRandomParams(partial?: Partial<RandomPromptParams>): RandomPromptParams {
     const trimmedCategory = partial?.category?.trim();
     const category = trimmedCategory && trimmedCategory.length > 0 ? trimmedCategory : 'general';
-    const difficulty = partial?.difficulty ?? pickRandom(READING_DIFFICULTIES);
-    const size = partial?.size ?? pickRandom(READING_TEXT_SIZES);
+    const normalizedSeed = partial?.seed?.trim();
+    const rng = normalizedSeed ? createSeededRng(normalizedSeed) : Math.random;
+    const difficulty = partial?.difficulty ?? pickRandom(READING_DIFFICULTIES, rng);
+    const size = partial?.size ?? pickRandom(READING_TEXT_SIZES, rng);
     const categoryConfig = getCategoryConfig(category);
     const subcategories = (partial?.subcategories ?? []).length
       ? (partial?.subcategories ?? [])
-      : [pickRandom(categoryConfig.subcategories).name];
+      : [pickRandom(categoryConfig.subcategories, rng).name];
     const focusPool = getUniqueFocusForCategory(category);
 
     return {
@@ -262,11 +309,17 @@ Propose one fresh, concrete, engaging facet centered tightly on "${params.catego
       subcategories,
       contentType:
         partial?.contentType ??
-        pickRandom(Object.keys(CONTENT_TYPE_DESCRIPTIONS) as RandomPromptParams['contentType'][]),
+        pickRandom(
+          Object.keys(CONTENT_TYPE_DESCRIPTIONS) as RandomPromptParams['contentType'][],
+          rng,
+        ),
       perspective:
         partial?.perspective ??
-        pickRandom(Object.keys(PERSPECTIVE_DESCRIPTIONS) as RandomPromptParams['perspective'][]),
-      uniqueFocusElement: partial?.uniqueFocusElement ?? pickRandom(focusPool),
+        pickRandom(
+          Object.keys(PERSPECTIVE_DESCRIPTIONS) as RandomPromptParams['perspective'][],
+          rng,
+        ),
+      uniqueFocusElement: partial?.uniqueFocusElement ?? pickRandom(focusPool, rng),
       keyConcepts: partial?.keyConcepts,
       editorialGuidance: partial?.editorialGuidance,
       avoidTopics: partial?.avoidTopics,
@@ -274,6 +327,7 @@ Propose one fresh, concrete, engaging facet centered tightly on "${params.catego
         ? { recentReadings: partial.recentReadings.slice(0, MAX_RECENT_READINGS_CONTEXT) }
         : {}),
       ...(partial?.language !== undefined ? { language: partial.language } : {}),
+      ...(normalizedSeed ? { seed: normalizedSeed } : {}),
     };
   }
 
@@ -376,9 +430,9 @@ Respond ONLY with a valid JSON object in this exact format (no markdown or comme
     const contentTypeDesc = CONTENT_TYPE_DESCRIPTIONS[params.contentType];
     const perspectiveDesc = PERSPECTIVE_DESCRIPTIONS[params.perspective];
     const normalizedLang = params.language?.toLowerCase() ?? 'en';
-    const langLabel = LANGUAGE_NAMES[normalizedLang] ?? 'English';
-    const difficultyGuides = LANGUAGE_STYLE_GUIDES[normalizedLang] ?? LANGUAGE_STYLE_GUIDES['en'];
-    const langGuide = difficultyGuides[params.difficulty] ?? difficultyGuides.medium;
+    const template = this.getTemplateForLanguage(normalizedLang);
+    const langLabel = LANGUAGE_NAMES[normalizedLang] ?? template.languageName;
+    const langGuide = template.styleGuides[params.difficulty] ?? template.styleGuides.medium;
     const subtopicLine =
       params.subcategories.length === 1 &&
       params.subcategories[0]?.trim().toLowerCase() === categoryConfig.name.trim().toLowerCase()
@@ -503,12 +557,14 @@ Give the word-by-word dictionary breakdown, contrast the literal sense with what
 
   /** Genera una semilla única trazable para identificar cada ejecución en bitácoras. */
   private generateSeed(params: RandomPromptParams): string {
+    this.seedSequence += 1;
     const parts: string[] = [];
     parts.push(params.category.slice(0, 4));
     parts.push(params.size.slice(0, 3));
     parts.push(params.difficulty.slice(0, 3));
     parts.push(params.contentType.split('_')[0].slice(0, 4));
     parts.push(Date.now().toString());
+    parts.push(this.seedSequence.toString());
     parts.push(`${Math.floor(Math.random() * 1e6)}`);
     return parts.join('_');
   }

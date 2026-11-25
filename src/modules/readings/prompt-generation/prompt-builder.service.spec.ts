@@ -1,4 +1,9 @@
-import { PromptBuilderService, pickExplorationLens } from './index';
+import {
+  LANGUAGE_PROMPT_TEMPLATES,
+  PROMPT_TEMPLATE_VERSION,
+  PromptBuilderService,
+  pickExplorationLens,
+} from './index';
 import type {
   DifficultyLevel,
   GeneratedPrompt,
@@ -453,6 +458,136 @@ describe('PromptBuilderService', () => {
       });
       expect(hardIt.systemPrompt).toContain('Italian vocabulary explainer');
       expect(hardIt.systemPrompt).toContain('Advanced / Native-like (C1-C2)');
+    });
+  });
+
+  describe('versioned language templates and reproducible seed (back#20)', () => {
+    it('defines isolated versioned templates for all 4 supported languages and exposes templateVersion', () => {
+      const langs = ['es', 'en', 'fr', 'it'] as const;
+      const prompts = langs.map((language) => {
+        expect(LANGUAGE_PROMPT_TEMPLATES[language]).toBeDefined();
+        expect(LANGUAGE_PROMPT_TEMPLATES[language].version).toBe(PROMPT_TEMPLATE_VERSION);
+        const params = service.generateRandomParams({
+          category: 'astronomy',
+          difficulty: 'medium',
+          size: 'medium',
+          language,
+          seed: 'fixed-lang-seed',
+        });
+        return service.buildPrompt(params);
+      });
+
+      prompts.forEach((prompt, idx) => {
+        const lang = langs[idx];
+        expect(prompt.templateVersion).toBe(`${lang}@${PROMPT_TEMPLATE_VERSION}`);
+        expect(prompt.systemPrompt).toContain('Respond ONLY with a valid JSON object');
+      });
+
+      const uniqueSystemPrompts = new Set(prompts.map((p) => p.systemPrompt));
+      const uniqueUserPrompts = new Set(prompts.map((p) => p.userPrompt));
+      expect(uniqueSystemPrompts.size).toBe(4);
+      expect(uniqueUserPrompts.size).toBe(4);
+    });
+
+    it('produces distinct verifiable prompts when category, difficulty or size change', () => {
+      const base = service.buildPrompt(
+        service.generateRandomParams({
+          category: 'architecture',
+          difficulty: 'easy',
+          size: 'short',
+          language: 'es',
+          seed: 'diff-check',
+        }),
+      );
+      const diffCategory = service.buildPrompt(
+        service.generateRandomParams({
+          category: 'oceanography',
+          difficulty: 'easy',
+          size: 'short',
+          language: 'es',
+          seed: 'diff-check',
+        }),
+      );
+      const diffDifficulty = service.buildPrompt(
+        service.generateRandomParams({
+          category: 'architecture',
+          difficulty: 'hard',
+          size: 'short',
+          language: 'es',
+          seed: 'diff-check',
+        }),
+      );
+      const diffSize = service.buildPrompt(
+        service.generateRandomParams({
+          category: 'architecture',
+          difficulty: 'easy',
+          size: 'long',
+          language: 'es',
+          seed: 'diff-check',
+        }),
+      );
+
+      expect(base.userPrompt).not.toBe(diffCategory.userPrompt);
+      expect(base.userPrompt).not.toBe(diffDifficulty.userPrompt);
+      expect(base.userPrompt).not.toBe(diffSize.userPrompt);
+    });
+
+    it('produces identical params and prompt for the same input + seed, and varies when seed changes', () => {
+      const firstParams = service.generateRandomParams({
+        category: 'cinema',
+        language: 'it',
+        seed: 'repro-seed-42',
+      });
+      const secondParams = service.generateRandomParams({
+        category: 'cinema',
+        language: 'it',
+        seed: 'repro-seed-42',
+      });
+
+      expect(firstParams).toEqual(secondParams);
+
+      const firstPrompt = service.buildPrompt(firstParams);
+      const secondPrompt = service.buildPrompt(secondParams);
+      expect(firstPrompt).toEqual(secondPrompt);
+      expect(firstPrompt.seed).toBe('repro-seed-42');
+      expect(firstPrompt.templateVersion).toBe(`it@${PROMPT_TEMPLATE_VERSION}`);
+
+      const variedPrompts = ['alpha-1', 'beta-2', 'gamma-3', 'delta-4'].map((seed) =>
+        service.buildPrompt(
+          service.generateRandomParams({
+            category: 'cinema',
+            language: 'it',
+            seed,
+          }),
+        ),
+      );
+      expect(new Set(variedPrompts.map((p) => p.userPrompt)).size).toBeGreaterThan(1);
+    });
+
+    it('covers all 4 languages across all 3 difficulty levels with JSON format enforcement', () => {
+      const langs = ['es', 'en', 'fr', 'it'] as const;
+      const difficulties: DifficultyLevel[] = ['easy', 'medium', 'hard'];
+
+      for (const language of langs) {
+        for (const difficulty of difficulties) {
+          const params = service.generateRandomParams({
+            category: 'renewable_energy',
+            difficulty,
+            size: 'medium',
+            language,
+            seed: `${language}-${difficulty}`,
+          });
+          const built = service.buildPrompt(params);
+          expect(built.templateVersion).toBe(`${language}@${PROMPT_TEMPLATE_VERSION}`);
+          expect(built.systemPrompt).toContain(
+            `strictly in ${LANGUAGE_PROMPT_TEMPLATES[language].languageName}`,
+          );
+          expect(built.systemPrompt).toContain('"title"');
+          expect(built.systemPrompt).toContain('"description"');
+          expect(built.systemPrompt).toContain('"content"');
+          expect(built.userPrompt).toContain(`MUST be "${difficulty}"`);
+        }
+      }
     });
   });
 });

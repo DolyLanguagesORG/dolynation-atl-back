@@ -261,6 +261,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 'seed-1',
+        templateVersion: 'en@2.0.0',
         params,
       });
       factory.getFullResponse.mockResolvedValue(
@@ -347,6 +348,7 @@ describe('ReadingsService', () => {
           systemPrompt: 'sys',
           userPrompt: 'usr',
           seed: 'seed-1',
+          templateVersion: 'en@2.0.0',
           params,
         });
         parser.parseGeneratedText.mockReturnValue(reading);
@@ -404,6 +406,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 'seed-2',
+        templateVersion: 'fr@2.0.0',
         params,
       });
       factory.getFullResponse.mockResolvedValue(
@@ -460,6 +463,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 'seed-3',
+        templateVersion: 'es@2.0.0',
         params,
       });
       factory.getFullResponse.mockResolvedValue(
@@ -501,6 +505,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 's',
+        templateVersion: 'en@2.0.0',
         params: {
           category: 'history',
           difficulty: 'medium',
@@ -588,6 +593,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 'seed-qp',
+        templateVersion: 'it@2.0.0',
         params,
       });
       factory.getFullResponse.mockResolvedValue(
@@ -667,6 +673,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 'seed-titles',
+        templateVersion: 'en@2.0.0',
         params: {
           category: 'history',
           difficulty: 'medium',
@@ -1188,6 +1195,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys',
         userPrompt: 'usr',
         seed: 'seed-fr',
+        templateVersion: 'fr@2.0.0',
         params: genParams,
       });
 
@@ -1706,6 +1714,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys-fr',
         userPrompt: 'usr-fr',
         seed: 'seed-purity',
+        templateVersion: 'fr@2.0.0',
         params: {
           category: 'culture',
           difficulty: 'medium',
@@ -1783,6 +1792,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys-it',
         userPrompt: 'usr-it',
         seed: 'seed-it-repair',
+        templateVersion: 'it@2.0.0',
         params: {
           category: 'culture',
           difficulty: 'hard',
@@ -1936,6 +1946,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys-fr',
         userPrompt: 'usr-fr',
         seed: 'seed-escalation',
+        templateVersion: 'fr@2.0.0',
         params: {
           category: 'culture',
           difficulty: 'easy',
@@ -2017,6 +2028,7 @@ describe('ReadingsService', () => {
         systemPrompt: 'sys-es',
         userPrompt: 'usr-es',
         seed: 'seed-google',
+        templateVersion: 'es@2.0.0',
         params: {
           category: 'culture',
           difficulty: 'easy',

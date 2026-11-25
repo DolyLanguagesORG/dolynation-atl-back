@@ -385,6 +385,7 @@ export class ReadingsService {
       inserted.id,
       prompt.seed,
       {
+        templateVersion: prompt.templateVersion,
         category: prompt.params.category,
         language: targetLanguage,
         difficulty: prompt.params.difficulty,
@@ -426,6 +427,7 @@ export class ReadingsService {
       },
       metadata: {
         seed: prompt.seed,
+        templateVersion: prompt.templateVersion,
         provider: resolvedProvider,
         generationDurationMs: Math.max(0, Date.now() - startedAt),
       },
