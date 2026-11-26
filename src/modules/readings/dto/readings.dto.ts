@@ -29,6 +29,11 @@ const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 export const MAX_SUMMARY_LENGTH = 5000;
 
 /**
+ * Tope máximo de palabras permitido para el resumen enviado a evaluación.
+ */
+export const MAX_SUMMARY_WORDS = 500;
+
+/**
  * `GenerateReadingDto` es el DTO de entrada expuesto al cliente para el endpoint de generación de lecturas.
  *
  * El usuario elige explícitamente tres parámetros:
@@ -99,7 +104,7 @@ export class EvaluateReadingDto {
     minLength: 20,
     maxLength: MAX_SUMMARY_LENGTH,
     description:
-      'Resumen de la lectura escrito por el usuario. Debe tener entre 20 y 5000 caracteres.',
+      'Resumen de la lectura escrito por el usuario. Debe tener entre 20 y 5000 caracteres y como máximo 500 palabras.',
     example:
       'The reading was about the Industrial Revolution and how steam engines changed manufacturing.',
   })

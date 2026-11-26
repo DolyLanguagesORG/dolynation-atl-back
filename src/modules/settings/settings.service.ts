@@ -282,6 +282,55 @@ export class SettingsService {
   }
 
   /**
+   * Valida, modera y reserva el cupo diario de una categoría individual antes de confirmarla en bloque,
+   * permitiendo al onboarding y al perfil ofrecer retroalimentación inmediata al agregar cada tema.
+   */
+  async validateCategory(userId: number, rawCategory: string): Promise<string> {
+    await this.subscriptions.assertSubscriptionActive(userId);
+    const cleaned = cleanCategoryDisplayName(rawCategory);
+    if (cleaned.length < 2 || cleaned.length > 50) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        field: 'category',
+        message: 'La categoría debe tener entre 2 y 50 caracteres.',
+      });
+    }
+
+    const existingRow = await this.findByUserId(userId);
+    const existingSelected = existingRow?.preferredCategories ?? [];
+    const existingLibrary = mergeUniqueCategories(
+      existingRow?.savedCategories ?? [],
+      existingSelected,
+    );
+
+    let acquiredKeys: string[] = [];
+    if (this.dailyLimit) {
+      if (typeof this.dailyLimit.acquireDailyQuota === 'function') {
+        acquiredKeys = await this.dailyLimit.acquireDailyQuota(userId, [cleaned], existingLibrary);
+      } else {
+        await this.dailyLimit.assertAndRecordDailyQuota(userId, [cleaned], existingLibrary);
+      }
+    }
+
+    let moderated: string[];
+    try {
+      moderated = await this.moderation.assertCategoriesAllowed([cleaned]);
+    } catch (err) {
+      if (
+        this.dailyLimit &&
+        acquiredKeys.length > 0 &&
+        typeof this.dailyLimit.releaseDailyQuotaKeys === 'function' &&
+        err instanceof AppHttpException &&
+        err.getStatus() === 503
+      ) {
+        await this.dailyLimit.releaseDailyQuotaKeys(userId, acquiredKeys);
+      }
+      throw err;
+    }
+
+    return moderated[0] ?? cleaned;
+  }
+
+  /**
    * Guarda la selección ordenada de idiomas del usuario validando cupo del plan,
    * conservación sin costo cuando se agregan nuevos cupos/reordenan existentes y
    * bloqueo anual (o consumo de crédito pagado) cuando se reemplaza un idioma ya elegido.
