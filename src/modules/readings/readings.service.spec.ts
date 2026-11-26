@@ -770,6 +770,20 @@ describe('ReadingsService', () => {
       expect(users.recordDailyActivity).toHaveBeenCalledWith(42);
     });
 
+    it('rejects summaries exceeding 500 words with VALIDATION_ERROR without calling AI', async () => {
+      service = await buildModuleWithDb(db);
+      const tooLongSummary = Array.from({ length: 501 }, () => 'word').join(' ');
+
+      await expect(service.evaluate(1, 42, { userResponse: tooLongSummary })).rejects.toMatchObject(
+        {
+          status: 400,
+          response: expect.objectContaining({ code: ErrorCode.VALIDATION_ERROR }),
+        },
+      );
+      expect(factory.getFullResponse).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
     it('devuelve la evaluacion ya hecha si llega la MISMA operacion (idempotencia)', async () => {
       // La app PWA reenvia la respuesta cuando vuelve la red. Si el envio se
       // corta a mitad, el reintento llega con la MISMA clave de

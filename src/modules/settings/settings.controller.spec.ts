@@ -14,6 +14,7 @@ describe('SettingsController', () => {
       | 'getCategoriesSettings'
       | 'setCategories'
       | 'removeCategory'
+      | 'validateCategory'
       | 'getLanguagesSettings'
       | 'setLanguages'
       | 'reorderLanguages'
@@ -48,6 +49,9 @@ describe('SettingsController', () => {
       getCategoriesSettings: jest.fn().mockResolvedValue({ catalog: [], selected: [] }),
       setCategories: jest.fn().mockImplementation((_: number, c: string[]) => Promise.resolve(c)),
       removeCategory: jest.fn().mockResolvedValue({ catalog: [], selected: [] }),
+      validateCategory: jest
+        .fn()
+        .mockImplementation((_: number, c: string) => Promise.resolve(c.trim())),
       getLanguagesSettings: jest.fn().mockResolvedValue(languageState),
       setLanguages: jest.fn().mockResolvedValue(languageState),
       reorderLanguages: jest
@@ -168,6 +172,17 @@ describe('SettingsController', () => {
       expect(settings.removeCategory).toHaveBeenCalledWith(42, 'music');
       expect(result.data.catalog).toHaveLength(3);
       expect(result.data.selected).toEqual(['technology', 'history', 'science']);
+    });
+  });
+
+  describe('POST /settings/categories/validate', () => {
+    it('validates and returns a single normalized category immediately', async () => {
+      settings.validateCategory.mockResolvedValueOnce('Astrofísica');
+
+      const result = await controller.validateCategory(user, { category: '  Astrofísica  ' });
+
+      expect(settings.validateCategory).toHaveBeenCalledWith(42, '  Astrofísica  ');
+      expect(result.data).toEqual({ category: 'Astrofísica' });
     });
   });
 

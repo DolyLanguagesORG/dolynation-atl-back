@@ -51,6 +51,7 @@ import { getDateKeyInTimeZone } from '../subscriptions/subscriptions.constants';
 import type { ExplanationResultDto, GlossaryEntryDto } from '../../common/types/api-response.dto';
 import {
   GenerateReadingDto,
+  MAX_SUMMARY_WORDS,
   READING_CEFR_LEVELS,
   READING_DIFFICULTIES,
   type EvaluateReadingDto,
@@ -539,6 +540,15 @@ export class ReadingsService {
         };
       }
       throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
+    }
+
+    const wordCount = dto.userResponse.trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount > MAX_SUMMARY_WORDS) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        field: 'userResponse',
+        maxWords: MAX_SUMMARY_WORDS,
+        message: `Summary must not exceed ${MAX_SUMMARY_WORDS} words.`,
+      });
     }
 
     const rawLang = reading.language as string | undefined;

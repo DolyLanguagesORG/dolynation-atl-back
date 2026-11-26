@@ -444,6 +444,44 @@ describe('SettingsService', () => {
         response: expect.objectContaining({ code: ErrorCode.RESOURCE_NOT_FOUND }),
       });
     });
+
+    it('validates a single category immediately, moderates it, and releases daily quota on 503', async () => {
+      const dailyLimitMock = {
+        acquireDailyQuota: jest.fn().mockResolvedValue(['astrofisica']),
+        releaseDailyQuotaKeys: jest.fn().mockResolvedValue(undefined),
+      };
+      const serviceWithQuota = new SettingsService(
+        db as unknown as DrizzleDb,
+        moderation as unknown as CategoryModerationService,
+        subscriptions as unknown as SubscriptionsService,
+        dailyLimitMock as never,
+      );
+
+      moderation.assertCategoriesAllowed.mockResolvedValueOnce(['Astrofísica']);
+      const validated = await serviceWithQuota.validateCategory(42, '  Astrofísica  ');
+      expect(validated).toBe('Astrofísica');
+      expect(moderation.assertCategoriesAllowed).toHaveBeenCalledWith(['Astrofísica']);
+      expect(db.insert).not.toHaveBeenCalled();
+
+      moderation.assertCategoriesAllowed.mockRejectedValueOnce(
+        new AppHttpException(ErrorCode.CATEGORY_MODERATION_REJECTED, {
+          rejected: [{ category: 'spam', layer: 'regex', reason: 'invalid_format_or_gibberish' }],
+        }),
+      );
+      await expect(serviceWithQuota.validateCategory(42, 'spam')).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({ code: ErrorCode.CATEGORY_MODERATION_REJECTED }),
+      });
+
+      moderation.assertCategoriesAllowed.mockRejectedValueOnce(
+        new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE),
+      );
+      await expect(serviceWithQuota.validateCategory(42, 'Astrofísica')).rejects.toMatchObject({
+        status: 503,
+        response: expect.objectContaining({ code: ErrorCode.SERVICE_UNAVAILABLE }),
+      });
+      expect(dailyLimitMock.releaseDailyQuotaKeys).toHaveBeenCalledWith(42, ['astrofisica']);
+    });
   });
 
   describe('stripe billing mode', () => {

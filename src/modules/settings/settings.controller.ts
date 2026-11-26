@@ -30,6 +30,7 @@ import { DeleteCategoryQueryDto } from './dto/delete-category.dto';
 import { CategoriesSettingsDto, LanguagesSettingsDto } from './dto/settings-catalog.dto';
 import { UpdateCategoriesDto } from './dto/update-categories.dto';
 import { UpdateLanguageDto } from './dto/update-language.dto';
+import { ValidateCategoryDto, ValidatedCategoryResponseDto } from './dto/validate-category.dto';
 import { MIN_USER_CATEGORIES } from './settings.constants';
 import { SettingsService } from './settings.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -116,6 +117,45 @@ export class SettingsController {
     const selected = await this.settings.setCategories(current.id, normalized);
     const state = await this.settings.getCategoriesSettings(current.id);
     return apiOk('Categories updated', { catalog: state.catalog, selected });
+  }
+
+  /**
+   * Valida y modera una categoría individual inmediatamente antes de persistirla en bloque.
+   */
+  @Post('categories/validate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Validar y moderar una categoría personalizada individual',
+  })
+  @ApiOkResponseOf(ValidatedCategoryResponseDto)
+  @ApiBadRequestResponse({
+    description: 'Categoría inválida o rechazada por moderación (CATEGORY_MODERATION_REJECTED)',
+    type: ApiErrorDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Se requiere una suscripción activa (SUBSCRIPTION_REQUIRED)',
+    type: ApiErrorDto,
+  })
+  @ApiTooManyRequestsResponse({
+    description:
+      'Límite diario de categorías nuevas distintas evaluadas alcanzado (CATEGORY_DAILY_LIMIT_REACHED)',
+    type: ApiErrorDto,
+  })
+  @ApiServiceUnavailableResponse({
+    description:
+      'El servicio de moderación de categorías no está disponible temporalmente (SERVICE_UNAVAILABLE)',
+    type: ApiErrorDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Autenticación faltante o inválida',
+    type: ApiErrorDto,
+  })
+  async validateCategory(
+    @CurrentUser() current: AuthUser,
+    @Body() dto: ValidateCategoryDto,
+  ): Promise<ApiResponse<ValidatedCategoryResponseDto>> {
+    const category = await this.settings.validateCategory(current.id, dto.category);
+    return apiOk('Category validated', { category });
   }
 
   /**
