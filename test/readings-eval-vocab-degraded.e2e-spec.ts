@@ -6,18 +6,11 @@ import { Test } from '@nestjs/testing';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { DRIZZLE } from '../src/database/database.tokens';
 import type { DrizzleDb } from '../src/database/database.module';
-import {
-  moderatedCategories,
-  promptLogs,
-  readingExplanations,
-  readings,
-  users,
-} from '../src/database/drizzle/schema';
+import { promptLogs, readingExplanations, readings, users } from '../src/database/drizzle/schema';
 import { AIProviderFactory } from '../src/modules/ia/providers/ai-provider.factory';
 import type { ChatMessage } from '../src/modules/ia/providers/ai-provider.interface';
 import { GoogleDecisionsService } from '../src/modules/ia/decisions/google-decisions.service';
 import { MailService } from '../src/modules/mail/mail.service';
-import { canonicalCategoryKey } from '../src/modules/moderation/category-normalizer';
 
 jest.setTimeout(45_000);
 
@@ -64,7 +57,6 @@ describe('Readings Vocabulary, PNL Evaluation & Degraded Mode (e2e)', () => {
     deep: 0,
   };
   const createdUserIds: number[] = [];
-  const createdCategoryKeys = new Set<string>();
 
   const server = (): Parameters<typeof supertest>[0] =>
     app.getHttpServer() as Parameters<typeof supertest>[0];
@@ -96,9 +88,6 @@ describe('Readings Vocabulary, PNL Evaluation & Degraded Mode (e2e)', () => {
       .expect(200);
 
     const categories = ['technology', 'science', 'history'];
-    for (const cat of categories) {
-      createdCategoryKeys.add(canonicalCategoryKey(cat));
-    }
     await supertest(server())
       .put('/api/v1/settings/categories')
       .set('Authorization', auth)
@@ -303,11 +292,6 @@ describe('Readings Vocabulary, PNL Evaluation & Degraded Mode (e2e)', () => {
       if (createdUserIds.length > 0) {
         await db.delete(promptLogs).where(inArray(promptLogs.userId, createdUserIds));
         await db.delete(users).where(inArray(users.id, createdUserIds));
-      }
-      if (createdCategoryKeys.size > 0) {
-        await db
-          .delete(moderatedCategories)
-          .where(inArray(moderatedCategories.canonicalKey, Array.from(createdCategoryKeys)));
       }
     }
     await app.close();
