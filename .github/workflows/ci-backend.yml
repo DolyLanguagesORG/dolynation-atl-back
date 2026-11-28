@@ -170,7 +170,7 @@ jobs:
       # alguien pegase una clave real (o apuntara al key de produccion), cada
       # push se comeria la cuota diaria del proyecto sin que nadie lo note.
       - name: Ninguna prueba usa claves reales de proveedor
-        run: bash scripts/check-no-real-keys.sh src test
+        run: bash scripts/check-no-real-keys.sh src test .github scripts .env.example
 
       - name: Run e2e tests
         run: npm run test:e2e

@@ -18,6 +18,16 @@ export const ACTIVE_STRIPE_SUBSCRIPTION_STATUSES = ['active', 'trialing', 'past_
 /** TTL en memoria (5 minutos) para cachear los precios consultados a Stripe. */
 export const PRICE_CACHE_TTL_MS = 5 * 60 * 1000;
 
+/** Ventana determinista (30 s) para derivar en servidor idempotency keys de Checkout. */
+export const CHECKOUT_IDEMPOTENCY_BUCKET_MS = 30_000;
+
+/** Tamaño máximo permitido para el cuerpo bruto de un webhook entrante de Stripe (256 KiB). */
+export const MAX_WEBHOOK_PAYLOAD_BYTES = 256 * 1024;
+
+/** Cantidad por defecto y tope máximo de facturas devueltas por `GET /billing/invoices`. */
+export const DEFAULT_INVOICES_LIMIT = 24;
+export const MAX_INVOICES_LIMIT = 100;
+
 /**
  * Estados de suscripción de Stripe que NO acreditan un plan pagado.
  *

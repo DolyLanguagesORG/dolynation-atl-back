@@ -644,17 +644,22 @@ export class SettingsService {
 
     const nextCredits = previousCredits + 1;
 
-    await this.auditLogs?.logUpdate({
-      module: 'settings',
-      event: 'settings.language_change_unlocked',
-      entityType: 'user_settings',
-      entityId: userId,
-      actorUserId: userId,
-      targetUserId: userId,
-      summary: `Language change unlock credit granted to user #${userId} (${previousCredits} -> ${nextCredits})`,
-      beforeState: { languageChangeCredits: previousCredits },
-      afterState: { languageChangeCredits: nextCredits },
-    });
+    // B-6: cuando se ejecuta dentro de una transacción ajena (`tx !== this.db`),
+    // quien abre y confirma la transacción debe emitir la auditoría tras el commit
+    // para evitar registros de crédito fantasma si la transacción hace rollback.
+    if (dbClient === this.db) {
+      await this.auditLogs?.logUpdate({
+        module: 'settings',
+        event: 'settings.language_change_unlocked',
+        entityType: 'user_settings',
+        entityId: userId,
+        actorUserId: userId,
+        targetUserId: userId,
+        summary: `Language change unlock credit granted to user #${userId} (${previousCredits} -> ${nextCredits})`,
+        beforeState: { languageChangeCredits: previousCredits },
+        afterState: { languageChangeCredits: nextCredits },
+      });
+    }
 
     return { saved, lastChangeAt, previousCredits, nextCredits };
   }

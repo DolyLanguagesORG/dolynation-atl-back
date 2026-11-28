@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe } from '@nestjs/common';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { apiReference } from '@scalar/nestjs-api-reference';
 import helmet from 'helmet';
@@ -20,13 +22,17 @@ import { createRequestContextMiddleware, RequestContextService } from './modules
  * OpenAPI/Scalar en `/docs` y la ruta raíz de verificación.
  */
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+    bodyParser: false,
+  });
+  app.useBodyParser('json', { limit: '256kb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '256kb' });
   app.useLogger(app.get(Logger));
 
   // Confiar en cabeceras de proxy (Cloudflare + Nginx) para resolver req.ip correctamente.
-  const httpInstance = app.getHttpAdapter().getInstance() as {
-    set?: (setting: string, val: unknown) => void;
-  };
+  const httpInstance = app.getHttpAdapter().getInstance();
   if (typeof httpInstance.set === 'function') {
     httpInstance.set('trust proxy', true);
   }
@@ -159,14 +165,17 @@ async function bootstrap(): Promise<void> {
   // Expone el documento JSON crudo de OpenAPI 3.1 bajo el prefijo versionado
   // para que coincida con las rutas reales. Útil para generar clientes,
   // alimentar agentes de IA o inspeccionar el contrato.
-  app.getHttpAdapter().get(`/${env.apiPrefix}/openapi.json`, (_req, res) => {
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=60');
-    res.json(document);
-  });
+  httpInstance.get(
+    `/${env.apiPrefix}/openapi.json`,
+    (_req: ExpressRequest, res: ExpressResponse) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.json(document);
+    },
+  );
 
   // Verificación rápida en la ruta raíz.
-  app.getHttpAdapter().get('/', (_req, res) => {
+  httpInstance.get('/', (_req: ExpressRequest, res: ExpressResponse) => {
     res.json({
       message: 'Dolynglish API is running',
       // La versión y el commit son los del build en ejecución: los mismos que

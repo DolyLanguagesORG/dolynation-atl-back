@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { desc, eq, and, isNull, ne, or, sql } from 'drizzle-orm';
 import { AppHttpException } from '../../common/errors/app-http.exception';
@@ -23,8 +24,12 @@ import {
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { BillingRateLimitService } from './billing-rate-limit.service';
 import {
+  CHECKOUT_IDEMPOTENCY_BUCKET_MS,
+  DEFAULT_INVOICES_LIMIT,
   isActiveSubscriptionStatus,
   isPaidSubscriptionTier,
+  MAX_INVOICES_LIMIT,
+  MAX_WEBHOOK_PAYLOAD_BYTES,
   NON_ENTITLING_STRIPE_SUBSCRIPTION_STATUSES,
   PAYMENT_GATEWAY,
   PRICE_CACHE_TTL_MS,
@@ -67,6 +72,16 @@ interface CachedPriceEntry {
   expiresAt: number;
 }
 
+interface BillingCustomerUser {
+  id: number;
+  email: string;
+  fullName: string | null;
+  locale: string;
+  subscriptionTier: string | null;
+  stripeCustomerId: string | null;
+  createdAt?: Date | string | null;
+}
+
 /** Convierte metadatos de Stripe a un ID local solo si son enteros positivos. */
 function parsePositiveInt(raw: string | undefined): number | null {
   if (!raw) return null;
@@ -88,17 +103,14 @@ export class BillingService {
   private readonly logger = new Logger(BillingService.name);
   private readonly priceCache = new Map<string, CachedPriceEntry>();
   private readonly priceInFlight = new Map<string, Promise<GatewayPriceInfo | null>>();
+  // M-4: los bloqueos en memoria (`customerLocks` / `userMutationLocks`) serializan
+  // ráfagas dentro de una réplica única; la unicidad en PostgreSQL, los idempotency keys
+  // de Stripe y la verificación `listActiveSubscriptions` protegen el estado monetario.
+  // Si se escala horizontalmente a >1 réplica, migrar este mutex a `pg_advisory_xact_lock` o Redis.
   private readonly customerLocks = new Map<
     number,
     Promise<{
-      user: {
-        id: number;
-        email: string;
-        fullName: string | null;
-        locale: string;
-        subscriptionTier: string | null;
-        stripeCustomerId: string | null;
-      };
+      user: BillingCustomerUser;
       customerId: string;
     }>
   >();
@@ -158,7 +170,25 @@ export class BillingService {
     return `doly:${this.config.billing.envTag}:u${userId}:${operation}:${trimmed}`;
   }
 
-  /** Serializa mutaciones concurrentes que comparten la misma clave lógica. */
+  /**
+   * M-5: garantiza una idempotency key en todo Checkout aunque el cliente no envíe cabecera,
+   * derivando una clave determinista por ventana temporal para absorber reintentos de red.
+   */
+  private resolveCheckoutIdempotencyKey(
+    userId: number,
+    operation: 'checkout_sub' | 'checkout_unlock',
+    discriminator: string,
+    rawKey: string | undefined,
+  ): string {
+    const scoped = this.buildScopedIdempotencyKey(userId, operation, rawKey);
+    if (scoped) {
+      return scoped;
+    }
+    const bucket = Math.floor(Date.now() / CHECKOUT_IDEMPOTENCY_BUCKET_MS);
+    return `doly:${this.config.billing.envTag}:u${userId}:${operation}:auto:${discriminator}:b${bucket}`;
+  }
+
+  /** Serializa mutaciones concurrentes dentro de la réplica actual (M-4). */
   private async withUserLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
     const previous = this.userMutationLocks.get(lockKey) ?? Promise.resolve();
     let release: () => void = () => undefined;
@@ -217,14 +247,7 @@ export class BillingService {
 
   /** Comparte entre llamadas simultáneas la resolución o creación del cliente Stripe del usuario. */
   private async getOrCreateCustomerId(userId: number): Promise<{
-    user: {
-      id: number;
-      email: string;
-      fullName: string | null;
-      locale: string;
-      subscriptionTier: string | null;
-      stripeCustomerId: string | null;
-    };
+    user: BillingCustomerUser;
     customerId: string;
   }> {
     const inFlight = this.customerLocks.get(userId);
@@ -243,14 +266,7 @@ export class BillingService {
 
   /** Recupera al usuario y crea su cliente Stripe si todavía no tiene uno asociado. */
   private async resolveOrCreateCustomerId(userId: number): Promise<{
-    user: {
-      id: number;
-      email: string;
-      fullName: string | null;
-      locale: string;
-      subscriptionTier: string | null;
-      stripeCustomerId: string | null;
-    };
+    user: BillingCustomerUser;
     customerId: string;
   }> {
     const rows = await this.db
@@ -261,6 +277,7 @@ export class BillingService {
         locale: users.locale,
         subscriptionTier: users.subscriptionTier,
         stripeCustomerId: users.stripeCustomerId,
+        createdAt: users.createdAt,
       })
       .from(users)
       .where(eq(users.id, userId))
@@ -275,6 +292,19 @@ export class BillingService {
       return { user, customerId: user.stripeCustomerId };
     }
 
+    // B-8: incluimos huella de email + marca temporal de creación para evitar colisiones en Stripe
+    // si una cuenta es eliminada y se reasigna un mismo ID dentro de la ventana de 24 h.
+    const createdAtToken =
+      user.createdAt instanceof Date
+        ? String(user.createdAt.getTime())
+        : typeof user.createdAt === 'string'
+          ? user.createdAt
+          : 'no-ts';
+    const customerFingerprint = createHash('sha256')
+      .update(`${user.email.trim().toLowerCase()}:${createdAtToken}`)
+      .digest('hex')
+      .slice(0, 12);
+
     const created = await this.gateway.createCustomer({
       email: user.email,
       name: user.fullName,
@@ -282,7 +312,7 @@ export class BillingService {
         userId: String(user.id),
         env: this.config.billing.envTag,
       },
-      idempotencyKey: `doly-cust-${this.config.billing.envTag}-${user.id}`,
+      idempotencyKey: `doly-cust-${this.config.billing.envTag}-${user.id}-${customerFingerprint}`,
     });
 
     const updatedRows = await this.db
@@ -375,9 +405,11 @@ export class BillingService {
       throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
     }
 
-    const scopedIdempotencyKey = this.buildScopedIdempotencyKey(
+    const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
+    const resolvedIdempotencyKey = this.resolveCheckoutIdempotencyKey(
       userId,
       'checkout_sub',
+      `${dto.tier}:${uiMode}`,
       idempotencyKey,
     );
     this.rateLimiter?.assertWithinLimit(userId, 'checkout');
@@ -415,7 +447,6 @@ export class BillingService {
         });
       }
 
-      const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
       const frontendBase = this.getFrontendBaseUrl();
       const metadata: Record<string, string> = {
         userId: String(userId),
@@ -439,7 +470,7 @@ export class BillingService {
           tier: dto.tier,
           env: this.config.billing.envTag,
         },
-        ...(scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : {}),
+        idempotencyKey: resolvedIdempotencyKey,
       });
 
       await this.auditLogs?.logEvent({
@@ -481,9 +512,11 @@ export class BillingService {
       throw new AppHttpException(ErrorCode.BILLING_NOT_CONFIGURED);
     }
 
-    const scopedIdempotencyKey = this.buildScopedIdempotencyKey(
+    const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
+    const resolvedIdempotencyKey = this.resolveCheckoutIdempotencyKey(
       userId,
       'checkout_unlock',
+      uiMode,
       idempotencyKey,
     );
     this.rateLimiter?.assertWithinLimit(userId, 'checkout');
@@ -492,7 +525,6 @@ export class BillingService {
       await this.subscriptions.assertSubscriptionActive(userId);
 
       const { user, customerId } = await this.getOrCreateCustomerId(userId);
-      const uiMode = dto.uiMode ?? this.config.billing.checkoutUiMode;
       const frontendBase = this.getFrontendBaseUrl();
       const metadata: Record<string, string> = {
         userId: String(userId),
@@ -510,7 +542,7 @@ export class BillingService {
         successUrl: `${frontendBase}/billing/return?session_id={CHECKOUT_SESSION_ID}`,
         cancelUrl: `${frontendBase}/profile#preferences`,
         metadata,
-        ...(scopedIdempotencyKey ? { idempotencyKey: scopedIdempotencyKey } : {}),
+        idempotencyKey: resolvedIdempotencyKey,
       });
 
       const now = new Date();
@@ -693,7 +725,9 @@ export class BillingService {
         });
       }
 
-      if (existing.tier === dto.tier && !existing.cancelAtPeriodEnd) {
+      // M-6: cambiar de plan no debe alterar una cancelación programada; si ya está en
+      // el mismo nivel, se devuelve el estado actual sin tocar `cancel_at_period_end`.
+      if (existing.tier === dto.tier) {
         return this.getBillingStatus(userId);
       }
 
@@ -891,9 +925,12 @@ export class BillingService {
   }
 
   /**
-   * Lista el historial de facturas del usuario en Stripe para mostrarlo dentro de DolyNation.
+   * Lista el historial de facturas del usuario en Stripe (por defecto 24, máximo 100 por página).
    */
-  async listInvoices(userId: number): Promise<BillingInvoiceDto[]> {
+  async listInvoices(
+    userId: number,
+    query?: { limit?: number; startingAfter?: string },
+  ): Promise<BillingInvoiceDto[]> {
     this.ensureStripeEnabled();
     this.rateLimiter?.assertWithinLimit(userId, 'invoices');
     const userRows = await this.db
@@ -911,9 +948,13 @@ export class BillingService {
       return [];
     }
 
+    const limit = Math.max(1, Math.min(MAX_INVOICES_LIMIT, query?.limit ?? DEFAULT_INVOICES_LIMIT));
+    const trimmedAfter = query?.startingAfter?.trim();
+    const startingAfter = trimmedAfter && trimmedAfter.length > 0 ? trimmedAfter : undefined;
     const invoices = await this.gateway.listInvoices({
       customerId: user.stripeCustomerId,
-      limit: 24,
+      limit,
+      ...(startingAfter ? { startingAfter } : {}),
     });
 
     return invoices.map((inv) => ({
@@ -956,6 +997,13 @@ export class BillingService {
     if (!rawBody || !Buffer.isBuffer(rawBody) || rawBody.length === 0) {
       throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID, {
         reason: 'Missing raw request body for webhook signature verification',
+      });
+    }
+
+    if (rawBody.length > MAX_WEBHOOK_PAYLOAD_BYTES) {
+      throw new AppHttpException(ErrorCode.BILLING_CHECKOUT_INVALID, {
+        reason: 'Webhook payload exceeds maximum allowed size',
+        maxBytes: MAX_WEBHOOK_PAYLOAD_BYTES,
       });
     }
 
@@ -1619,6 +1667,8 @@ export class BillingService {
       refund.fullyRefunded &&
       (payment.amountCents <= 0 || refund.amountRefundedCents >= payment.amountCents);
 
+    let refundedKind: 'language_unlock' | 'subscription' | null = null;
+
     await this.db.transaction(async (tx) => {
       // Stripe manda `charge.refunded` y `refund.created` por el mismo reembolso: solo la
       // primera transición a 'refunded' revierte los derechos concedidos.
@@ -1644,17 +1694,7 @@ export class BillingService {
           })
           .where(eq(userSettings.userId, payment.userId));
 
-        await this.auditLogs?.logEvent({
-          module: 'billing',
-          action: 'ACTION',
-          event: 'billing.language_unlock_refunded',
-          entityType: 'user_settings',
-          entityId: payment.userId,
-          actorUserId: payment.userId,
-          targetUserId: payment.userId,
-          summary: `Language unlock refunded for user #${payment.userId}; one change credit revoked`,
-          metadata: { refundId: refund.id, paymentId: payment.id },
-        });
+        refundedKind = 'language_unlock';
         return;
       }
 
@@ -1677,19 +1717,37 @@ export class BillingService {
           .set({ status: 'canceled', updatedAt: now })
           .where(eq(billingSubscriptions.userId, payment.userId));
 
-        await this.auditLogs?.logUpdate({
-          module: 'billing',
-          event: 'billing.subscription_refunded',
-          entityType: 'user',
-          entityId: payment.userId,
-          actorUserId: payment.userId,
-          targetUserId: payment.userId,
-          summary: `Subscription refunded for user #${payment.userId}; plan downgraded to dolly`,
-          beforeState: { subscriptionTier: payment.tier },
-          afterState: { subscriptionTier: 'dolly' },
-        });
+        refundedKind = 'subscription';
       }
     });
+
+    // B-6: emitimos auditoría solo después de confirmar la transacción para no dejar
+    // eventos fantasma si PostgreSQL revierte el reembolso.
+    if (refundedKind === 'language_unlock') {
+      await this.auditLogs?.logEvent({
+        module: 'billing',
+        action: 'ACTION',
+        event: 'billing.language_unlock_refunded',
+        entityType: 'user_settings',
+        entityId: payment.userId,
+        actorUserId: payment.userId,
+        targetUserId: payment.userId,
+        summary: `Language unlock refunded for user #${payment.userId}; one change credit revoked`,
+        metadata: { refundId: refund.id, paymentId: payment.id },
+      });
+    } else if (refundedKind === 'subscription') {
+      await this.auditLogs?.logUpdate({
+        module: 'billing',
+        event: 'billing.subscription_refunded',
+        entityType: 'user',
+        entityId: payment.userId,
+        actorUserId: payment.userId,
+        targetUserId: payment.userId,
+        summary: `Subscription refunded for user #${payment.userId}; plan downgraded to dolly`,
+        beforeState: { subscriptionTier: payment.tier },
+        afterState: { subscriptionTier: 'dolly' },
+      });
+    }
   }
 
   /** Busca al usuario local asociado a un identificador de cliente Stripe. */

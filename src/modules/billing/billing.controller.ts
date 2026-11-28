@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   Post,
+  Query,
   Req,
   type RawBodyRequest,
 } from '@nestjs/common';
@@ -36,7 +37,8 @@ import {
   ApiOkResponseOfArray,
 } from '../../common/types/api-envelope.decorators';
 import { apiOk, type ApiResponse } from '../../common/types/api-response.type';
-import { CAPTCHA_ACTIONS, RequireCaptcha } from '../security';
+import { CAPTCHA_ACTIONS, RateLimitByIp, RequireCaptcha } from '../security';
+import { DEFAULT_INVOICES_LIMIT, MAX_INVOICES_LIMIT } from './billing.constants';
 import { BillingService } from './billing.service';
 import { BillingConfigResponseDto } from './dto/billing-config-response.dto';
 import { BillingInvoiceDto } from './dto/billing-invoice-response.dto';
@@ -49,6 +51,7 @@ import { ChangePlanDto } from './dto/change-plan.dto';
 import { CheckoutSessionResponseDto } from './dto/checkout-session-response.dto';
 import { CreateLanguageUnlockCheckoutDto } from './dto/create-language-unlock-checkout.dto';
 import { CreateSubscriptionCheckoutDto } from './dto/create-subscription-checkout.dto';
+import { ListInvoicesQueryDto } from './dto/list-invoices-query.dto';
 import { SetDefaultPaymentMethodDto } from './dto/set-default-payment-method.dto';
 import { SetupIntentResponseDto } from './dto/setup-intent-response.dto';
 import { WebhookProcessedResponseDto } from './dto/webhook-response.dto';
@@ -315,18 +318,27 @@ export class BillingController {
     return apiOk('Default payment method updated', summary);
   }
 
-  /** Lista las facturas recientes asociadas a la cuenta autenticada. */
+  /** Lista las facturas recientes asociadas a la cuenta autenticada (máx. 100 por página). */
   @ApiBearerAuth('access-token')
   @Get('invoices')
   @ApiOperation({
     summary: 'List recent Stripe invoices for the authenticated user',
+    description: `Returns recent Stripe invoices ordered newest-first (default ${DEFAULT_INVOICES_LIMIT}, capped at ${MAX_INVOICES_LIMIT}; supports cursor pagination via startingAfter).`,
   })
   @ApiOkResponseOfArray(BillingInvoiceDto)
+  @ApiBadRequestResponse({ description: 'Invalid pagination query', type: ApiErrorDto })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid access token', type: ApiErrorDto })
   @ApiNotFoundResponse({ description: 'User not found', type: ApiErrorDto })
   @ApiTooManyRequestsResponse({ description: 'Too many billing requests', type: ApiErrorDto })
-  async listInvoices(@CurrentUser() current: AuthUser): Promise<ApiResponse<BillingInvoiceDto[]>> {
-    const invoices = await this.billing.listInvoices(current.id);
+  async listInvoices(
+    @CurrentUser() current: AuthUser,
+    @Query() query?: ListInvoicesQueryDto,
+  ): Promise<ApiResponse<BillingInvoiceDto[]>> {
+    const hasPaginationQuery =
+      query !== undefined && (query.limit !== undefined || query.startingAfter !== undefined);
+    const invoices = hasPaginationQuery
+      ? await this.billing.listInvoices(current.id, query)
+      : await this.billing.listInvoices(current.id);
     return apiOk('Billing invoices', invoices);
   }
 
@@ -349,6 +361,7 @@ export class BillingController {
 
   /** Verifica y procesa el webhook de Stripe usando el cuerpo HTTP sin modificar. */
   @Public()
+  @RateLimitByIp({ action: 'billing_webhook', maxRequests: 120, windowMs: 60_000 })
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -361,7 +374,11 @@ export class BillingController {
   })
   @ApiOkResponseOf(WebhookProcessedResponseDto)
   @ApiBadRequestResponse({
-    description: 'Invalid webhook signature or missing raw body',
+    description: 'Invalid webhook signature, missing raw body, or payload exceeding 256 KiB',
+    type: ApiErrorDto,
+  })
+  @ApiTooManyRequestsResponse({
+    description: 'Too many webhook requests from this IP',
     type: ApiErrorDto,
   })
   async handleWebhook(

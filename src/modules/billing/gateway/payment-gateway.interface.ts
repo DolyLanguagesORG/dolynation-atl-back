@@ -151,7 +151,11 @@ export interface PaymentGateway {
   attachAndSetDefaultPaymentMethod(
     input: AttachDefaultPaymentMethodInput,
   ): Promise<GatewayPaymentMethodSummary>;
-  listInvoices(input: { customerId: string; limit?: number }): Promise<GatewayInvoice[]>;
+  listInvoices(input: {
+    customerId: string;
+    limit?: number;
+    startingAfter?: string;
+  }): Promise<GatewayInvoice[]>;
   /**
    * Lista las suscripciones VIGENTES de un cliente en la pasarela.
    *

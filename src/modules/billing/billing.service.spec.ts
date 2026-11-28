@@ -325,7 +325,7 @@ describe('BillingService', () => {
         email: 'user@dolynation.test',
         name: 'Ada',
         metadata: { userId: '42', env: 'local' },
-        idempotencyKey: 'doly-cust-local-42',
+        idempotencyKey: expect.stringMatching(/^doly-cust-local-42-[a-f0-9]{12}$/) as string,
       });
       expect(gateway.createCheckoutSession).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1010,6 +1010,220 @@ describe('BillingService', () => {
         status: 429,
         response: expect.objectContaining({ code: ErrorCode.BILLING_RATE_LIMITED }),
       });
+    });
+
+    it('derives deterministic server checkout idempotency keys when client omits Idempotency-Key (M-5)', async () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(90_000);
+      try {
+        mockLimitSelect([]);
+        mockLimitSelect([
+          {
+            id: 42,
+            email: 'user@dolynation.test',
+            fullName: 'Ada',
+            locale: 'es',
+            subscriptionTier: null,
+            stripeCustomerId: 'cus_existing',
+            createdAt: new Date('2026-11-01T00:00:00Z'),
+          },
+        ]);
+
+        await service.createSubscriptionCheckout(42, { tier: 'dolly_plus', uiMode: 'hosted' });
+        const firstSubKey = (
+          gateway.createCheckoutSession.mock.calls[0]?.[0] as { idempotencyKey?: string }
+        )?.idempotencyKey;
+        expect(firstSubKey).toBe('doly:local:u42:checkout_sub:auto:dolly_plus:hosted:b3');
+
+        mockLimitSelect([]);
+        mockLimitSelect([
+          {
+            id: 42,
+            email: 'user@dolynation.test',
+            fullName: 'Ada',
+            locale: 'es',
+            subscriptionTier: null,
+            stripeCustomerId: 'cus_existing',
+            createdAt: new Date('2026-11-01T00:00:00Z'),
+          },
+        ]);
+        await service.createSubscriptionCheckout(42, { tier: 'dolly_plus', uiMode: 'hosted' });
+        const secondSubKey = (
+          gateway.createCheckoutSession.mock.calls[1]?.[0] as { idempotencyKey?: string }
+        )?.idempotencyKey;
+        expect(secondSubKey).toBe(firstSubKey);
+
+        mockLimitSelect([
+          {
+            id: 42,
+            email: 'user@dolynation.test',
+            fullName: 'Ada',
+            locale: 'es',
+            subscriptionTier: 'dolly_plus',
+            stripeCustomerId: 'cus_existing',
+            createdAt: new Date('2026-11-01T00:00:00Z'),
+          },
+        ]);
+        dbMock.insert.mockReturnValueOnce({
+          values: jest
+            .fn()
+            .mockReturnValue({ onConflictDoNothing: jest.fn().mockResolvedValue(undefined) }),
+        });
+        await service.createLanguageUnlockCheckout(42, {});
+        const unlockKey = (
+          gateway.createCheckoutSession.mock.calls[2]?.[0] as { idempotencyKey?: string }
+        )?.idempotencyKey;
+        expect(unlockKey).toBe('doly:local:u42:checkout_unlock:auto:custom:b3');
+      } finally {
+        nowSpy.mockRestore();
+      }
+    });
+
+    it('varies Stripe customer idempotencyKey across deleted/recreated accounts with the same userId (B-8)', async () => {
+      const setupCreate = (email: string, createdAt: Date) => {
+        mockLimitSelect([
+          {
+            id: 42,
+            email,
+            fullName: 'Ada',
+            locale: 'es',
+            subscriptionTier: 'dolly',
+            stripeCustomerId: null,
+            createdAt,
+          },
+        ]);
+        dbMock.update.mockReturnValueOnce({
+          set: jest.fn().mockReturnValue({
+            where: jest.fn().mockReturnValue({
+              returning: jest.fn().mockResolvedValue([{ stripeCustomerId: 'cus_mock_1' }]),
+            }),
+          }),
+        });
+      };
+
+      setupCreate('old@dolynation.test', new Date('2026-11-01T00:00:00Z'));
+      await service.createPortalSession(42);
+      const firstKey = (gateway.createCustomer.mock.calls[0]?.[0] as { idempotencyKey?: string })
+        ?.idempotencyKey;
+
+      setupCreate('new@dolynation.test', new Date('2026-11-28T00:00:00Z'));
+      await service.createPortalSession(42);
+      const secondKey = (gateway.createCustomer.mock.calls[1]?.[0] as { idempotencyKey?: string })
+        ?.idempotencyKey;
+
+      expect(firstKey).toMatch(/^doly-cust-local-42-[a-f0-9]{12}$/);
+      expect(secondKey).toMatch(/^doly-cust-local-42-[a-f0-9]{12}$/);
+      expect(firstKey).not.toBe(secondKey);
+    });
+
+    it('preserves scheduled cancellation when changePlan targets current tier (M-6)', async () => {
+      mockLimitSelect([
+        {
+          id: 1,
+          userId: 42,
+          stripeCustomerId: 'cus_mock_1',
+          stripeSubscriptionId: 'sub_mock_1',
+          tier: 'dolly_plus',
+          status: 'active',
+          cancelAtPeriodEnd: true,
+        },
+      ]);
+      mockLimitSelect([{ id: 42, subscriptionTier: 'dolly_plus' }]);
+      mockLimitSelect([
+        {
+          id: 1,
+          userId: 42,
+          provider: 'stripe',
+          stripeCustomerId: 'cus_mock_1',
+          stripeSubscriptionId: 'sub_mock_1',
+          stripePriceId: 'price_mock_plus',
+          tier: 'dolly_plus',
+          status: 'active',
+          currentPeriodStart: new Date('2026-11-01T00:00:00Z'),
+          currentPeriodEnd: new Date('2026-12-01T00:00:00Z'),
+          cancelAtPeriodEnd: true,
+          canceledAt: null,
+          paymentMethodBrand: 'visa',
+          paymentMethodLast4: '4242',
+          paymentMethodExpMonth: 12,
+          paymentMethodExpYear: 2030,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ]);
+      mockOrderedLimitSelect([]);
+
+      const res = await service.changePlan(42, { tier: 'dolly_plus' });
+      expect(gateway.updateSubscriptionPlan).not.toHaveBeenCalled();
+      expect(res.subscription?.cancelAtPeriodEnd).toBe(true);
+    });
+
+    it('listInvoices clamps limit to 100 and forwards startingAfter cursor (B-3)', async () => {
+      mockLimitSelect([{ stripeCustomerId: 'cus_mock_1' }]);
+      await service.listInvoices(42, { limit: 500, startingAfter: 'in_cursor_1' });
+      expect(gateway.listInvoices).toHaveBeenCalledWith({
+        customerId: 'cus_mock_1',
+        limit: 100,
+        startingAfter: 'in_cursor_1',
+      });
+    });
+
+    it('rejects oversized webhook raw payloads (>256 KiB) before signature verification (M-9)', async () => {
+      const hugePayload = Buffer.alloc(256 * 1024 + 1, 'a');
+
+      await expect(service.handleWebhook(hugePayload, 't=1,v1=sig')).rejects.toMatchObject({
+        status: 400,
+        response: expect.objectContaining({
+          code: ErrorCode.BILLING_CHECKOUT_INVALID,
+          details: expect.objectContaining({ maxBytes: 256 * 1024 }),
+        }),
+      });
+      expect(gateway.constructWebhookEvent).not.toHaveBeenCalled();
+    });
+
+    it('skips refund audit logs if the database transaction fails and rolls back (B-6)', async () => {
+      gateway.constructWebhookEvent.mockReturnValueOnce({
+        id: 'evt_refund_fail',
+        type: 'charge.refunded',
+        envTag: 'local',
+        refund: {
+          id: 're_fail',
+          chargeId: 'ch_1',
+          paymentIntentId: 'pi_1',
+          invoiceId: null,
+          customerId: 'cus_mock_1',
+          amountRefundedCents: 4900,
+          amountCents: 4900,
+          currency: 'mxn',
+          fullyRefunded: true,
+        },
+      });
+      dbMock.insert.mockReturnValueOnce({
+        values: jest.fn().mockReturnValue({
+          onConflictDoNothing: jest.fn().mockReturnValue({
+            returning: jest.fn().mockResolvedValue([{ eventId: 'evt_refund_fail' }]),
+          }),
+        }),
+      });
+      mockLimitSelect([
+        {
+          id: 9,
+          userId: 42,
+          kind: 'language_unlock',
+          status: 'paid',
+          tier: null,
+          amountCents: 4900,
+        },
+      ]);
+      dbMock.transaction.mockRejectedValueOnce(new Error('DB write failure'));
+      dbMock.update.mockReturnValueOnce({
+        set: jest.fn().mockReturnValue({ where: jest.fn().mockResolvedValue(undefined) }),
+      });
+
+      await expect(service.handleWebhook(Buffer.from('{}'), 'sig')).rejects.toThrow(
+        'DB write failure',
+      );
+      expect(auditLogs.logEvent).not.toHaveBeenCalled();
+      expect(auditLogs.logUpdate).not.toHaveBeenCalled();
     });
   });
 });

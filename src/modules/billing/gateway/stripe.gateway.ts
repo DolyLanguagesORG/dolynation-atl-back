@@ -4,7 +4,7 @@ import { AppHttpException } from '../../../common/errors/app-http.exception';
 import { ErrorCode } from '../../../common/errors/error-codes';
 import { AppConfigService } from '../../../config/env.config';
 import { ErrorLogService } from '../../logs';
-import { isActiveSubscriptionStatus } from '../billing.constants';
+import { DEFAULT_INVOICES_LIMIT, isActiveSubscriptionStatus } from '../billing.constants';
 import type {
   AttachDefaultPaymentMethodInput,
   CreateCheckoutSessionInput,
@@ -288,7 +288,8 @@ export class StripeGateway implements PaymentGateway {
           items: [{ id: primaryItemId, price: input.newPriceId }],
           proration_behavior: 'create_prorations',
           payment_behavior: 'pending_if_incomplete',
-          cancel_at_period_end: false,
+          // M-6: no sobrescribimos `cancel_at_period_end` al cambiar de plan; reactivar
+          // una cancelación programada exige invocar explícitamente `POST /billing/subscription/resume`.
           ...(input.metadata ? { metadata: input.metadata } : {}),
           expand: ['default_payment_method'],
         },
@@ -381,12 +382,17 @@ export class StripeGateway implements PaymentGateway {
   }
 
   /** Lista facturas con los pagos expandidos para poder asociarlas a cobros y reembolsos. */
-  async listInvoices(input: { customerId: string; limit?: number }): Promise<GatewayInvoice[]> {
+  async listInvoices(input: {
+    customerId: string;
+    limit?: number;
+    startingAfter?: string;
+  }): Promise<GatewayInvoice[]> {
     const stripe = this.getClient();
     const list = await this.runStripe('invoices.list', () =>
       stripe.invoices.list({
         customer: input.customerId,
-        limit: input.limit ?? 24,
+        limit: input.limit ?? DEFAULT_INVOICES_LIMIT,
+        ...(input.startingAfter ? { starting_after: input.startingAfter } : {}),
         // Sin esto la factura no trae el PaymentIntent, y un reembolso no se
         // puede emparejar con el pago registrado.
         expand: ['data.payments.data.payment'],
