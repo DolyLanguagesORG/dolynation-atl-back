@@ -20,6 +20,7 @@ import {
   ApiGatewayTimeoutResponse,
   ApiNotFoundResponse,
   ApiOperation,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiTooManyRequestsResponse,
   ApiUnauthorizedResponse,
@@ -220,17 +221,41 @@ export class ReadingsController {
     description: 'Autenticación faltante o inválida',
     type: ApiErrorDto,
   })
+  @ApiTooManyRequestsResponse({
+    description: 'Límite de peticiones o cuota de IA alcanzado',
+    type: ApiErrorDto,
+  })
+  @ApiServiceUnavailableResponse({
+    description: 'El proveedor de IA no está disponible temporalmente',
+    type: ApiErrorDto,
+  })
+  @ApiGatewayTimeoutResponse({
+    description: 'La evaluación se canceló o superó el tiempo límite (AI_GENERATION_TIMEOUT)',
+    type: ApiErrorDto,
+  })
   async evaluate(
     @CurrentUser() current: AuthUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: EvaluateReadingDto,
+    @Res({ passthrough: true }) res: Response,
     @Headers('idempotency-key') operationId?: string,
   ): Promise<ApiResponse<EvaluationResultDto>> {
-    const result = await this.readings.evaluate(id, current.id, dto, undefined, operationId);
-    return apiOk<EvaluationResultDto>(
-      'Evaluation complete',
-      result as unknown as EvaluationResultDto,
-    );
+    const cancellation = createRequestCancellation(res, READING_GENERATION_DEADLINE_MS);
+    try {
+      const result = await this.readings.evaluate(
+        id,
+        current.id,
+        dto,
+        { signal: cancellation.signal },
+        operationId,
+      );
+      return apiOk<EvaluationResultDto>(
+        'Evaluation complete',
+        result as unknown as EvaluationResultDto,
+      );
+    } finally {
+      cancellation.dispose();
+    }
   }
 
   /**
@@ -262,6 +287,14 @@ export class ReadingsController {
   @ApiNotFoundResponse({ description: 'Reading not found', type: ApiErrorDto })
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid authentication',
+    type: ApiErrorDto,
+  })
+  @ApiTooManyRequestsResponse({
+    description: 'Question quota or AI provider rate limit reached',
+    type: ApiErrorDto,
+  })
+  @ApiServiceUnavailableResponse({
+    description: 'AI provider temporarily unavailable',
     type: ApiErrorDto,
   })
   async explain(

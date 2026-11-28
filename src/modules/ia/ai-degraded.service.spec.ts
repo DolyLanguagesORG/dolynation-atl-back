@@ -148,5 +148,25 @@ describe('AiDegradedService', () => {
       ).rejects.toMatchObject({ status: 503 });
       expect(factory.getFullResponse).toHaveBeenCalledTimes(3);
     });
+
+    it('relanza sin reintentar ni abrir el circuito cuando aborta la señal externa', async () => {
+      for (let i = 0; i < 5; i += 1) {
+        const localController = new AbortController();
+        factory.getFullResponse.mockImplementationOnce(() => {
+          localController.abort(new Error('client-disconnected'));
+          return Promise.reject(new Error('aborted'));
+        });
+        await expect(
+          service.getFullResponse([{ role: 'user', content: 'hi' }], {
+            retries: 3,
+            circuitFailureThreshold: 2,
+            aiOptions: { signal: localController.signal },
+          }),
+        ).rejects.toThrow('aborted');
+      }
+
+      expect(factory.getFullResponse).toHaveBeenCalledTimes(5);
+      expect(service.isDegraded({ circuitFailureThreshold: 2 })).toBe(false);
+    });
   });
 });

@@ -3,8 +3,15 @@ import { AppHttpException } from '../../common/errors/app-http.exception';
 import { ErrorCode } from '../../common/errors/error-codes';
 import { AIProviderFactory } from '../ia/providers/ai-provider.factory';
 import type { AIRequestOptions, ProviderName } from '../ia/providers/ai-provider.interface';
+import { isRateLimited } from '../ia/ai-degraded.service';
 import { GoogleDecisionsService } from '../ia/decisions/google-decisions.service';
-import { LANGUAGE_NAMES, PromptBuilderService, pickExplorationLens } from './prompt-generation';
+import {
+  buildEvaluationPrompt,
+  LANGUAGE_NAMES,
+  PromptBuilderService,
+  pickExplorationLens,
+} from './prompt-generation';
+import { buildUntrustedDataSystemRule, wrapUntrustedData } from './prompt-injection.guard';
 import type {
   DifficultyLevel,
   GeneratedPrompt,
@@ -52,6 +59,7 @@ import type { ExplanationResultDto, GlossaryEntryDto } from '../../common/types/
 import {
   GenerateReadingDto,
   MAX_SUMMARY_WORDS,
+  MIN_SUMMARY_LENGTH,
   READING_CEFR_LEVELS,
   READING_DIFFICULTIES,
   type EvaluateReadingDto,
@@ -87,13 +95,22 @@ const SEMANTIC_SIMILARITY_REJECT_SCORE = 2.35;
  * Cuando el error ya es una `AppHttpException` (el proveedor de IA la lanza
  * con su motivo), se respeta tal cual: no se envuelve en otra.
  */
-function toAiException(err: unknown): AppHttpException {
+function toAiException(err: unknown, signal?: AbortSignal): AppHttpException {
+  if (signal?.aborted) {
+    return new AppHttpException(ErrorCode.AI_GENERATION_TIMEOUT);
+  }
   if (err instanceof AppHttpException) {
     const response = err.getResponse() as {
       code?: ErrorCode;
+      details?: Record<string, unknown>;
     };
     const code = response.code ?? ErrorCode.SERVICE_UNAVAILABLE;
-    return new AppHttpException(code);
+    return response.details
+      ? new AppHttpException(code, response.details)
+      : new AppHttpException(code);
+  }
+  if (isRateLimited(err)) {
+    return new AppHttpException(ErrorCode.AI_RATE_LIMITED, { reason: 'ai-rate-limited' });
   }
   return new AppHttpException(ErrorCode.SERVICE_UNAVAILABLE);
 }
@@ -542,7 +559,16 @@ export class ReadingsService {
       throw new AppHttpException(ErrorCode.READING_ALREADY_EVALUATED, { readingId: id });
     }
 
-    const wordCount = dto.userResponse.trim().split(/\s+/).filter(Boolean).length;
+    const trimmedSummary = dto.userResponse.trim();
+    if (trimmedSummary.length < MIN_SUMMARY_LENGTH) {
+      throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
+        field: 'userResponse',
+        minLength: MIN_SUMMARY_LENGTH,
+        message: `Summary must contain at least ${MIN_SUMMARY_LENGTH} non-whitespace characters.`,
+      });
+    }
+
+    const wordCount = trimmedSummary.split(/\s+/).filter(Boolean).length;
     if (wordCount > MAX_SUMMARY_WORDS) {
       throw new AppHttpException(ErrorCode.VALIDATION_ERROR, {
         field: 'userResponse',
@@ -551,30 +577,26 @@ export class ReadingsService {
       });
     }
 
+    if (aiOptions?.signal?.aborted) {
+      throw new AppHttpException(ErrorCode.AI_GENERATION_TIMEOUT);
+    }
+
     const rawLang = reading.language as string | undefined;
     const readingLanguage = (rawLang ?? 'en').toLowerCase();
-    const langLabel = LANGUAGE_NAMES[readingLanguage] ?? 'English';
-    const systemPrompt = `You are a ${langLabel} reading comprehension evaluator for language learners.
-Your task is to evaluate if the user correctly understood the main idea and key supporting details of a ${langLabel} text.
-You must respond ONLY with a JSON object in this exact format: {"score": <number>, "passed": <boolean>, "feedback": "<string>"}
-- "score" is a number from 0 to 100 representing how well the user understood the text
-- "passed" is true if score >= 80, false otherwise
-- "feedback" is a brief (1-2 sentences) constructive explanation written strictly in natural ${langLabel} (100% pure natural ${langLabel}: zero English words, zero bilingual camelCase splices, zero non-Latin scripts; use single quotes or «guillemets» instead of ASCII double quotes inside JSON strings)
-Do not include any other text, explanation, or formatting. Only the JSON object.`;
-
-    const userPrompt = `Here is the original text the user read:
-"""
-Title: ${reading.title}
-
-${reading.content}
-"""
-
-Here is the user's summary of the text:
-"""
-${dto.userResponse}
-"""
-
-Evaluate how well the user understood the main idea of the text.`;
+    const { systemPrompt, userPrompt } =
+      typeof this.promptGen.buildEvaluationPrompt === 'function'
+        ? this.promptGen.buildEvaluationPrompt({
+            readingTitle: reading.title,
+            readingContent: reading.content,
+            userResponse: trimmedSummary,
+            language: readingLanguage,
+          })
+        : buildEvaluationPrompt({
+            readingTitle: reading.title,
+            readingContent: reading.content,
+            userResponse: trimmedSummary,
+            language: readingLanguage,
+          });
 
     const result = await this.executeWithPurityGuard({
       systemPrompt,
@@ -583,7 +605,22 @@ Evaluate how well the user understood the main idea of the text.`;
       ...(aiOptions !== undefined ? { aiOptions } : {}),
       parse: (raw) => this.parser.parseEvaluation(raw),
       extractTexts: (item) => [item.feedback],
+      onPrimaryError: (err) => {
+        throw toAiException(err, aiOptions?.signal);
+      },
+      onParseError: async (err) => {
+        await this.promptLogs.logPromptError(
+          'reading_evaluation_failed',
+          userId,
+          (err as Error).message,
+          `eval:${id}`,
+        );
+        throw toAiException(err, aiOptions?.signal);
+      },
     });
+    if (aiOptions?.signal?.aborted) {
+      throw new AppHttpException(ErrorCode.AI_GENERATION_TIMEOUT);
+    }
     const [updated] = await this.db
       .update(readings)
       .set({
@@ -809,6 +846,18 @@ Evaluate how well the user understood the main idea of the text.`;
         ...item.otherWaysToSay.flatMap((alt) => [alt.register, alt.note]),
         ...item.otherContexts.flatMap((ctx) => [ctx.contextLabel, ctx.explanation, ctx.example]),
       ],
+      onPrimaryError: (err) => {
+        throw toAiException(err, aiOptions?.signal);
+      },
+      onParseError: async (err) => {
+        await this.promptLogs.logPromptError(
+          'word_explanation_failed',
+          userId,
+          (err as Error).message,
+          normalizedWord,
+        );
+        throw toAiException(err, aiOptions?.signal);
+      },
     });
 
     // La IA tarda segundos: otras explicaciones en paralelo pudieron consumir la cuota mientras tanto.
@@ -1468,11 +1517,14 @@ function buildFallbackExplanationPrompt(
   context?: string,
 ): { systemPrompt: string; userPrompt: string } {
   const langLabel = LANGUAGE_NAMES[language.toLowerCase()] ?? 'English';
+  const securityRule = buildUntrustedDataSystemRule(['selected_text', 'surrounding_excerpt']);
   const systemPrompt = `You are a ${langLabel} vocabulary explainer for language learners (target level: ${difficulty}).
+${securityRule}
 Respond ONLY with a valid JSON object strictly in natural ${langLabel}.`;
-  const userPrompt = context
-    ? `Explain "${word}" in ${langLabel} within context: "${context}".`
-    : `Explain "${word}" in ${langLabel}.`;
+  const wrappedWord = wrapUntrustedData('selected_text', word);
+  const userPrompt = context?.trim()
+    ? `Explain the ${langLabel} term inside <selected_text> within <surrounding_excerpt>:\n${wrappedWord}\n${wrapUntrustedData('surrounding_excerpt', context.trim())}`
+    : `Explain the ${langLabel} term inside <selected_text>:\n${wrappedWord}`;
   return { systemPrompt, userPrompt };
 }
 

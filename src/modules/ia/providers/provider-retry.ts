@@ -96,6 +96,10 @@ export async function fetchWithRetry(params: FetchWithRetryParams): Promise<Resp
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= policy.attempts; attempt += 1) {
+    if (params.signal?.aborted) {
+      throw toAbortError(params.signal, `${params.providerLabel} request aborted`);
+    }
+
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       throw (
@@ -127,6 +131,9 @@ export async function fetchWithRetry(params: FetchWithRetryParams): Promise<Resp
       delayMs = computeBackoffDelayMs(attempt, policy);
     } catch (err) {
       const normalizedErr = err instanceof Error ? err : new Error(String(err));
+      if (params.signal?.aborted) {
+        throw toAbortError(params.signal, normalizedErr.message);
+      }
       if (attempt === policy.attempts) {
         throw normalizedErr;
       }
@@ -141,7 +148,7 @@ export async function fetchWithRetry(params: FetchWithRetryParams): Promise<Resp
     params.logger?.warn(
       `${params.providerLabel} transient failure (${reason}); retry ${attempt}/${policy.attempts - 1} in ${delayMs} ms`,
     );
-    await sleep(delayMs);
+    await sleep(delayMs, params.signal);
   }
 
   throw (
@@ -150,14 +157,42 @@ export async function fetchWithRetry(params: FetchWithRetryParams): Promise<Resp
   );
 }
 
+/** Extrae un `Error` coherente cuando una señal externa aborta la petición o la espera. */
+function toAbortError(signal: AbortSignal, fallbackMessage: string): Error {
+  const reason: unknown = signal.reason;
+  if (reason instanceof Error) {
+    return reason;
+  }
+  if (typeof reason === 'string' && reason.trim().length > 0) {
+    return new Error(reason);
+  }
+  return new Error(fallbackMessage);
+}
+
 /** Extrae un mensaje legible de cualquier error capturado. */
 function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Espera asincrona simple usada entre reintentos. */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
+/** Espera asíncrona simple usada entre reintentos, cancelable inmediatamente si se aborta `signal`. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    return new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+  }
+  if (signal.aborted) {
+    return Promise.reject(toAbortError(signal, 'Request aborted'));
+  }
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(toAbortError(signal, 'Request aborted'));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
   });
 }

@@ -88,9 +88,14 @@ export class AiDegradedService {
     }
 
     const aiOptions = buildAiRequestOptions(options);
+    const externalSignal = options?.aiOptions?.signal;
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= config.retries; attempt += 1) {
+      if (externalSignal?.aborted) {
+        throw toSignalAbortError(externalSignal);
+      }
+
       try {
         const result =
           aiOptions !== undefined
@@ -99,6 +104,10 @@ export class AiDegradedService {
         this.recordSuccess();
         return result;
       } catch (err) {
+        if (externalSignal?.aborted) {
+          throw err instanceof Error ? err : toSignalAbortError(externalSignal);
+        }
+
         lastError = err;
 
         // Cuota agotada: reintentar ahora no sirve (la cuota no se libera en
@@ -213,6 +222,14 @@ function buildAiRequestOptions(options?: DegradedCallOptions): AIRequestOptions 
 function describe(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
+}
+
+/** Convierte una señal abortada en `Error` legible sin contaminar el circuit breaker. */
+function toSignalAbortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason;
+  if (reason instanceof Error) return reason;
+  if (typeof reason === 'string' && reason.trim().length > 0) return new Error(reason);
+  return new Error('AI request aborted');
 }
 
 /**
