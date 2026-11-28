@@ -23,6 +23,8 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:staging": "node scripts/e2e-staging.mjs",
+    "test:load:smoke": "node scripts/load-smoke.mjs",
     "prepare": "husky",
     "verify": "npm run typecheck && npm run lint:check && npm run format:check && npm run test",
     "verify:fix": "npm run format && npm run lint && npm run typecheck && npm run test"
