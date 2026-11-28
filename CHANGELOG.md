@@ -11,6 +11,20 @@ un PR de release contra `develop` que sube la versión y escribe esta sección; 
 mergearlo se crean el tag anotado y la GitHub Release. Ver
 [`conventions/versioning.md`](https://github.com/DolyLanguagesORG/dolynation-ehecatl-docs/blob/develop/conventions/versioning.md).
 
+## [0.18.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.17.0...v0.18.0) (2026-11-28)
+
+
+### Features
+
+* **readings:** endurecer ia, auditoria de pagos, resiliencia y suites e2e y carga ([#207](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/207)) ([c0b4dc0](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/c0b4dc07b425c475369de8cb2fd7e001b415bac3))
+* **settings:** validar categorias en vivo y limitar resumen de lectura a 500 palabras ([#205](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/205)) ([0dce383](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/0dce383a75cf425cbe487d421e92a129670bf960))
+
+
+### Bug Fixes
+
+* **e2e:** evitar borrar categorias compartidas en teardown paralelo ([#209](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/209)) ([54d39d2](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/54d39d23febbc0fa148194bccc1020163f989574))
+* **security:** actualizar dependencias criticas, chmod 600 y release draft ([#208](https://github.com/DolyLanguagesORG/dolynation-atl-back/issues/208)) ([cafc3e9](https://github.com/DolyLanguagesORG/dolynation-atl-back/commit/cafc3e9dc154cbbb95326f3b7273550f14cd0865))
+
 ## [0.17.0](https://github.com/DolyLanguagesORG/dolynation-atl-back/compare/v0.16.1...v0.17.0) (2026-11-25)
 
 
