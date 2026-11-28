@@ -264,7 +264,7 @@ jobs:
             -p "${{ secrets.DEPLOY_PORT }}" \
             -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
             "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}" \
-            "umask 077 && base64 -d > '${{ secrets.ORG_PATH }}/dolynation-atl-back/.env'"
+            "umask 077 && base64 -d > '${{ secrets.ORG_PATH }}/dolynation-atl-back/.env' && chmod 600 '${{ secrets.ORG_PATH }}/dolynation-atl-back/.env'"
 
       - name: Desplegar (pull + restart + healthcheck)
         run: |
