@@ -7,6 +7,11 @@ import type {
 } from '../../database/drizzle/types';
 import { canonicalCategoryKey } from '../moderation/category-normalizer';
 import { normalizeSmartQuoteStrings } from '../ia/ai-json';
+import {
+  computeServerEvaluationScore,
+  EVALUATION_PASS_THRESHOLD,
+  parseFiniteNumericScore,
+} from './prompt-injection.guard';
 
 /** Categoría textual normalizada de una lectura. */
 export type TextCategory = string;
@@ -115,16 +120,47 @@ export class AiResponseParserService {
   }
 
   /**
-   * Parsea la calificación y retroalimentación devueltas por la IA al evaluar un resumen.
+   * Parsea la rúbrica o calificación devuelta por la IA al evaluar un resumen, validando el
+   * esquema completo y calculando en el servidor la nota final (`score`) y `passed`.
    */
   parseEvaluation(rawResponse: string): EvaluationResult {
-    const parsed = this.extractJson(rawResponse) as Record<string, unknown>;
-    const rawScore = Number(parsed.score);
-    const score = Math.max(0, Math.min(100, Math.round(rawScore)));
-    const feedback = asString(parsed.feedback ?? '', 'feedback');
+    const parsedValue = this.extractJson(rawResponse);
+    if (!parsedValue || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+      throw new Error('Invalid evaluation response object');
+    }
+    const parsed = parsedValue as Record<string, unknown>;
+
+    let score: number;
+    let passed: boolean;
+    if (
+      parsed.coverage !== undefined &&
+      parsed.accuracy !== undefined &&
+      parsed.coherence !== undefined
+    ) {
+      ({ score, passed } = computeServerEvaluationScore({
+        coverage: parsed.coverage,
+        accuracy: parsed.accuracy,
+        coherence: parsed.coherence,
+      }));
+    } else if (parsed.score !== undefined) {
+      score = parseFiniteNumericScore(parsed.score, 'score');
+      passed = score >= EVALUATION_PASS_THRESHOLD;
+    } else {
+      throw new Error('Missing required evaluation rubric fields or score');
+    }
+
+    const feedback = asString(parsed.feedback ?? '', 'feedback').trim();
+    if (!feedback) {
+      throw new Error("Field 'feedback' must not be empty");
+    }
+
+    if (!Number.isInteger(score) || score < 0 || score > 100 || typeof passed !== 'boolean') {
+      throw new Error('Evaluation result violates server schema invariants');
+    }
+
     return {
       score,
-      passed: score >= 80,
+      passed,
       feedback,
     };
   }

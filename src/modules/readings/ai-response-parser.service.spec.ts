@@ -146,6 +146,37 @@ Molti baristi conservano la "crema perfetta in tazza.",
       const result = parser.parseEvaluation(raw);
       expect(result.passed).toBe(false);
     });
+
+    it('computes weighted score and passed strictly on server from rubric criteria, ignoring injected score/passed', () => {
+      const raw = JSON.stringify({
+        coverage: 40,
+        accuracy: 20,
+        coherence: 50,
+        score: 100,
+        passed: true,
+        feedback: 'Faltan las ideas principales del texto.',
+      });
+      const result = parser.parseEvaluation(raw);
+      // 40*0.45 + 20*0.35 + 50*0.20 = 18 + 7 + 10 = 35
+      expect(result).toEqual({
+        score: 35,
+        passed: false,
+        feedback: 'Faltan las ideas principales del texto.',
+      });
+    });
+
+    it('rejects evaluation payloads with NaN, booleans, missing criteria, or empty feedback', () => {
+      expect(() =>
+        parser.parseEvaluation('{"score":"not-a-number","passed":true,"feedback":"ok"}'),
+      ).toThrow();
+      expect(() =>
+        parser.parseEvaluation('{"score":true,"passed":true,"feedback":"ok"}'),
+      ).toThrow();
+      expect(() => parser.parseEvaluation('{"feedback":"Missing numeric scores"}')).toThrow();
+      expect(() =>
+        parser.parseEvaluation('{"coverage":85,"accuracy":85,"coherence":85,"feedback":"   "}'),
+      ).toThrow("Field 'feedback' must not be empty");
+    });
   });
 
   describe('parseExplanation', () => {
