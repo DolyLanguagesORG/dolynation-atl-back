@@ -185,4 +185,57 @@ describe('providerRetry', () => {
     expect(DEFAULT_PROVIDER_RETRY_POLICY.attempts).toBe(3);
     expect(DEFAULT_PROVIDER_RETRY_POLICY.baseDelayMs).toBe(1_000);
   });
+
+  it('aborta de inmediato sin reintentar cuando la señal externa cancela durante la petición', async () => {
+    const controller = new AbortController();
+    const fetchMock = jest.fn().mockImplementationOnce(() => {
+      controller.abort(new Error('client-left'));
+      return Promise.reject(new DOMException('Aborted', 'AbortError'));
+    });
+    global.fetch = fetchMock;
+
+    await expect(
+      fetchWithRetry({
+        url: 'https://example.test/chat',
+        init: { method: 'POST' },
+        providerLabel: 'Google Gemini',
+        timeoutMs: 5_000,
+        policy: FAST_POLICY,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow('client-left');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancela la espera de backoff de inmediato si la señal se aborta entre reintentos', async () => {
+    const controller = new AbortController();
+    const fetchMock = jest.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      text: () => Promise.resolve('temporary overload'),
+    });
+    global.fetch = fetchMock;
+
+    const slowPolicy: ProviderRetryPolicy = {
+      attempts: 3,
+      baseDelayMs: 60_000,
+      maxDelayMs: 60_000,
+      jitterRatio: 0,
+    };
+
+    const pending = fetchWithRetry({
+      url: 'https://example.test/chat',
+      init: { method: 'POST' },
+      providerLabel: 'Google Gemini',
+      timeoutMs: 5_000,
+      policy: slowPolicy,
+      signal: controller.signal,
+    });
+
+    setTimeout(() => controller.abort(new Error('cancelled-while-waiting')), 15);
+    await expect(pending).rejects.toThrow('cancelled-while-waiting');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

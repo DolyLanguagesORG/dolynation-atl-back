@@ -116,6 +116,16 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
   };
 
   const extractCategoryFromPrompt = (userPrompt: string): string => {
+    const outputCategoryMatch = userPrompt.match(/JSON "category" MUST be "([^"]+)"/);
+    if (outputCategoryMatch?.[1]) {
+      return outputCategoryMatch[1].trim();
+    }
+    const taggedCategoryMatch = userPrompt.match(
+      /<topic_category>\s*([\s\S]*?)\s*<\/topic_category>/,
+    );
+    if (taggedCategoryMatch?.[1]) {
+      return taggedCategoryMatch[1].trim();
+    }
     const requestedMatch = userPrompt.match(/\((?:requested )?category:\s*"([^"]+)"\)/);
     if (requestedMatch?.[1]) {
       return requestedMatch[1];
@@ -1368,8 +1378,11 @@ describe('Subscription, Language Plans, Multi-Device & 4-Language Dynamic Flows 
     const lastDeep = recordedCalls.filter((c) => c.kind === 'deep').pop();
     expect(lastDeep?.systemPrompt).toContain('You are a French language coach');
     expect(lastDeep?.systemPrompt).toContain('target level: hard');
-    expect(lastDeep?.userPrompt).toBe(
-      `Deepen the explanation of "procédés" in the French reading "${reading.title}". Excerpt: "L'observation attentive des procédés.".`,
+    expect(lastDeep?.systemPrompt).toContain('SECURITY RULE (UNTRUSTED DATA):');
+    expect(lastDeep?.userPrompt).toContain(`<selected_text>\nprocédés\n</selected_text>`);
+    expect(lastDeep?.userPrompt).toContain(`<reading_title>\n${reading.title}\n</reading_title>`);
+    expect(lastDeep?.userPrompt).toContain(
+      `<surrounding_excerpt>\nL'observation attentive des procédés.\n</surrounding_excerpt>`,
     );
 
     // El cliente ya no puede mandar su propio prompt de sistema

@@ -22,6 +22,9 @@ import type { CefrLevel, DifficultyLevel, TextSize } from '../prompt-generation/
 /** Copia serializable de los idiomas aceptados por los DTOs de lectura. */
 const LANGUAGE_IDS = [...SUPPORTED_LANGUAGE_IDS];
 
+/** Mínimo de caracteres no vacíos exigido para el resumen enviado a evaluación. */
+export const MIN_SUMMARY_LENGTH = 20;
+
 /**
  * Tope del resumen que se envía a la IA para evaluar. Sin máximo, un solo envío de
  * ~100 KB se convertía en decenas de miles de tokens de proveedor.
@@ -101,7 +104,7 @@ export class GenerateReadingDto {
  */
 export class EvaluateReadingDto {
   @ApiProperty({
-    minLength: 20,
+    minLength: MIN_SUMMARY_LENGTH,
     maxLength: MAX_SUMMARY_LENGTH,
     description:
       'Resumen de la lectura escrito por el usuario. Debe tener entre 20 y 5000 caracteres y como máximo 500 palabras.',
@@ -109,7 +112,7 @@ export class EvaluateReadingDto {
       'The reading was about the Industrial Revolution and how steam engines changed manufacturing.',
   })
   @IsString()
-  @Length(20, MAX_SUMMARY_LENGTH)
+  @Length(MIN_SUMMARY_LENGTH, MAX_SUMMARY_LENGTH)
   userResponse!: string;
 }
 

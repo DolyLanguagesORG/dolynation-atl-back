@@ -1,6 +1,7 @@
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthUser } from '../../common/decorators/current-user.decorator';
+import { IP_RATE_LIMIT_KEY } from '../security/decorators/rate-limit-by-ip.decorator';
 import { BillingController } from './billing.controller';
 import type { BillingService } from './billing.service';
 
@@ -165,6 +166,15 @@ describe('BillingController', () => {
     });
     expect(billingMock.listInvoices).toHaveBeenCalledWith(42);
 
+    expect(await controller.listInvoices(user, { limit: 10, startingAfter: 'in_1' })).toEqual({
+      message: 'Billing invoices',
+      data: [],
+    });
+    expect(billingMock.listInvoices).toHaveBeenLastCalledWith(42, {
+      limit: 10,
+      startingAfter: 'in_1',
+    });
+
     billingMock.createPortalSession.mockResolvedValue({ url: 'https://billing.stripe.com/p/1' });
     expect(await controller.createPortal(user)).toEqual({
       message: 'Billing portal session created',
@@ -181,5 +191,15 @@ describe('BillingController', () => {
       data: { received: true, ignored: false },
     });
     expect(billingMock.handleWebhook).toHaveBeenCalledWith(rawBody, 't=1,v1=sig');
+
+    const webhookHandler = Object.getOwnPropertyDescriptor(
+      BillingController.prototype,
+      'handleWebhook',
+    )?.value as object;
+    expect(Reflect.getMetadata(IP_RATE_LIMIT_KEY, webhookHandler)).toEqual({
+      action: 'billing_webhook',
+      maxRequests: 120,
+      windowMs: 60_000,
+    });
   });
 });

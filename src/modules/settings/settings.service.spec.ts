@@ -528,5 +528,40 @@ describe('SettingsService', () => {
       // La fila ya existia, asi que no hace falta insertar.
       expect(db.insert).not.toHaveBeenCalled();
     });
+
+    it('emits audit log only on standalone calls and skips it inside caller transactions (B-6)', async () => {
+      const auditLogs = { logUpdate: jest.fn().mockResolvedValue(undefined) };
+      const auditedService = new SettingsService(
+        db as unknown as DrizzleDb,
+        moderation as unknown as CategoryModerationService,
+        subscriptions as unknown as SubscriptionsService,
+        undefined,
+        undefined,
+        auditLogs as never,
+      );
+
+      mockSettingsRow({
+        selectedLanguages: ['en'],
+        lastLanguageChangeAt: null,
+        languageChangeCredits: 0,
+      });
+
+      const txExecutor = {
+        select: db.select,
+        update: db.update,
+        insert: db.insert,
+      } as unknown as DrizzleDb;
+
+      await auditedService.grantLanguageChangeCredit(42, txExecutor);
+      expect(auditLogs.logUpdate).not.toHaveBeenCalled();
+
+      await auditedService.grantLanguageChangeCredit(42);
+      expect(auditLogs.logUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'settings.language_change_unlocked',
+          actorUserId: 42,
+        }),
+      );
+    });
   });
 });

@@ -1,11 +1,16 @@
 /** Reexportaciones públicas de constantes, tipos, utilidades y constructor de prompts. */
 export {
+  buildEvaluationPrompt,
   LANGUAGE_NAMES,
   LANGUAGE_PROMPT_TEMPLATES,
   PROMPT_TEMPLATE_VERSION,
   PromptBuilderService,
 } from './prompt-builder.service';
-export type { SupportedPromptLanguage } from './prompt-builder.service';
+export type {
+  EvaluationPromptParams,
+  ExplanationPromptParams,
+  SupportedPromptLanguage,
+} from './prompt-builder.service';
 export {
   CEFR_BY_DIFFICULTY,
   READING_DIFFICULTIES,
